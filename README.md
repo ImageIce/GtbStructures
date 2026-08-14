@@ -2,6 +2,8 @@
 
 GtbStructures (GTBS) is a client-side utility mod for Hypixel's Guess The Build. It adds configurable game overlays, multilingual theme tools, local match statistics, and quality-of-life commands across legacy Forge and current Fabric/Forge versions.
 
+You can download the mod through [releases](https://github.com/ImageIce/GtbStructures/releases) or by visiting the [Modrinth](https://modrinth.com/mod/gtbstructures) page.
+
 ## Features
 
 - Configurable custom scoreboards with player state, round points, places, Build Battle titles, and emblems.

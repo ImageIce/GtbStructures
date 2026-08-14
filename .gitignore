@@ -1,0 +1,35 @@
+# Gradle and generated build state
+.gradle/
+**/.gradle/
+build/
+**/build/
+$work/
+**/$work/
+out/
+**/out/
+
+# Development instances and runtime data
+run/
+**/run/
+logs/
+**/logs/
+crash-reports/
+**/crash-reports/
+*.log
+*.log.gz
+*.hprof
+
+# Private development checks and nonfunctional scratch material
+**/src/test/
+**/src/testFixtures/
+**/tests/
+**/misc/
+
+# Editor and operating-system state
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

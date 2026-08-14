@@ -1,0 +1,553 @@
+package com.gtbstructures.scoreboard;
+
+import com.gtbstructures.overlay.FabricHudElementBridge;
+import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.MappingResolver;
+import org.lwjgl.glfw.GLFW;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.Proxy;
+
+public final class PreviewEditorOverlayRenderer {
+    private static final Logger LOGGER = LoggerFactory.getLogger(PreviewEditorOverlayRenderer.class);
+    private static final String MINECRAFT_CLIENT = "net.minecraft.class_310";
+    private static final String TEXT = "net.minecraft.class_2561";
+    private static final String TEXT_RENDERER = "net.minecraft.class_327";
+    private static final String DRAW_CONTEXT = "net.minecraft.class_332";
+    private static final String WINDOW = "net.minecraft.class_1041";
+    private static final String BUTTON_WIDGET = "net.minecraft.class_4185";
+    private static final String DRAWABLE = "net.minecraft.class_4068";
+
+    private PreviewEditorOverlayRenderer() {
+    }
+
+    public static void registerBackdrop() {
+        if (FabricHudElementBridge.registerBeforeChat("preview_backdrop",
+                PreviewEditorOverlayRenderer::renderBackdrop)) {
+            return;
+        }
+        try {
+            Class<?> callbackClass = Class.forName(
+                    "net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback");
+            Object event = callbackClass.getField("EVENT").get(null);
+            Object callback = Proxy.newProxyInstance(
+                    PreviewEditorOverlayRenderer.class.getClassLoader(),
+                    new Class<?>[] {callbackClass},
+                    (proxy, method, args) -> {
+                        if (method.getName().equals("onHudRender") && args != null && args.length >= 1) {
+                            renderBackdrop(args[0]);
+                            return null;
+                        }
+                        if (method.getName().equals("toString")) return "GtbStructures preview backdrop";
+                        return null;
+                    });
+            Method register = event.getClass().getMethod("register", Object.class);
+            register.setAccessible(true);
+            register.invoke(event, callback);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.error("Unable to register GtbStructures Fabric preview backdrop", e);
+        }
+    }
+
+    public static void register() {
+        if (FabricHudElementBridge.registerLast("preview_editor",
+                PreviewEditorOverlayRenderer::renderEditor)) {
+            return;
+        }
+        try {
+            Class<?> callbackClass = Class.forName(
+                    "net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback");
+            Object event = callbackClass.getField("EVENT").get(null);
+            Object callback = Proxy.newProxyInstance(
+                    PreviewEditorOverlayRenderer.class.getClassLoader(),
+                    new Class<?>[] {callbackClass},
+                    (proxy, method, args) -> {
+                        if (method.getName().equals("onHudRender") && args != null && args.length >= 1) {
+                            renderEditor(args[0]);
+                            return null;
+                        }
+                        if (method.getName().equals("toString")) return "GtbStructures preview editor overlay";
+                        return null;
+                    });
+            Method register = event.getClass().getMethod("register", Object.class);
+            register.setAccessible(true);
+            register.invoke(event, callback);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.error("Unable to register GtbStructures Fabric preview editor overlay", e);
+        }
+    }
+
+    private static void renderBackdrop(Object graphics) {
+        if (!InterfacePreview.isActive()) return;
+        try {
+            Object client = minecraftClient();
+            Object font = fieldAny(client, "textRenderer", "font",
+                    minecraftFieldName(MINECRAFT_CLIENT, "field_1772", "Lnet/minecraft/class_327;"),
+                    "field_1772");
+            Object window = invokeAny(client, "getWindow",
+                    minecraftMethodName(MINECRAFT_CLIENT, "method_22683", "()Lnet/minecraft/class_1041;"),
+                    "method_22683");
+            if (graphics == null || font == null || window == null) return;
+            int scaledWidth = intAny(window, 0, "getScaledWidth", "getGuiScaledWidth",
+                    minecraftMethodName(WINDOW, "method_4486", "()I"), "method_4486");
+            int scaledHeight = intAny(window, 0, "getScaledHeight", "getGuiScaledHeight",
+                    minecraftMethodName(WINDOW, "method_4502", "()I"), "method_4502");
+            if (scaledWidth <= 0 || scaledHeight <= 0) return;
+            PreviewLayoutEditor.renderBackdrop(new FabricEditorRenderer(graphics, font),
+                    scaledWidth, scaledHeight);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Unable to render GtbStructures Fabric preview backdrop", e);
+        }
+    }
+
+    private static void renderEditor(Object graphics) {
+        if (!InterfacePreview.isActive()) return;
+        try {
+            Object client = minecraftClient();
+            Object font = fieldAny(client, "textRenderer", "font",
+                    minecraftFieldName(MINECRAFT_CLIENT, "field_1772", "Lnet/minecraft/class_327;"),
+                    "field_1772");
+            Object window = invokeAny(client, "getWindow",
+                    minecraftMethodName(MINECRAFT_CLIENT, "method_22683", "()Lnet/minecraft/class_1041;"),
+                    "method_22683");
+            if (graphics == null || font == null || window == null) return;
+            int scaledWidth = intAny(window, 0, "getScaledWidth", "getGuiScaledWidth",
+                    minecraftMethodName(WINDOW, "method_4486", "()I"), "method_4486");
+            int scaledHeight = intAny(window, 0, "getScaledHeight", "getGuiScaledHeight",
+                    minecraftMethodName(WINDOW, "method_4502", "()I"), "method_4502");
+            if (scaledWidth <= 0 || scaledHeight <= 0) return;
+            PreviewLayoutEditor.render(
+                    new FabricEditorRenderer(graphics, font),
+                    inputState(window, scaledWidth, scaledHeight),
+                    scaledWidth,
+                    scaledHeight);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Unable to render GtbStructures Fabric preview editor", e);
+        }
+    }
+
+    private static PreviewLayoutEditor.InputState inputState(Object window, int scaledWidth, int scaledHeight)
+            throws ReflectiveOperationException {
+        long handle = longAny(window, 0L, "handle", "getHandle",
+                minecraftMethodName(WINDOW, "method_4490", "()J"), "method_4490");
+        int screenWidth = intAny(window, scaledWidth,
+                "getScreenWidth", "getWidth",
+                minecraftMethodName(WINDOW, "method_4495", "()I"),
+                minecraftMethodName(WINDOW, "method_4489", "()I"),
+                minecraftMethodName(WINDOW, "method_4480", "()I"),
+                "method_4495", "method_4489", "method_4480");
+        int screenHeight = intAny(window, scaledHeight,
+                "getScreenHeight", "getHeight",
+                minecraftMethodName(WINDOW, "method_4494", "()I"),
+                minecraftMethodName(WINDOW, "method_4506", "()I"),
+                minecraftMethodName(WINDOW, "method_4507", "()I"),
+                "method_4494", "method_4506", "method_4507");
+        int mouseX = 0;
+        int mouseY = 0;
+        if (handle != 0L) {
+            int[] windowWidth = new int[1];
+            int[] windowHeight = new int[1];
+            GLFW.glfwGetWindowSize(handle, windowWidth, windowHeight);
+            if (windowWidth[0] > 0) screenWidth = windowWidth[0];
+            if (windowHeight[0] > 0) screenHeight = windowHeight[0];
+            double[] cursorX = new double[1];
+            double[] cursorY = new double[1];
+            GLFW.glfwGetCursorPos(handle, cursorX, cursorY);
+            mouseX = scale((int) Math.floor(cursorX[0]), Math.max(1, screenWidth), scaledWidth);
+            mouseY = scale((int) Math.floor(cursorY[0]), Math.max(1, screenHeight), scaledHeight);
+        }
+        boolean shiftDown = handle != 0L && (key(handle, GLFW.GLFW_KEY_LEFT_SHIFT)
+                || key(handle, GLFW.GLFW_KEY_RIGHT_SHIFT));
+        boolean controlDown = handle != 0L && (key(handle, GLFW.GLFW_KEY_LEFT_CONTROL)
+                || key(handle, GLFW.GLFW_KEY_RIGHT_CONTROL));
+        return new PreviewLayoutEditor.InputState(
+                mouseX,
+                mouseY,
+                handle != 0L && mouse(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT),
+                handle != 0L && mouse(handle, GLFW.GLFW_MOUSE_BUTTON_RIGHT),
+                handle != 0L && key(handle, GLFW.GLFW_KEY_ESCAPE),
+                shiftDown || controlDown,
+                handle != 0L && key(handle, GLFW.GLFW_KEY_LEFT),
+                handle != 0L && key(handle, GLFW.GLFW_KEY_RIGHT),
+                handle != 0L && key(handle, GLFW.GLFW_KEY_UP),
+                handle != 0L && key(handle, GLFW.GLFW_KEY_DOWN),
+                handle != 0L && key(handle, GLFW.GLFW_KEY_DELETE),
+                handle != 0L && key(handle, GLFW.GLFW_KEY_Z),
+                shiftDown,
+                controlDown,
+                PreviewScreenController.consumeScrollDelta());
+    }
+
+    private static int scale(int value, int sourceSize, int targetSize) {
+        return Math.max(0, Math.min(targetSize - 1, value * targetSize / Math.max(1, sourceSize)));
+    }
+
+    private static boolean mouse(long handle, int button) {
+        return GLFW.glfwGetMouseButton(handle, button) == GLFW.GLFW_PRESS;
+    }
+
+    private static boolean key(long handle, int key) {
+        return GLFW.glfwGetKey(handle, key) == GLFW.GLFW_PRESS;
+    }
+
+    private static Object minecraftClient() throws ReflectiveOperationException {
+        Object gameInstance = FabricLoader.getInstance().getGameInstance();
+        if (gameInstance != null) return gameInstance;
+        Class<?> clientClass = classAny("net.minecraft.client.MinecraftClient",
+                "net.minecraft.client.Minecraft", MINECRAFT_CLIENT);
+        Method method = methodAny(clientClass, "getInstance",
+                minecraftMethodName(MINECRAFT_CLIENT, "method_1551", "()Lnet/minecraft/class_310;"),
+                "method_1551");
+        return method.invoke(null);
+    }
+
+    private static Class<?> classAny(String... names) throws ClassNotFoundException {
+        ClassNotFoundException last = null;
+        for (String name : names) {
+            try {
+                return Class.forName(name);
+            } catch (ClassNotFoundException e) {
+                last = e;
+            }
+        }
+        for (String name : names) {
+            if (!name.startsWith("net.minecraft.class_")) continue;
+            String mapped = minecraftClassName(name);
+            if (mapped.equals(name)) continue;
+            try {
+                return Class.forName(mapped);
+            } catch (ClassNotFoundException e) {
+                last = e;
+            }
+        }
+        throw last == null ? new ClassNotFoundException() : last;
+    }
+
+    private static Object fieldAny(Object target, String... names) throws ReflectiveOperationException {
+        if (target == null) return null;
+        for (String name : names) {
+            try {
+                java.lang.reflect.Field field = target.getClass().getField(name);
+                return field.get(target);
+            } catch (NoSuchFieldException ignored) {
+                try {
+                    java.lang.reflect.Field field = target.getClass().getDeclaredField(name);
+                    field.setAccessible(true);
+                    return field.get(target);
+                } catch (NoSuchFieldException ignoredAgain) {
+                    // Try next field name.
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Object invokeAny(Object target, String... names) throws ReflectiveOperationException {
+        if (target == null) return null;
+        for (String name : names) {
+            try {
+                Method method = target.getClass().getMethod(name);
+                return method.invoke(target);
+            } catch (NoSuchMethodException ignored) {
+                // Try next method name.
+            }
+        }
+        return null;
+    }
+
+    private static Method methodAny(Class<?> type, String... names) throws NoSuchMethodException {
+        for (String name : names) {
+            try {
+                return type.getMethod(name);
+            } catch (NoSuchMethodException ignored) {
+                // Try next method name.
+            }
+        }
+        throw new NoSuchMethodException(type.getName());
+    }
+
+    private static int intAny(Object target, int fallback, String... names) throws ReflectiveOperationException {
+        Object value = invokeAny(target, names);
+        return value instanceof Number ? ((Number) value).intValue() : fallback;
+    }
+
+    private static long longAny(Object target, long fallback, String... names) throws ReflectiveOperationException {
+        Object value = invokeAny(target, names);
+        return value instanceof Number ? ((Number) value).longValue() : fallback;
+    }
+
+    private static Object invokeAnyArgs(Object target, String[] names, Object... args)
+            throws ReflectiveOperationException {
+        if (target == null) return null;
+        for (String name : names) {
+            for (Method method : target.getClass().getMethods()) {
+                if (!method.getName().equals(name) || method.getParameterCount() != args.length) continue;
+                try {
+                    return method.invoke(target, args);
+                } catch (IllegalArgumentException ignored) {
+                    // Signature with same arity but different types; try next.
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Object literalText(String text) throws ReflectiveOperationException {
+        Class<?> textClass = classAny("net.minecraft.text.Text",
+                "net.minecraft.network.chat.Component", TEXT);
+        Method method = textFactory(textClass, "literal",
+                minecraftMethodName(TEXT, "method_43470", "(Ljava/lang/String;)Lnet/minecraft/class_5250;"),
+                "method_43470");
+        if (method == null) method = anyTextFactory(textClass);
+        if (method == null) throw new NoSuchMethodException("Text literal factory");
+        method.setAccessible(true);
+        return method.invoke(null, text == null ? "" : text);
+    }
+
+    private static Method textFactory(Class<?> textClass, String... names) {
+        for (String name : names) {
+            for (Method method : textClass.getMethods()) {
+                if (!method.getName().equals(name)
+                        || method.getParameterCount() != 1
+                        || !Modifier.isStatic(method.getModifiers())
+                        || !method.getParameterTypes()[0].equals(String.class)
+                        || !textClass.isAssignableFrom(method.getReturnType())) {
+                    continue;
+                }
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private static Method anyTextFactory(Class<?> textClass) {
+        for (Method method : textClass.getMethods()) {
+            if (method.getParameterCount() == 1
+                    && Modifier.isStatic(method.getModifiers())
+                    && method.getParameterTypes()[0].equals(String.class)
+                    && textClass.isAssignableFrom(method.getReturnType())) {
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private static boolean renderButtonWidget(Object graphics, String text, int x, int y,
+                                              int width, int height, int mouseX, int mouseY)
+            throws ReflectiveOperationException {
+        Class<?> buttonClass = classAny("net.minecraft.client.gui.widget.ButtonWidget",
+                "net.minecraft.client.gui.components.Button",
+                BUTTON_WIDGET);
+        Object button = createButtonWidget(buttonClass, text, x, y, width, height);
+        if (button == null) return false;
+        String renderMethodName = minecraftMethodName(DRAWABLE, "method_25394",
+                "(Lnet/minecraft/class_332;IIF)V");
+        for (Method method : button.getClass().getMethods()) {
+            if (!(method.getName().equals("render")
+                    || method.getName().equals("extractRenderState")
+                    || method.getName().equals(renderMethodName)
+                    || method.getName().equals("method_25394"))
+                    && !(method.getReturnType().equals(Void.TYPE) && method.getParameterCount() == 4)) {
+                continue;
+            }
+            if (method.getParameterCount() != 4) {
+                continue;
+            }
+            Class<?>[] types = method.getParameterTypes();
+            if (!types[0].isInstance(graphics)
+                    || !intParameter(types[1])
+                    || !intParameter(types[2])
+                    || !floatParameter(types[3])) {
+                continue;
+            }
+            method.invoke(button, graphics, Integer.valueOf(mouseX), Integer.valueOf(mouseY), Float.valueOf(0F));
+            return true;
+        }
+        return false;
+    }
+
+    private static Object createButtonWidget(Class<?> buttonClass, String text,
+                                             int x, int y, int width, int height)
+            throws ReflectiveOperationException {
+        Object message = literalText(text);
+        for (Method builderMethod : buttonClass.getMethods()) {
+            if (!Modifier.isStatic(builderMethod.getModifiers())
+                    || builderMethod.getParameterCount() != 2
+                    || !builderMethod.getParameterTypes()[0].isInstance(message)
+                    || !builderMethod.getParameterTypes()[1].isInterface()) {
+                continue;
+            }
+            Class<?> pressAction = builderMethod.getParameterTypes()[1];
+            Object action = Proxy.newProxyInstance(
+                    PreviewEditorOverlayRenderer.class.getClassLoader(),
+                    new Class<?>[] {pressAction},
+                    (proxy, method, args) -> null);
+            Object builder = builderMethod.invoke(null, message, action);
+            if (builder == null) continue;
+            Object sized = applyButtonDimensions(builder, x, y, width, height);
+            Object button = buildButton(buttonClass, sized == null ? builder : sized);
+            if (button != null) return button;
+        }
+        return null;
+    }
+
+    private static Object applyButtonDimensions(Object builder, int x, int y, int width, int height)
+            throws ReflectiveOperationException {
+        for (Method method : builder.getClass().getMethods()) {
+            if (method.getParameterCount() != 4
+                    || !intParameter(method.getParameterTypes()[0])
+                    || !intParameter(method.getParameterTypes()[1])
+                    || !intParameter(method.getParameterTypes()[2])
+                    || !intParameter(method.getParameterTypes()[3])) {
+                continue;
+            }
+            Object result = method.invoke(builder, Integer.valueOf(x), Integer.valueOf(y),
+                    Integer.valueOf(width), Integer.valueOf(height));
+            if (result != null && builder.getClass().isInstance(result)) return result;
+        }
+        return builder;
+    }
+
+    private static Object buildButton(Class<?> buttonClass, Object builder) throws ReflectiveOperationException {
+        for (Method method : builder.getClass().getMethods()) {
+            if (method.getParameterCount() == 0 && buttonClass.isAssignableFrom(method.getReturnType())) {
+                return method.invoke(builder);
+            }
+        }
+        return null;
+    }
+
+    private static boolean intParameter(Class<?> type) {
+        return type.equals(Integer.TYPE) || type.equals(Integer.class);
+    }
+
+    private static boolean floatParameter(Class<?> type) {
+        return type.equals(Float.TYPE) || type.equals(Float.class);
+    }
+
+    private static String minecraftClassName(String intermediaryName) {
+        try {
+            MappingResolver resolver = FabricLoader.getInstance().getMappingResolver();
+            return resolver.mapClassName("intermediary", intermediaryName);
+        } catch (RuntimeException | LinkageError e) {
+            return intermediaryName;
+        }
+    }
+
+    private static String minecraftMethodName(String owner, String name, String descriptor) {
+        try {
+            MappingResolver resolver = FabricLoader.getInstance().getMappingResolver();
+            return resolver.mapMethodName("intermediary", owner, name, descriptor);
+        } catch (RuntimeException | LinkageError e) {
+            return name;
+        }
+    }
+
+    private static String minecraftFieldName(String owner, String name, String descriptor) {
+        try {
+            MappingResolver resolver = FabricLoader.getInstance().getMappingResolver();
+            return resolver.mapFieldName("intermediary", owner, name, descriptor);
+        } catch (RuntimeException | LinkageError e) {
+            return name;
+        }
+    }
+
+    private static final class FabricEditorRenderer implements PreviewLayoutEditor.EditorRenderer {
+        private final Object graphics;
+        private final Object font;
+
+        private FabricEditorRenderer(Object graphics, Object font) {
+            this.graphics = graphics;
+            this.font = font;
+        }
+
+        @Override
+        public int fontHeight() {
+            try {
+                Object value = fieldAny(font, "fontHeight", "lineHeight",
+                        minecraftFieldName(TEXT_RENDERER, "field_2000", "I"), "field_2000");
+                return value instanceof Number ? ((Number) value).intValue() : 9;
+            } catch (ReflectiveOperationException e) {
+                return 9;
+            }
+        }
+
+        @Override
+        public int textWidth(String text) {
+            try {
+                Object value = invokeAnyArgs(font, new String[] {"getWidth", "width",
+                                minecraftMethodName(TEXT_RENDERER, "method_1727", "(Ljava/lang/String;)I"),
+                                "method_1727"},
+                        text == null ? "" : text);
+                return value instanceof Number ? ((Number) value).intValue() : 0;
+            } catch (ReflectiveOperationException e) {
+                return 0;
+            }
+        }
+
+        @Override
+        public void fill(int left, int top, int right, int bottom, int color) {
+            try {
+                invokeAnyArgs(graphics, new String[] {"fill",
+                                minecraftMethodName(DRAW_CONTEXT, "method_25294", "(IIIII)V"),
+                                "method_25294"},
+                        left, top, right, bottom, color);
+            } catch (ReflectiveOperationException e) {
+                LOGGER.warn("Unable to draw GtbStructures preview editor rectangle", e);
+            }
+        }
+
+        @Override
+        public void drawString(String text, int x, int y, int color, boolean shadow) {
+            try {
+                invokeAnyArgs(graphics, new String[] {"drawText", "drawString", "text",
+                                minecraftMethodName(DRAW_CONTEXT, "method_51433",
+                                        "(Lnet/minecraft/class_327;Ljava/lang/String;IIIZ)I"),
+                                "method_51433"},
+                        font, text == null ? "" : text, x, y, opaqueColor(color), Boolean.valueOf(shadow));
+            } catch (ReflectiveOperationException e) {
+                LOGGER.warn("Unable to draw GtbStructures preview editor text", e);
+            }
+        }
+
+        @Override
+        public void enableScissor(int left, int top, int right, int bottom) {
+            try {
+                invokeAnyArgs(graphics, new String[] {"enableScissor",
+                                minecraftMethodName(DRAW_CONTEXT, "method_44379", "(IIII)V"),
+                                "method_44379"},
+                        left, top, right, bottom);
+            } catch (ReflectiveOperationException e) {
+                LOGGER.warn("Unable to enable GtbStructures preview editor scissor", e);
+            }
+        }
+
+        @Override
+        public void disableScissor() {
+            try {
+                invokeAnyArgs(graphics, new String[] {"disableScissor",
+                        minecraftMethodName(DRAW_CONTEXT, "method_44380", "()V"),
+                        "method_44380"});
+            } catch (ReflectiveOperationException e) {
+                LOGGER.warn("Unable to disable GtbStructures preview editor scissor", e);
+            }
+        }
+
+        private static int opaqueColor(int color) {
+            return (color & 0xFF000000) == 0 ? 0xFF000000 | color : color;
+        }
+
+        @Override
+        public boolean drawVanillaButton(int x, int y, int width, int height,
+                                         String text, int mouseX, int mouseY) {
+            try {
+                return renderButtonWidget(graphics, text, x, y, width, height, mouseX, mouseY);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                return false;
+            }
+        }
+    }
+}

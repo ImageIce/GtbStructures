@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "com.gtbstructures.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ClassicBitmapGlyphMixin",
+    "ClientPlayerTeamPacketMixin",
+    "SpawnEggItemModelMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

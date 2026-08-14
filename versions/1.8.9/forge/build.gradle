@@ -1,0 +1,33 @@
+buildscript {
+    repositories {
+        jcenter()
+        mavenCentral()
+        maven { name = "forge"; url = "https://files.minecraftforge.net/maven" }
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:2.1-SNAPSHOT'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle.forge'
+
+version = "1.1"
+group = "com.example.gtbstructures"
+archivesBaseName = "GtbStructures"
+
+minecraft {
+    version = "1.8.9-11.15.1.2318-1.8.9"
+    runDir = "run"
+    mappings = "stable_20"
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
+}
+
+compileJava.options.encoding = 'UTF-8'
+
+jar {
+    from('../../../LICENSE') {
+        into 'META-INF'
+        rename { 'LICENSE_GtbStructures' }
+    }
+}

@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 3,
+  "currentHash": "7bc367af93c297f10cb0d677c3429cbf9926bab8db987ce5ef1a716f4d6093ba",
+  "currentValidFrom": 1785353927000,
+  "upstreamRepository": "https://github.com/zmh-program/gtb_platform",
+  "upstreamPath": "lib/source/translations-data.json",
+  "bundleKind": "GTBHIST3-sequential-delta",
+  "versions": [
+    {
+      "hash": "7fad5d408a94daa58cc342debac2bffeb8904f838fe65709175a2623962320be",
+      "validFrom": 0,
+      "validUntil": 1755039892000,
+      "sourceTimestamp": 1754654892000,
+      "sourceCommit": "8eb3258b1e56edae42f7d763baf45a90ae12db3b",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "8fb7b8e9c950480fa6d0f52761c3360cab341d5a8453c6e008d61d52ccba2914",
+      "validFrom": 1755039892000,
+      "validUntil": 1756906477000,
+      "sourceTimestamp": 1755039892000,
+      "sourceCommit": "e114a5a3b45d2f4cd2f46eff2a91a4dc709723ba",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "b4e5334a757806a99bc505f970bbe69f1a2484f2589d0325c98941eabaf9e54c",
+      "validFrom": 1756906477000,
+      "validUntil": 1757788992000,
+      "sourceTimestamp": 1756906477000,
+      "sourceCommit": "a721f14101a81f7ca03b254f81a549cadd9b4464",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "26a69668800485be92ea7f82bd416a21dfffe66c5ef8b17fe3e40ede0d920b5a",
+      "validFrom": 1757788992000,
+      "validUntil": 1758779864000,
+      "sourceTimestamp": 1757788992000,
+      "sourceCommit": "a046d6ec9e37d87039cbc827d5ee1f250e90737f",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "2c2ba58b0bc5b61b7672a7620c58f98cb28ff8ba57c465c8a98f5357c49a1fb8",
+      "validFrom": 1758779864000,
+      "validUntil": 1760499150000,
+      "sourceTimestamp": 1758779864000,
+      "sourceCommit": "7faa4b7aa2428644b93d56dd584b95a2b89bc717",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "b50b2a83546a1e73644700086299c368954e0a8e7d808d729e55fae3fe45600f",
+      "validFrom": 1760499150000,
+      "validUntil": 1760501652000,
+      "sourceTimestamp": 1760499150000,
+      "sourceCommit": "b737cb965431c9cca4a67e4b743d713f8de09301",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "d244a4b4de450f8ba644cb03e8ac49088c692bda08d3759e28a61398507b2f77",
+      "validFrom": 1760501652000,
+      "validUntil": 1762599185000,
+      "sourceTimestamp": 1760501652000,
+      "sourceCommit": "b1875b36c0e5108c4fa4d32d6322464ad4e1ce0a",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "19ed0e73fd82d9ea99c62c7f340acaeabf77ecd9410ee2026bec06cdbfe5b3fa",
+      "validFrom": 1762599185000,
+      "validUntil": 1763473252000,
+      "sourceTimestamp": 1762599185000,
+      "sourceCommit": "ed7dac023368a96a26dd25c7f6254b1a4002a567",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "5386f37f22b08f97f2690dd8a7eb2d2f392189a1c0d3ad2d518642a4b5b49f28",
+      "validFrom": 1763473252000,
+      "validUntil": 1766531713000,
+      "sourceTimestamp": 1763473252000,
+      "sourceCommit": "417121f42c165fe2b6b287c478a91660b4fb2379",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "784d600aa909ba435c169cd18671fd8e63b15a00d219d1714e7854fb313f713f",
+      "validFrom": 1766531713000,
+      "validUntil": 1767979069000,
+      "sourceTimestamp": 1766531713000,
+      "sourceCommit": "72fca64bc597d102a21698596ed0dc23e63c09be",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "a06a3b08aa56a0c8dce96021d35e84bea5a346a422d6112a2525c6999dbe2849",
+      "validFrom": 1767979069000,
+      "validUntil": 1768013045000,
+      "sourceTimestamp": 1767979069000,
+      "sourceCommit": "2cc97d940aa7d646003f0d3e71add96e75f576b6",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "53ccddedfb7329dc435aaf854039274ec0e6e23af5eafc5cb1e9a50946dce074",
+      "validFrom": 1768013045000,
+      "validUntil": 1768502492000,
+      "sourceTimestamp": 1768013045000,
+      "sourceCommit": "509969231112f9bc12ef0b0c6b4bc5768073acdc",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "a9c1b895bf37f7b05bab2f10126d7f0d63d7cd6633e088c760f3eb723c205f6d",
+      "validFrom": 1768502492000,
+      "validUntil": 1768917253000,
+      "sourceTimestamp": 1768502492000,
+      "sourceCommit": "925fdc584cdb241c34a9567f8f3a50e9970adba6",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "30f7219ddc0e7e4bb52c03102795edb121d3bb8c9f175d8a4767fdff517dd450",
+      "validFrom": 1768917253000,
+      "validUntil": 1768921817000,
+      "sourceTimestamp": 1768917253000,
+      "sourceCommit": "28d398b7faabb30c7feca0281c5c6d22cf2bfff9",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "e4b344801f91a1431b0a33b85b84ca4b13225fb4db18f46a7c48de4cbc005eed",
+      "validFrom": 1768921817000,
+      "validUntil": 1768992337000,
+      "sourceTimestamp": 1768921817000,
+      "sourceCommit": "3d18e463f504789e0b28545f638870a117a1993d",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "c821226a6bd02b2197d4ecb92f35f42c77e9b041332bbaab1a15f1ac0b1fc71d",
+      "validFrom": 1768992337000,
+      "validUntil": 1768998318000,
+      "sourceTimestamp": 1768992337000,
+      "sourceCommit": "257a53919340e795a5cd279f62d434276078c07a",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "e2a236a04a6016eba96cfc2f27a1f4b10abaa6d09766925587e6d8a96b21a2a1",
+      "validFrom": 1768998318000,
+      "validUntil": 1772133794000,
+      "sourceTimestamp": 1768998318000,
+      "sourceCommit": "d8dfdfe4abc841149b5f2d55a7b51c0c531054f1",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "e1efd2a63a23a29d0a3b4cc3ad8460679858b9202f1a5f97e20e5f33a541c731",
+      "validFrom": 1772133794000,
+      "validUntil": 1773544793000,
+      "sourceTimestamp": 1772133794000,
+      "sourceCommit": "319a562d447548872665a5714ebfb38a48f3a6be",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "60eb9a2ed5eebd6673a3abc3ebccb5a4dffa8ea501b321d0d78625de328ee8a0",
+      "validFrom": 1773544793000,
+      "validUntil": 1773548594000,
+      "sourceTimestamp": 1773544793000,
+      "sourceCommit": "ccc5b5ac69233f77ad036d5924636a502dc169f7",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "955e6b9c0efeff8df9e1adb099705fca1ed1b88b44a212945a70be83a64bb557",
+      "validFrom": 1773548594000,
+      "validUntil": 1773551958000,
+      "sourceTimestamp": 1773548594000,
+      "sourceCommit": "aa212630f4f3fef762baff3018e34c777de13e55",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "f1dc05b0a079d792f48e1913376038fb570c1d235f388dac5b273c5ab54de212",
+      "validFrom": 1773551958000,
+      "validUntil": 1774677190000,
+      "sourceTimestamp": 1773551958000,
+      "sourceCommit": "0ecd9a6c2696ba5ed70c55b3a236b1a49a3c5d9f",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "f4a6cb4ea83310727f1b8751db2a94d7a0554d6efef5be112546890d1af702c2",
+      "validFrom": 1774677190000,
+      "validUntil": 1776272896000,
+      "sourceTimestamp": 1774677190000,
+      "sourceCommit": "7e2dca1d755e800a0c1a480c9759ae7de527176a",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "20666b3052c231ae2f1f5f2e010d852a6612ee9ef7dabf2250ea146a5b38be19",
+      "validFrom": 1776272896000,
+      "validUntil": 1785353927000,
+      "sourceTimestamp": 1776272896000,
+      "sourceCommit": "a328b46815722d33d47a7cb71a5ad1b84ad6ad1a",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "7bc367af93c297f10cb0d677c3429cbf9926bab8db987ce5ef1a716f4d6093ba",
+      "validFrom": 1785353927000,
+      "validUntil": 0,
+      "sourceTimestamp": 1785353927000,
+      "sourceCommit": "2328e93bb876832507ca2895f2e8be73f552a31a",
+      "bundledSnapshot": true
+    }
+  ]
+}

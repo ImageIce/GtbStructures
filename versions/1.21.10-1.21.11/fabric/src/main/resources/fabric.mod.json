@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "gtbstructures",
+  "version": "${version}",
+  "name": "GtbStructures",
+  "icon": "assets/gtbstructures/icon.png",
+  "description": "Utility mod for the Hypixel minigame Guess The Build.",
+  "authors": [
+    "_iqcx"
+  ],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.gtbstructures.GtbStructuresFabric"
+    ]
+  },
+  "mixins": [
+    "gtbstructures.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${fabric_loader_version}",
+    "minecraft": "${minecraft_version_range}",
+    "fabric-command-api-v2": "*",
+    "fabric-lifecycle-events-v1": "*",
+    "fabric-item-group-api-v1": "*",
+    "fabric-message-api-v1": "*",
+    "fabric-rendering-v1": "*",
+    "fabric-screen-api-v1": "*"
+  }
+}

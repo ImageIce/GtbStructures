@@ -1,0 +1,121 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.16-SNAPSHOT'
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.mod_group_id
+
+base {
+    archivesName = project.mod_id
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.fabric_loader_version}"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+def spawnEggClassicSpecFile = layout.projectDirectory.file('src/main/spawn_egg_classic_models.csv')
+def spawnEggGeneratedResources = layout.buildDirectory.dir('generated/gtbsSpawnEggResources')
+tasks.register('generateSpawnEggItemModels') {
+    inputs.file spawnEggClassicSpecFile
+    outputs.dir spawnEggGeneratedResources
+
+    doLast {
+        def generatedRoot = spawnEggGeneratedResources.get().asFile
+        delete generatedRoot
+        def specs = spawnEggClassicSpecFile.asFile.readLines('UTF-8')
+                .findAll { line -> !line.trim().isEmpty() && !line.trim().startsWith('#') }
+                .collect { line ->
+                    def fields = line.split(',', -1)*.trim()
+                    if (fields.size() != 3 || !(fields[0] ==~ /[a-z0-9_]+/)
+                            || !(fields[1] ==~ /[0-9A-Fa-f]{6}/)
+                            || !(fields[2] ==~ /[0-9A-Fa-f]{6}/)) {
+                        throw new GradleException("Invalid spawn egg model row: ${line}")
+                    }
+                    [name: fields[0], base: fields[1], overlay: fields[2]]
+                }
+        if (specs.size() != 61 || specs*.name.toSet().size() != specs.size()) {
+            throw new GradleException("Expected 61 unique spawn egg model rows, got ${specs.size()}")
+        }
+
+        def modelFile = new File(generatedRoot,
+                'assets/gtbstructures/models/item/spawn_egg/classic.json')
+        modelFile.parentFile.mkdirs()
+        modelFile.text = new groovy.json.JsonBuilder([
+                parent: 'minecraft:item/generated',
+                textures: [
+                        layer0: 'gtbstructures:item/spawn_egg/classic/spawn_egg',
+                        layer1: 'gtbstructures:item/spawn_egg/classic/spawn_egg_overlay'
+                ]
+        ]).toPrettyString() + '\n'
+
+        specs.each { spec ->
+            int baseArgb = (int) (0xFF000000L | Integer.parseInt(spec.base, 16))
+            int overlayArgb = (int) (0xFF000000L | Integer.parseInt(spec.overlay, 16))
+            def itemFile = new File(generatedRoot,
+                    "assets/gtbstructures/items/spawn_egg/classic/${spec.name}.json")
+            itemFile.parentFile.mkdirs()
+            itemFile.text = new groovy.json.JsonBuilder([
+                    model: [
+                            type: 'minecraft:model',
+                            model: 'gtbstructures:item/spawn_egg/classic',
+                            tints: [
+                                    [type: 'minecraft:constant', value: baseArgb],
+                                    [type: 'minecraft:constant', value: overlayArgb]
+                            ]
+                    ]
+            ]).toPrettyString() + '\n'
+        }
+    }
+}
+
+sourceSets.main.resources.srcDir spawnEggGeneratedResources
+
+processResources {
+    dependsOn tasks.named('generateSpawnEggItemModels')
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version', project.minecraft_version
+    inputs.property 'minecraft_version_range', project.minecraft_version_range
+    inputs.property 'fabric_loader_version', project.fabric_loader_version
+
+    filesMatching('fabric.mod.json') {
+        expand(
+                version: project.version,
+                minecraft_version: project.minecraft_version,
+                minecraft_version_range: project.minecraft_version_range,
+                fabric_loader_version: project.fabric_loader_version
+        )
+    }
+}
+
+tasks.named('jar', Jar) {
+    archiveFileName = "${project.mod_id}-fabric-${project.minecraft_jar_version}-${project.mod_version.replaceFirst(/-modern\.\d+$/, '')}.jar"
+    from('../../../LICENSE') {
+        into 'META-INF'
+        rename { 'LICENSE_GtbStructures' }
+    }
+}
+
+tasks.named('sourcesJar', Jar) {
+    dependsOn tasks.named('generateSpawnEggItemModels')
+    archiveFileName = "${project.mod_id}-fabric-${project.minecraft_jar_version}-${project.mod_version.replaceFirst(/-modern\.\d+$/, '')}-sources.jar"
+    from('../../../LICENSE') {
+        into 'META-INF'
+        rename { 'LICENSE_GtbStructures' }
+    }
+}

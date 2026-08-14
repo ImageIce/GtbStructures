@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "gtbstructures:item/spawn_egg/classic/spawn_egg",
+    "layer1": "gtbstructures:item/spawn_egg/classic/spawn_egg_overlay"
+  }
+}

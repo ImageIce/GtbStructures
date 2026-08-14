@@ -1,0 +1,6 @@
+key.categories.gtbstructures.saved_hotbars=Saved Hotbars
+key.gtbstructures.save_toolbar_activator=Save Toolbar Activator
+key.gtbstructures.load_toolbar_activator=Load Toolbar Activator
+itemGroup.gtbstructures.saved_hotbars=Saved Hotbars
+inventory.hotbarSaved=Saved hotbar %s
+inventory.hotbarRestored=Loaded hotbar %s

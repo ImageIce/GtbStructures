@@ -1,0 +1,15 @@
+[{
+  "modid": "gtbstructures",
+  "name": "GtbStructures",
+  "description": "Utility mod for the Hypixel minigame Guess The Build.",
+  "version": "1.1.0",
+  "mcversion": "1.8.9",
+  "url": "",
+  "authorList": ["_iqcx"],
+  "credits": "Copyright (c) 2026 _iqcx. Licensed under the MIT License.",
+  "license": "MIT",
+  "logoFile": "assets/gtbstructures/icon.png",
+  "updateUrl": "",
+  "screenshots": [],
+  "dependencies": []
+}]

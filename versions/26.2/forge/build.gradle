@@ -1,0 +1,156 @@
+plugins {
+    id 'java'
+    id 'idea'
+    id 'eclipse'
+    id 'net.minecraftforge.gradle' version '[7.0.17,8)'
+}
+
+version = project.mod_version
+group = project.mod_group_id
+
+base {
+    archivesName = project.mod_id
+}
+
+def sharedProjectRoot = file('../../1.21.10-1.21.11/forge')
+def sharedMainJava = file("${sharedProjectRoot}/src/main/java")
+def sharedMainResources = file("${sharedProjectRoot}/src/main/resources")
+def targetMainJava = file('src/main/java')
+def targetWorkRoot = providers.gradleProperty('gtbsTargetWorkRoot').orNull
+def targetRunDirectory = file('run')
+
+if (targetWorkRoot != null && !targetWorkRoot.trim().isEmpty()) {
+    def externalWorkRoot = file(targetWorkRoot)
+    layout.buildDirectory.set(new File(externalWorkRoot, 'build'))
+    targetRunDirectory = new File(externalWorkRoot, 'run')
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(25)
+
+minecraft {
+    runs {
+        configureEach {
+            workingDir = targetRunDirectory
+            systemProperty 'eventbus.api.strictRuntimeChecks', 'true'
+        }
+
+        register('client')
+        register('server') {
+            args '--nogui'
+        }
+    }
+}
+
+repositories {
+    minecraft.mavenizer(it)
+    maven fg.forgeMaven
+    maven fg.minecraftLibsMaven
+    mavenCentral()
+}
+
+dependencies {
+    implementation minecraft.dependency("net.minecraftforge:forge:${project.minecraft_version}-${project.forge_version}")
+    annotationProcessor 'net.minecraftforge:eventbus-validator:7.0.1'
+}
+
+sourceSets {
+    main {
+        java.setSrcDirs([sharedMainJava])
+        java.exclude(
+                'com/gtbstructures/GtbStructuresForge.java',
+                'com/gtbstructures/items/HandheldItemOverlayRenderer.java',
+                'com/gtbstructures/overlay/ModernHudOverlayRenderer.java',
+                'com/gtbstructures/overlay/WorldEnvironmentOverlayRenderer.java',
+                'com/gtbstructures/scoreboard/CustomScoreboardOverlayRenderer.java',
+                'com/gtbstructures/scoreboard/PreviewEditorOverlayRenderer.java',
+                'com/gtbstructures/scoreboard/PreviewScreenController.java'
+        )
+        resources.setSrcDirs(['src/main/resources'])
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('compileJava', JavaCompile) {
+    source(fileTree(targetMainJava) {
+        include '**/*.java'
+    })
+}
+
+tasks.named('processResources', ProcessResources) {
+    def replaceProperties = [
+            minecraft_version: project.minecraft_version,
+            minecraft_version_range: project.minecraft_version_range,
+            forge_version: project.forge_version,
+            forge_version_range: project.forge_version_range,
+            loader_version_range: project.loader_version_range,
+            mod_id: project.mod_id,
+            mod_name: project.mod_name,
+            mod_license: project.mod_license,
+            mod_version: project.mod_version,
+            mod_authors: project.mod_authors,
+            mod_description: project.mod_description,
+    ]
+    inputs.properties replaceProperties
+
+    from(sharedMainResources) {
+        exclude 'META-INF/mods.toml'
+        exclude 'pack.mcmeta'
+        exclude 'gtbstructures-resource-pack.properties'
+    }
+    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
+        expand replaceProperties + [project: project]
+    }
+}
+
+tasks.named('jar', Jar) {
+    archiveFileName = "${project.mod_id}-forge-${project.minecraft_jar_version}-${project.mod_version}.jar"
+    from('../../../LICENSE') {
+        into 'META-INF'
+        rename { 'LICENSE_GtbStructures' }
+    }
+    manifest {
+        attributes([
+                'Specification-Title'   : project.mod_id,
+                'Specification-Vendor'  : project.mod_authors,
+                'Specification-Version' : '1',
+                'Implementation-Title'  : project.name,
+                'Implementation-Version': project.jar.archiveVersion,
+                'Implementation-Vendor' : project.mod_authors,
+                'MixinConfigs'          : 'gtbstructures.mixins.json'
+        ])
+    }
+}
+
+tasks.register('verifyCrossVersionIdentifierLinks') {
+    group = 'verification'
+    description = 'Rejects hard links to identifier names that vary across supported Minecraft releases.'
+    dependsOn tasks.named('jar')
+    inputs.file(tasks.named('jar').flatMap { it.archiveFile })
+
+    doLast {
+        def forbiddenTypes = [
+                'net/minecraft/resources/ResourceLocation',
+                'net/minecraft/resources/Identifier'
+        ]
+        def jarFile = tasks.named('jar').get().archiveFile.get().asFile
+        def offenders = []
+        zipTree(jarFile).matching { include '**/*.class' }.each { classFile ->
+            def classBytes = new String(classFile.bytes, java.nio.charset.StandardCharsets.ISO_8859_1)
+            forbiddenTypes.each { forbiddenType ->
+                if (classBytes.contains(forbiddenType)) {
+                    offenders << "${classFile.name}: ${forbiddenType}"
+                }
+            }
+        }
+        if (!offenders.isEmpty()) {
+            throw new GradleException('Cross-version Minecraft identifier links found:\n  '
+                    + offenders.sort().join('\n  '))
+        }
+    }
+}
+tasks.named('check') {
+    dependsOn tasks.named('verifyCrossVersionIdentifierLinks')
+}

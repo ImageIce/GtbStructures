@@ -459,6 +459,7 @@ public class GameStats {
     }
 
     public void onServerSessionReset() {
+        cancelPendingAutoRequeue("server session reset");
         lobbyLanguageFallback.resetForServerSession();
         pendingTabReturnConfirmations.clear();
         long now = System.currentTimeMillis();
@@ -491,6 +492,35 @@ public class GameStats {
         if (!enabled) requeueTime = 0L;
     }
 
+    public void onOutboundServerCommand(String command) {
+        if (requeueTime <= 0L || command == null) return;
+        String normalized = command.trim();
+        if (normalized.startsWith("/")) normalized = normalized.substring(1).trim();
+        int separator = normalized.indexOf(' ');
+        String root = (separator < 0 ? normalized : normalized.substring(0, separator))
+                .toLowerCase(Locale.ROOT);
+        if (isManualNavigationCommand(root)) {
+            cancelPendingAutoRequeue("outbound /" + root + " command");
+        }
+    }
+
+    private static boolean isManualNavigationCommand(String root) {
+        return "play".equals(root)
+                || "lobby".equals(root)
+                || "hub".equals(root)
+                || "leave".equals(root)
+                || "l".equals(root)
+                || "rejoin".equals(root)
+                || "rej".equals(root)
+                || "server".equals(root);
+    }
+
+    private void cancelPendingAutoRequeue(String reason) {
+        if (requeueTime <= 0L) return;
+        requeueTime = 0L;
+        LOGGER.info("Auto-requeue cancelled: " + reason);
+    }
+
     void scheduleAutoRequeue(long now, boolean completed, boolean hadFinalRankings) {
         requeueTime = 0L;
         if (completed && autoRequeue && hadFinalRankings) {
@@ -501,7 +531,10 @@ public class GameStats {
     boolean consumeAutoRequeueIfReady(long now, TrackingState scoreboardState) {
         if (requeueTime <= 0L || now < requeueTime) return false;
         requeueTime = 0L;
-        boolean shouldSend = autoRequeue && scoreboardState == TrackingState.POST_GAME;
+        boolean safeState = scoreboardState == TrackingState.POST_GAME
+                || scoreboardState == TrackingState.LOBBY
+                || scoreboardState == TrackingState.NOT_IN_GAME;
+        boolean shouldSend = autoRequeue && safeState;
         if (!shouldSend) {
             LOGGER.info("Auto-requeue skipped: enabled=" + autoRequeue
                     + " scoreboardState=" + scoreboardState);

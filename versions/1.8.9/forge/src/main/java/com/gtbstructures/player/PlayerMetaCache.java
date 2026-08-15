@@ -290,6 +290,8 @@ public final class PlayerMetaCache {
                 || rawFormattedLine.isEmpty()) return;
 
         String lowerIgn = ign.toLowerCase(Locale.ROOT);
+        harvestEmblemFromFormattedName(lowerIgn, rawFormattedLine);
+        harvestBbRankFromFormattedName(lowerIgn, rawFormattedLine);
         if (hasStrongRankColor(lowerIgn)
                 && harvestedRankLabels.containsKey(lowerIgn)) return;
 
@@ -327,6 +329,7 @@ public final class PlayerMetaCache {
                 || rawFormattedLine.isEmpty()) return;
 
         String lowerIgn = ign.toLowerCase(Locale.ROOT);
+        harvestEmblemFromFormattedName(lowerIgn, rawFormattedLine);
         harvestBbRankFromFormattedName(lowerIgn, rawFormattedLine);
         if (hasStrongRankColor(lowerIgn)
                 && harvestedRankLabels.containsKey(lowerIgn)) return;
@@ -976,6 +979,28 @@ public final class PlayerMetaCache {
         int rawNameAt = rawIndexForVisibleOffset(formatted, nameAt);
         if (rawNameAt <= 0) return;
         harvestBbRankTitle(lowerIgn, formatted.substring(0, rawNameAt).trim());
+    }
+
+    private void harvestEmblemFromFormattedName(String lowerIgn, String formatted) {
+        if (lowerIgn == null || formatted == null || formatted.isEmpty()) return;
+        if (harvestedEmblems.containsKey(lowerIgn)) return;
+        String clean = StringUtils.stripControlCodes(formatted);
+        if (clean == null || clean.isEmpty()) return;
+        int nameAt = clean.toLowerCase(Locale.ROOT).indexOf(lowerIgn.toLowerCase(Locale.ROOT));
+        if (nameAt <= 0) return;
+        int rawNameAt = rawIndexForVisibleOffset(formatted, nameAt);
+        if (rawNameAt <= 0) return;
+        for (int i = 0; i < rawNameAt; i++) {
+            char c = formatted.charAt(i);
+            if (c == '\u00a7' && i + 1 < rawNameAt) {
+                i++;
+                continue;
+            }
+            if (!isEmblemChar(c)) continue;
+            String color = lastColorBefore(formatted, i);
+            harvestedEmblems.put(lowerIgn, (color == null ? "\u00a7f" : color) + c);
+            return;
+        }
     }
 
     private void harvestBbRankTitle(String lowerIgn, String formattedTitle) {

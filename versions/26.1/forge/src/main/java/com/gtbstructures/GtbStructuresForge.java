@@ -192,6 +192,7 @@ public final class GtbStructuresForge {
     }
 
     private boolean onClientChat(ClientChatEvent event) {
+        GameStats.INSTANCE.onOutboundServerCommand(event.getMessage());
         boolean handled = dispatchLocalCommand(event.getMessage());
         if (!handled && GtbStructuresSettings.INSTANCE.modEnabled) {
             String outgoing = transformOutboundMessage(event.getMessage());
@@ -977,6 +978,7 @@ public final class GtbStructuresForge {
         @Override
         public void sendServerCommand(String command) {
             if (Minecraft.getInstance().getConnection() != null) {
+                GameStats.INSTANCE.onOutboundServerCommand(command);
                 RawPacketRecorder.INSTANCE.captureOutboundChat(withLeadingSlash(command));
                 Minecraft.getInstance().getConnection().sendCommand(withoutLeadingSlash(command));
             }

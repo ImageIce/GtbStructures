@@ -806,6 +806,10 @@ public class CommandGtb extends CommandBase {
             return;
         }
         boolean enabled = InterfacePreview.INSTANCE.toggle();
+        if (!GtbStructures.previewQuickstartRan) {
+            GtbStructures.previewQuickstartRan = true;
+            GtbStructures.saveConfig();
+        }
         if (enabled) {
             sender.addChatMessage(new ChatComponentText(head
                     + "Interface preview is currently \u00a7aON\u00a77. Click \u00a7fDone\u00a77 or press \u00a7fEsc\u00a77 to exit."));
@@ -2259,11 +2263,9 @@ public class CommandGtb extends CommandBase {
         for (String line : buildHelpMessages(args)) {
             sender.addChatMessage(new ChatComponentText(line));
         }
-        if (!GtbStructures.helpQuickstartSeen) {
+        if (!GtbStructures.previewQuickstartRan) {
             sender.addChatMessage(new ChatComponentText(head
-                    + "Quickstart: you can use \u00a7f/gtbs preview\u00a77 to configurate and preview most of the visual settings through GUI."));
-            GtbStructures.helpQuickstartSeen = true;
-            GtbStructures.saveConfig();
+                    + "Quickstart: use \u00a7f/gtbs preview\u00a77 to configure and preview most visual settings in the GUI."));
         }
     }
 

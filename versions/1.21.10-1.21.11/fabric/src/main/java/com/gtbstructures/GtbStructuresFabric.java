@@ -464,6 +464,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                     (proxy, method, args) -> {
                         if (method.getName().equals("allowSendCommandMessage") && args != null && args.length >= 1) {
                             String command = args[0] instanceof String ? (String) args[0] : null;
+                            GameStats.INSTANCE.onOutboundServerCommand(command);
                             boolean handled = dispatchLocalCommand(command);
                             return Boolean.valueOf(!handled);
                         }
@@ -2432,6 +2433,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                 if (player == null) return;
                 Object networkHandler = fieldAny(player, "networkHandler", "connection", "field_3944");
                 if (networkHandler == null) return;
+                GameStats.INSTANCE.onOutboundServerCommand(command);
                 String networkCommand = withoutLeadingSlash(command);
                 boolean sent = invokeStringAny(networkHandler, networkCommand,
                         "sendCommand", "sendChatCommand", "method_45730", "d")

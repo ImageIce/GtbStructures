@@ -173,7 +173,7 @@ public class GtbStructures {
      * starting language for new games so users who keep their client in a non-default
      * language don't get round 1 misclassified before any chat clue arrives. */
     public static String lastLangCode = "en";
-    public static boolean helpQuickstartSeen = true;
+    public static boolean previewQuickstartRan = false;
 
     /** Knob-bag for the custom GTB scoreboard panel. */
     public static final ScoreboardConfig sbConfig = new ScoreboardConfig();
@@ -336,7 +336,7 @@ public class GtbStructures {
             chatCooldownBarColor = normalizeMinecraftColorCode(config.getString("chatCooldownBarColor", Configuration.CATEGORY_GENERAL, "\u00a7e", "Minecraft color code for the chat cooldown progress bar"), "\u00a7e");
             chatCooldownTimerColor = normalizeMinecraftColorCode(config.getString("chatCooldownTimerColor", Configuration.CATEGORY_GENERAL, "\u00a7e", "Minecraft color code for the chat cooldown timer text"), "\u00a7e");
             lastLangCode = config.getString("lastLangCode", Configuration.CATEGORY_GENERAL, "en", "Last explicitly-selected GTB language code (e.g. en, pirate, ru). Used as the starting language for new games.");
-            helpQuickstartSeen = config.getBoolean("helpQuickstartSeen", Configuration.CATEGORY_GENERAL, true, "Whether the one-time /gtbs help GUI quickstart has been shown");
+            previewQuickstartRan = config.getBoolean("previewQuickstartRan", Configuration.CATEGORY_GENERAL, false, "Whether /gtbs preview has been successfully run at least once");
             if (shortcutReminderShowNonAscii && !hasShortcutNonAsciiCategoryEnabled()) {
                 shortcutReminderShowNonAscii = false;
                 config.get(Configuration.CATEGORY_GENERAL, "shortcutReminderShowNonAscii", false).set(false);
@@ -456,7 +456,7 @@ public class GtbStructures {
             config.get(Configuration.CATEGORY_GENERAL, "colorBrackets", colorBrackets).set(colorBrackets);
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownBarColor", "\u00a7e").set(normalizeMinecraftColorCode(chatCooldownBarColor, "\u00a7e"));
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownTimerColor", "\u00a7e").set(normalizeMinecraftColorCode(chatCooldownTimerColor, "\u00a7e"));
-            config.get(Configuration.CATEGORY_GENERAL, "helpQuickstartSeen", true).set(helpQuickstartSeen);
+            config.get(Configuration.CATEGORY_GENERAL, "previewQuickstartRan", false).set(previewQuickstartRan);
             config.get(Configuration.CATEGORY_GENERAL, "lastLangCode", lastLangCode).set(lastLangCode == null ? "en" : lastLangCode);
 
             config.get("scoreboard", "enabled", false).set(sbConfig.isCustomEnabled());

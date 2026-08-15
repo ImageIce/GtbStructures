@@ -62,7 +62,7 @@ public final class GtbStructuresSettings {
     public boolean environmentWeatherChatNotice = false;
     public boolean environmentBiomeChatNotice = false;
     public boolean environmentTimeChatNotice = false;
-    public boolean helpQuickstartSeen = true;
+    public boolean previewQuickstartRan = false;
     public boolean chatCooldownCounter = false;
     public boolean chatCooldownTimerEnabled = true;
     public boolean chatCooldownBarEnabled = false;
@@ -180,7 +180,7 @@ public final class GtbStructuresSettings {
         environmentWeatherChatNotice = bool(p, "environmentWeatherChatNotice", environmentWeatherChatNotice);
         environmentBiomeChatNotice = bool(p, "environmentBiomeChatNotice", environmentBiomeChatNotice);
         environmentTimeChatNotice = bool(p, "environmentTimeChatNotice", environmentTimeChatNotice);
-        helpQuickstartSeen = bool(p, "helpQuickstartSeen", helpQuickstartSeen);
+        previewQuickstartRan = bool(p, "previewQuickstartRan", previewQuickstartRan);
         chatCooldownCounter = bool(p, "chatCooldownCounter", chatCooldownCounter);
         chatCooldownTimerEnabled = bool(p, "chatCooldownTimerEnabled", chatCooldownTimerEnabled);
         chatCooldownBarEnabled = bool(p, "chatCooldownBarEnabled", chatCooldownBarEnabled);
@@ -296,7 +296,7 @@ public final class GtbStructuresSettings {
         put(p, "environmentWeatherChatNotice", environmentWeatherChatNotice);
         put(p, "environmentBiomeChatNotice", environmentBiomeChatNotice);
         put(p, "environmentTimeChatNotice", environmentTimeChatNotice);
-        put(p, "helpQuickstartSeen", helpQuickstartSeen);
+        put(p, "previewQuickstartRan", previewQuickstartRan);
         put(p, "chatCooldownCounter", chatCooldownCounter);
         put(p, "chatCooldownTimerEnabled", chatCooldownTimerEnabled);
         put(p, "chatCooldownBarEnabled", chatCooldownBarEnabled);
@@ -403,7 +403,7 @@ public final class GtbStructuresSettings {
         environmentWeatherChatNotice = false;
         environmentBiomeChatNotice = false;
         environmentTimeChatNotice = false;
-        helpQuickstartSeen = true;
+        previewQuickstartRan = false;
         chatCooldownCounter = false;
         chatCooldownTimerEnabled = true;
         chatCooldownBarEnabled = false;

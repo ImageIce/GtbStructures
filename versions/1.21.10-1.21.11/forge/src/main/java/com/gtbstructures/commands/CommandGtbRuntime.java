@@ -193,11 +193,9 @@ public final class CommandGtbRuntime {
         if ("help".equals(first)) {
             List<String> messages = new ArrayList<String>(
                     CommandGtb.buildHelpMessages(sliceFrom(args, 1)));
-            if (!SETTINGS.helpQuickstartSeen) {
-                SETTINGS.helpQuickstartSeen = true;
-                saveSettings();
-                messages.add(CommandGtb.head + "Quickstart: you can use \u00a7f/gtbs preview\u00a77"
-                        + " to configurate and preview most of the visual settings through GUI.");
+            if (!SETTINGS.previewQuickstartRan) {
+                messages.add(CommandGtb.head + "Quickstart: use \u00a7f/gtbs preview\u00a77"
+                        + " to configure and preview most visual settings in the GUI.");
             }
             return Result.messages(messages);
         }
@@ -321,6 +319,10 @@ public final class CommandGtbRuntime {
         if ("preview".equals(first)) {
             if (args.length != 1) return Result.messages(CommandGtb.head + "Usage: /gtbs preview");
             boolean enabled = InterfacePreview.INSTANCE.toggle();
+            if (!SETTINGS.previewQuickstartRan) {
+                SETTINGS.previewQuickstartRan = true;
+                saveSettings();
+            }
             return Result.messages(CommandGtb.head + (enabled
                     ? "Interface preview is currently \u00a7aON\u00a77. Click \u00a7fDone\u00a77 or press \u00a7fEsc\u00a77 to exit."
                     : "Interface preview is currently \u00a7cOFF"));

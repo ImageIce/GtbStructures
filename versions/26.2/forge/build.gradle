@@ -74,6 +74,9 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.named('compileJava', JavaCompile) {
+    // ForgeGradle 7 shares build/sourceSets/main between classes and resources.
+    // Compile last so a clean processResources run cannot erase the class files.
+    mustRunAfter(tasks.named('processResources'))
     source(fileTree(targetMainJava) {
         include '**/*.java'
     })

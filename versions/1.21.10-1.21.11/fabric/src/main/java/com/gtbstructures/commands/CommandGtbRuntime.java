@@ -254,6 +254,22 @@ public final class CommandGtbRuntime {
             saveSettings();
             return Result.messages(CommandGtb.head + "Auto-requeue is currently " + onOff(SETTINGS.autoRequeue));
         }
+        if ("updatenotice".equals(first)) {
+            if (args.length == 1) {
+                SETTINGS.updateNoticeEnabled = !SETTINGS.updateNoticeEnabled;
+            } else if (args.length == 2) {
+                Boolean enabled = parseToggleBoolean(args[1], SETTINGS.updateNoticeEnabled);
+                if (enabled == null) {
+                    return Result.messages(CommandGtb.head + "Usage: /gtbs updatenotice [on|off|toggle]");
+                }
+                SETTINGS.updateNoticeEnabled = enabled.booleanValue();
+            } else {
+                return Result.messages(CommandGtb.head + "Usage: /gtbs updatenotice [on|off|toggle]");
+            }
+            saveSettings();
+            return Result.messages(CommandGtb.head + "Update notice is currently "
+                    + onOff(SETTINGS.updateNoticeEnabled));
+        }
         if ("haveibuilt".equals(first)) {
             if (args.length != 1) return Result.messages(CommandGtb.head + "Usage: /gtbs haveibuilt");
             return Result.messages(CommandGtb.head + GameStats.INSTANCE.formatHaveIBuilt(services.localPlayerName()));

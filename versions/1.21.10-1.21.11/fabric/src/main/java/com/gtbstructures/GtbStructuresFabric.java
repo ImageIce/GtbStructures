@@ -27,6 +27,7 @@ import com.gtbstructures.stats.GameStats;
 import com.gtbstructures.stats.PlayerUuid;
 import com.gtbstructures.stats.StatsArchive;
 import com.gtbstructures.translation.TranslationData;
+import com.gtbstructures.update.UpdateChecker;
 import com.gtbstructures.util.MinecraftClientUiBridge;
 import com.gtbstructures.util.MinecraftFormatting;
 import com.gtbstructures.util.RuntimeReflectionCache;
@@ -43,6 +44,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -85,6 +87,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
     private static long pendingLobbyRejoinAtMs;
     private static boolean commandRefreshLogged;
     private static boolean fabricCommandCompletionsRefreshed;
+    private static boolean updateNoticeRemoteJoinObserved;
     private static boolean classicFontModeApplied;
     private static int classicFontRefreshTicks;
     private static Object lastThemeSelectionScreen;
@@ -230,6 +233,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                 new Class<?>[] {callbackClass},
                 (proxy, method, args) -> {
                     if (method.getName().equals(callbackMethod)) {
+                        if ("JOIN".equals(fieldName)) handleUpdateNoticeJoin(args);
                         handleClientConnectionBoundary(fieldName.toLowerCase(java.util.Locale.ROOT));
                         return null;
                     }
@@ -239,6 +243,40 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                     return null;
                 });
         registerEvent(event, callback);
+    }
+
+    private static void handleUpdateNoticeJoin(Object[] args) {
+        if (updateNoticeRemoteJoinObserved) return;
+        try {
+            Object client = args != null && args.length > 0
+                    ? args[args.length - 1] : FabricServices.minecraftClient();
+            Object integratedServer = invokeAnyOrNull(client, "getServer", "method_1576");
+            if (integratedServer != null) return;
+            Object singleplayer = invokeAnyOrNull(client,
+                    "isInSingleplayer", "method_1542",
+                    "isIntegratedServerRunning", "method_1496");
+            if (Boolean.TRUE.equals(singleplayer)) return;
+            updateNoticeRemoteJoinObserved = true;
+            if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
+            UpdateChecker.INSTANCE.checkOnceAsync(info -> executeOnFabricClient(client, () -> {
+                if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
+                sendUpdateNotice(info.version(), info.githubUrl(), info.modrinthUrl());
+            }));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Unable to start GtbStructures Fabric update check", e);
+        }
+    }
+
+    private static void executeOnFabricClient(Object client, Runnable action) {
+        try {
+            Method execute = RuntimeReflectionCache.findCompatibleMethod(
+                    client == null ? null : client.getClass(), false,
+                    new String[] {"execute", "method_18859"}, action);
+            if (execute == null) throw new NoSuchMethodException("MinecraftClient.execute(Runnable)");
+            execute.invoke(client, action);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Unable to schedule GtbStructures update notice on the client thread", e);
+        }
     }
 
     private static void handleClientConnectionBoundary(String reason) {
@@ -799,6 +837,19 @@ public final class GtbStructuresFabric implements ClientModInitializer {
         }
     }
 
+    private static Object createOpenUrlClickEvent(String url) {
+        try {
+            Class<?> clickClass = classAny("net.minecraft.text.ClickEvent",
+                    "net.minecraft.network.chat.ClickEvent", "net.minecraft.class_2558");
+            Object modern = constructNestedUriEvent(
+                    clickClass, URI.create(url), "OpenUrl", "class_10608");
+            if (modern != null) return modern;
+            return constructActionEvent(clickClass, url, "OPEN_URL", "open_url");
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
     private static Object constructNestedTextEvent(Class<?> owner, Object text, String... simpleNames)
             throws ReflectiveOperationException {
         for (Class<?> nested : owner.getDeclaredClasses()) {
@@ -820,6 +871,20 @@ public final class GtbStructuresFabric implements ClientModInitializer {
             for (java.lang.reflect.Constructor<?> constructor : nested.getDeclaredConstructors()) {
                 if (constructor.getParameterCount() != 1
                         || !constructor.getParameterTypes()[0].equals(String.class)) continue;
+                constructor.setAccessible(true);
+                return constructor.newInstance(value);
+            }
+        }
+        return null;
+    }
+
+    private static Object constructNestedUriEvent(Class<?> owner, URI value, String... simpleNames)
+            throws ReflectiveOperationException {
+        for (Class<?> nested : owner.getDeclaredClasses()) {
+            if (!matchesSimpleName(nested, simpleNames)) continue;
+            for (java.lang.reflect.Constructor<?> constructor : nested.getDeclaredConstructors()) {
+                if (constructor.getParameterCount() != 1
+                        || !constructor.getParameterTypes()[0].equals(URI.class)) continue;
                 constructor.setAccessible(true);
                 return constructor.newInstance(value);
             }
@@ -909,6 +974,53 @@ public final class GtbStructuresFabric implements ClientModInitializer {
             LOGGER.warn("Unable to display GtbStructures Fabric guess-peek chat", e);
         }
         return false;
+    }
+
+    private static void sendUpdateNotice(String version, String githubUrl, String modrinthUrl) {
+        try {
+            Object client = FabricServices.minecraftClient();
+            Object chatHud = MinecraftClientUiBridge.chatHud(client);
+            Object component = buildUpdateNotice(version, githubUrl, modrinthUrl);
+            if (chatHud == null || component == null || !invokeTextObjectAny(chatHud, component,
+                    "addMessage", "addClientSystemMessage", "method_1812")) {
+                throw new NoSuchMethodException("ChatHud.addMessage(Text)");
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Unable to display GtbStructures Fabric update notice", e);
+        }
+    }
+
+    private static Object buildUpdateNotice(String version, String githubUrl, String modrinthUrl)
+            throws ReflectiveOperationException {
+        Class<?> textClass = classAny("net.minecraft.text.Text",
+                "net.minecraft.network.chat.Component", "net.minecraft.class_2561");
+        Object root = legacyFormattedText(textClass, CommandGtb.head
+                + "New version available: \u00a7f" + version + "\u00a77. \u00a78[");
+        Object github = legacyFormattedText(textClass, "\u00a77GitHub");
+        Object modrinth = legacyFormattedText(textClass, "\u00a7aModrinth");
+        Object githubClick = createOpenUrlClickEvent(githubUrl);
+        Object modrinthClick = createOpenUrlClickEvent(modrinthUrl);
+        if (githubClick == null || modrinthClick == null
+                || !applyClickEventStyle(github, githubClick)
+                || !applyClickEventStyle(modrinth, modrinthClick)
+                || !appendText(root, github, textClass)
+                || !appendText(root, legacyFormattedText(textClass, "\u00a78]\u00a77 \u00a72["), textClass)
+                || !appendText(root, modrinth, textClass)
+                || !appendText(root, legacyFormattedText(textClass, "\u00a72]"), textClass)) {
+            throw new NoSuchMethodException("Clickable update notice component");
+        }
+        return root;
+    }
+
+    private static boolean applyClickEventStyle(Object text, Object click) {
+        try {
+            Object style = invokeAnyOrNull(text, "getStyle", "method_10866");
+            Object styled = withGuessPeekClickEvent(style, click);
+            return styled != null && invokeAnyWithArg(text, styled,
+                    "setStyle", "method_10862") != null;
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return false;
+        }
     }
 
     private static void registerFabricGameMessageEvents() {

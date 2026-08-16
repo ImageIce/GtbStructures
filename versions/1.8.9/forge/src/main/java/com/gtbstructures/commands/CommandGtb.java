@@ -31,7 +31,7 @@ import java.util.Locale;
 public class CommandGtb extends CommandBase {
 
     private static final String[] SUBCOMMANDS = {
-        "hintstructure", "hs", "toggle", "setlocation", "setcolor", "colorlist", "stats", "export", "exportraw", "tracking", "autorequeue",
+        "hintstructure", "hs", "toggle", "setlocation", "setcolor", "colorlist", "stats", "export", "exportraw", "tracking", "autorequeue", "updatenotice",
         "haveibuilt", "whohasbuilt", "showallmatching", "themepointreveal", "shortcutreminder", "copytranslation", "gtw", "guess", "scoreboard",
         "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guesspeek", "scrambleguess", "trollmode", "header", "preview", "overlay", "gtb", "lrj", "help"
     };
@@ -131,6 +131,9 @@ public class CommandGtb extends CommandBase {
             }
             if (args[0].equalsIgnoreCase("trollmode")) {
                 return getListOfStringsMatchingLastWord(args, "autodisable", "on", "off");
+            }
+            if (args[0].equalsIgnoreCase("updatenotice")) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "toggle");
             }
         }
         if (isHintStructureCommand(args[0])) {
@@ -674,6 +677,11 @@ public class CommandGtb extends CommandBase {
             return;
         }
 
+        else if (args[0].equalsIgnoreCase("updatenotice")) {
+            handleUpdateNotice(sender, sliceFrom(args, 1));
+            return;
+        }
+
         else if (args[0].equalsIgnoreCase("haveibuilt")) {
             sender.addChatMessage(new ChatComponentText(head + formatHaveIBuilt()));
             return;
@@ -816,6 +824,32 @@ public class CommandGtb extends CommandBase {
         } else {
             sender.addChatMessage(new ChatComponentText(head + "Interface preview is currently \u00a7cOFF"));
         }
+    }
+
+    private static void handleUpdateNotice(ICommandSender sender, String[] args) {
+        if (args.length > 1) {
+            sender.addChatMessage(new ChatComponentText(head
+                    + "Usage: /gtbs updatenotice [on|off|toggle]"));
+            return;
+        }
+
+        boolean next;
+        if (args.length == 0 || args[0].equalsIgnoreCase("toggle")) {
+            next = !GtbStructures.updateNoticeEnabled;
+        } else if (args[0].equalsIgnoreCase("on")) {
+            next = true;
+        } else if (args[0].equalsIgnoreCase("off")) {
+            next = false;
+        } else {
+            sender.addChatMessage(new ChatComponentText(head
+                    + "Usage: /gtbs updatenotice [on|off|toggle]"));
+            return;
+        }
+
+        GtbStructures.updateNoticeEnabled = next;
+        GtbStructures.saveConfig();
+        sender.addChatMessage(new ChatComponentText(head + "Update notice is currently "
+                + (next ? "\u00a7aON" : "\u00a7cOFF")));
     }
 
     private static void handleThemePointReveal(ICommandSender sender, String[] args) {
@@ -2240,6 +2274,7 @@ public class CommandGtb extends CommandBase {
                     HelpLine.command("/gtbs lrj", "Leaves to lobby, then rejoins. Shortcut: /lrj."),
                     HelpLine.command("/gtbs preview", "Toggles a session-only GUI preview for enabled interface features where you can customize the settings."),
                     HelpLine.command("/gtbs autorequeue", "Toggles auto-requeue after a game ends."),
+                    HelpLine.command("/gtbs updatenotice [on|off|toggle]", "Toggles or sets the update notice shown after the first multiplayer join each startup."),
                     HelpLine.command("/gtbs haveibuilt", "Reports whether you have built this game."),
                     HelpLine.command("/gtbs whohasbuilt", "Lists players who have built so far this game.")
             }),

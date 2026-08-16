@@ -24,7 +24,7 @@ public class CommandGtb {
     }
 
     private static final String[] SUBCOMMANDS = {
-        "hintstructure", "hs", "toggle", "setlocation", "setcolor", "colorlist", "stats", "export", "exportraw", "tracking", "autorequeue",
+        "hintstructure", "hs", "toggle", "setlocation", "setcolor", "colorlist", "stats", "export", "exportraw", "tracking", "autorequeue", "updatenotice",
         "haveibuilt", "whohasbuilt", "showallmatching", "themepointreveal", "shortcutreminder", "copytranslation", "gtw", "guess", "scoreboard",
         "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guesspeek", "scrambleguess", "trollmode", "header", "preview", "overlay", "gtb", "lrj", "help"
     };
@@ -87,6 +87,9 @@ public class CommandGtb {
             }
             if (args[0].equalsIgnoreCase("trollmode")) {
                 return getListOfStringsMatchingLastWord(args, "autodisable", "on", "off", "true", "false");
+            }
+            if (args[0].equalsIgnoreCase("updatenotice")) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "toggle");
             }
             if (args[0].equalsIgnoreCase("font")) {
                 return Collections.emptyList();
@@ -544,6 +547,7 @@ public class CommandGtb {
                     HelpLine.command("/gtbs lrj", "Leaves to lobby, then rejoins. Shortcut: /lrj."),
                     HelpLine.command("/gtbs preview", "Toggles a session-only GUI preview for enabled interface features where you can customize the settings."),
                     HelpLine.command("/gtbs autorequeue", "Toggles auto-requeue after a game ends."),
+                    HelpLine.command("/gtbs updatenotice [on|off|toggle]", "Controls the update notice shown after the first server join of each startup."),
                     HelpLine.command("/gtbs haveibuilt", "Reports whether you have built this game."),
                     HelpLine.command("/gtbs whohasbuilt", "Lists players who have built so far this game.")
             }),

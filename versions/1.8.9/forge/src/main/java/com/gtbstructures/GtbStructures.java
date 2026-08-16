@@ -34,6 +34,7 @@ import com.gtbstructures.stats.LangPatterns;
 import com.gtbstructures.translation.ShortcutReminder;
 import com.gtbstructures.translation.ThemePointReveal;
 import com.gtbstructures.translation.TranslationData;
+import com.gtbstructures.update.UpdateChecker;
 
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiIngame;
@@ -49,7 +50,9 @@ import net.minecraft.scoreboard.Scoreboard;
 import net.minecraft.scoreboard.ScoreObjective;
 import net.minecraft.scoreboard.ScorePlayerTeam;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.IChatComponent;
 import net.minecraft.util.StringUtils;
+import net.minecraft.event.ClickEvent;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.client.event.GuiOpenEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
@@ -60,6 +63,7 @@ import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
+import net.minecraftforge.fml.common.network.FMLNetworkEvent;
 import net.minecraftforge.fml.common.Mod;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -85,6 +89,7 @@ public class GtbStructures {
     public static boolean enabled = false;
     public static boolean trackingEnabled = true;
     public static boolean autoRequeue = false;
+    public static boolean updateNoticeEnabled = true;
     public static boolean showAllMatching = false;
     public static boolean showAllMatchingShowEnglish = false;
     public static boolean themePointReveal = false;
@@ -256,6 +261,7 @@ public class GtbStructures {
             enabled = config.getBoolean("enabled", Configuration.CATEGORY_GENERAL, false, "Whether the hint overlay is enabled");
             trackingEnabled = config.getBoolean("trackingEnabled", Configuration.CATEGORY_GENERAL, true, "Whether game stats tracking is enabled");
             autoRequeue = config.getBoolean("autoRequeue", Configuration.CATEGORY_GENERAL, false, "Whether to auto-requeue for GTB after a game ends");
+            updateNoticeEnabled = config.getBoolean("updateNoticeEnabled", Configuration.CATEGORY_GENERAL, true, "Whether to check GitHub and show a notice when a newer GTBS version is available");
             showAllMatching = config.getBoolean("showAllMatching", Configuration.CATEGORY_GENERAL, false, "Whether to show all themes matching the effective initial hint after a round resolves");
             showAllMatchingShowEnglish = config.getBoolean("showAllMatchingShowEnglish", Configuration.CATEGORY_GENERAL, false, "When showAllMatching is on and the language is not English, also show the English theme(s) next to each translation");
             themePointReveal = config.getBoolean("themePointReveal", Configuration.CATEGORY_GENERAL, false, "Whether to reveal an exact current GTB theme point value in chat");
@@ -390,6 +396,7 @@ public class GtbStructures {
             config.get(Configuration.CATEGORY_GENERAL, "enabled", enabled).set(enabled);
             config.get(Configuration.CATEGORY_GENERAL, "trackingEnabled", trackingEnabled).set(trackingEnabled);
             config.get(Configuration.CATEGORY_GENERAL, "autoRequeue", autoRequeue).set(autoRequeue);
+            config.get(Configuration.CATEGORY_GENERAL, "updateNoticeEnabled", true).set(updateNoticeEnabled);
             config.get(Configuration.CATEGORY_GENERAL, "showAllMatching", showAllMatching).set(showAllMatching);
             config.get(Configuration.CATEGORY_GENERAL, "showAllMatchingShowEnglish", showAllMatchingShowEnglish).set(showAllMatchingShowEnglish);
             config.get(Configuration.CATEGORY_GENERAL, "themePointReveal", false).set(themePointReveal);
@@ -766,6 +773,39 @@ public class GtbStructures {
         if (event.gui instanceof GuiChest) {
             guiCheckCountdown = 5;
         }
+    }
+
+    @SubscribeEvent
+    public void onConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+        if (event == null || event.isLocal || !updateNoticeEnabled) return;
+        UpdateChecker.INSTANCE.checkOnceAsync(new UpdateChecker.Listener() {
+            @Override
+            public void onUpdateAvailable(final UpdateChecker.UpdateInfo update) {
+                final Minecraft mc = Minecraft.getMinecraft();
+                if (mc == null) return;
+                mc.addScheduledTask(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!updateNoticeEnabled || mc.thePlayer == null) return;
+                        mc.thePlayer.addChatMessage(buildUpdateNoticeMessage(update));
+                    }
+                });
+            }
+        });
+    }
+
+    public static IChatComponent buildUpdateNoticeMessage(UpdateChecker.UpdateInfo update) {
+        IChatComponent message = new ChatComponentText(CommandGtb.head
+                + "New version available: \u00a7f" + update.getVersion() + "\u00a77. ");
+        ChatComponentText github = new ChatComponentText("\u00a78[\u00a77GitHub\u00a78]\u00a77 ");
+        github.getChatStyle().setChatClickEvent(new ClickEvent(
+                ClickEvent.Action.OPEN_URL, update.getGithubUrl()));
+        ChatComponentText modrinth = new ChatComponentText("\u00a72[\u00a7aModrinth\u00a72]");
+        modrinth.getChatStyle().setChatClickEvent(new ClickEvent(
+                ClickEvent.Action.OPEN_URL, update.getModrinthUrl()));
+        message.appendSibling(github);
+        message.appendSibling(modrinth);
+        return message;
     }
 
     // ── Private Helpers ──────────────────────────────────────────────────

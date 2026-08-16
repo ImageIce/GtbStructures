@@ -1,5 +1,6 @@
 package com.gtbstructures;
 
+import com.gtbstructures.commands.CommandGtb;
 import com.gtbstructures.commands.CommandGtbRuntime;
 import com.gtbstructures.chat.ChatNameCompletion;
 import com.gtbstructures.chat.GuessChatAnnotator;
@@ -26,6 +27,7 @@ import com.gtbstructures.stats.GameStats;
 import com.gtbstructures.stats.PlayerUuid;
 import com.gtbstructures.stats.StatsArchive;
 import com.gtbstructures.translation.TranslationData;
+import com.gtbstructures.update.UpdateChecker;
 import com.gtbstructures.util.MinecraftFormatting;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -36,6 +38,7 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -100,6 +103,8 @@ public final class GtbStructuresForge {
     private boolean playerListPollingActive;
     private String pendingLobbyRejoinCommand;
     private long pendingLobbyRejoinAtMs;
+    private ClientPacketListener updateNoticeConnection;
+    private boolean updateNoticeRemoteJoinObserved;
 
     public GtbStructuresForge() {
         services = new ForgeServices();
@@ -261,6 +266,28 @@ public final class GtbStructuresForge {
         return Component.literal(prompt.prefix())
                 .append(link)
                 .append(Component.literal(prompt.suffix()));
+    }
+
+    static Component buildUpdateNotice(String version, String githubUrl, String modrinthUrl) {
+        MutableComponent github = Component.literal("\u00a77GitHub");
+        github.setStyle(github.getStyle().withClickEvent(
+                new ClickEvent.OpenUrl(URI.create(githubUrl))));
+        MutableComponent modrinth = Component.literal("\u00a7aModrinth");
+        modrinth.setStyle(modrinth.getStyle().withClickEvent(
+                new ClickEvent.OpenUrl(URI.create(modrinthUrl))));
+        return Component.literal(CommandGtb.head + "New version available: \u00a7f"
+                        + version + "\u00a77. \u00a78[")
+                .append(github)
+                .append(Component.literal("\u00a78]\u00a77 \u00a72["))
+                .append(modrinth)
+                .append(Component.literal("\u00a72]"));
+    }
+
+    private static void sendUpdateNotice(String version, String githubUrl, String modrinthUrl) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.gui != null) {
+            mc.gui.getChat().addMessage(buildUpdateNotice(version, githubUrl, modrinthUrl));
+        }
     }
 
     private void onClientChatReceived(ClientChatReceivedEvent event) {
@@ -426,6 +453,7 @@ public final class GtbStructuresForge {
         applyClassicFontMode(mc);
         InterfacePreview.tick();
         if (mc.level == null || mc.player == null) {
+            updateNoticeConnection = null;
             ModernRuntimeBridge.onClientUnavailable();
             ModernPlayerListLogic.applySnapshot(new ModernPlayerListLogic.Snapshot(), playerListRoster);
             playerListRoster.clear();
@@ -433,6 +461,7 @@ public final class GtbStructuresForge {
             return;
         }
 
+        handleUpdateNoticeJoin(mc);
         ensureClientCommandsRegistered(mc);
         if (!GtbStructuresSettings.INSTANCE.modEnabled) {
             resetPlayerListPolling();
@@ -462,6 +491,19 @@ public final class GtbStructuresForge {
         if (scoreboardTickCounter < 10) return;
         scoreboardTickCounter = 0;
         pollScoreboard(mc);
+    }
+
+    private void handleUpdateNoticeJoin(Minecraft mc) {
+        ClientPacketListener connection = mc.getConnection();
+        if (connection == null || connection == updateNoticeConnection) return;
+        updateNoticeConnection = connection;
+        if (updateNoticeRemoteJoinObserved || mc.hasSingleplayerServer()) return;
+        updateNoticeRemoteJoinObserved = true;
+        if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
+        UpdateChecker.INSTANCE.checkOnceAsync(info -> mc.execute(() -> {
+            if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
+            sendUpdateNotice(info.version(), info.githubUrl(), info.modrinthUrl());
+        }));
     }
 
     private void queueLobbyRejoin(String command) {

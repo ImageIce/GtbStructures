@@ -27,6 +27,7 @@ public final class GtbStructuresSettings {
     public boolean enabled = false;
     public boolean trackingEnabled = true;
     public boolean autoRequeue = false;
+    public boolean updateNoticeEnabled = true;
     public boolean showAllMatching = false;
     public boolean showAllMatchingShowEnglish = false;
     public boolean themePointReveal = false;
@@ -144,6 +145,7 @@ public final class GtbStructuresSettings {
         enabled = bool(p, "enabled", enabled);
         trackingEnabled = bool(p, "trackingEnabled", trackingEnabled);
         autoRequeue = bool(p, "autoRequeue", autoRequeue);
+        updateNoticeEnabled = bool(p, "updateNoticeEnabled", updateNoticeEnabled);
         showAllMatching = bool(p, "showAllMatching", showAllMatching);
         showAllMatchingShowEnglish = bool(p, "showAllMatchingShowEnglish", showAllMatchingShowEnglish);
         themePointReveal = bool(p, "themePointReveal", themePointReveal);
@@ -260,6 +262,7 @@ public final class GtbStructuresSettings {
         put(p, "enabled", enabled);
         put(p, "trackingEnabled", trackingEnabled);
         put(p, "autoRequeue", autoRequeue);
+        put(p, "updateNoticeEnabled", updateNoticeEnabled);
         put(p, "showAllMatching", showAllMatching);
         put(p, "showAllMatchingShowEnglish", showAllMatchingShowEnglish);
         put(p, "themePointReveal", themePointReveal);
@@ -367,6 +370,7 @@ public final class GtbStructuresSettings {
         enabled = false;
         trackingEnabled = true;
         autoRequeue = false;
+        updateNoticeEnabled = true;
         showAllMatching = false;
         showAllMatchingShowEnglish = false;
         themePointReveal = false;

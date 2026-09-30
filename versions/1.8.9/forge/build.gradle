@@ -11,7 +11,7 @@ buildscript {
 
 apply plugin: 'net.minecraftforge.gradle.forge'
 
-version = "1.1"
+version = "1.1.1"
 group = "com.example.gtbstructures"
 archivesBaseName = "GtbStructures"
 
@@ -24,10 +24,398 @@ minecraft {
 }
 
 compileJava.options.encoding = 'UTF-8'
+compileTestJava.options.encoding = 'UTF-8'
 
 jar {
     from('../../../LICENSE') {
         into 'META-INF'
         rename { 'LICENSE_GtbStructures' }
+    }
+}
+
+task runTranslationHistorySmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy historical translation storage smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.translation.TranslationHistorySmoke'
+}
+
+task runGameExporterTranslationHistorySmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy translation snapshot export smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameExporterTranslationHistorySmoke'
+}
+
+task runGameExporterHandheldSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy handheld export smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameExporterHandheldSmoke'
+}
+
+task runStatsArchiveSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy stats archive smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.StatsArchiveSmoke'
+}
+
+task runMinecraftLogThemeExtractorSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy Minecraft log theme extraction smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.MinecraftLogThemeExtractorSmoke'
+}
+
+task runGameStatsSidebarDropLeaverSyncSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy authoritative sidebar-drop leaver synchronization smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameStatsSidebarDropLeaverSyncSmoke'
+}
+
+task runGameStatsRosterGateSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy packet/chat roster-gate ordering smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameStatsRosterGateSmoke'
+}
+
+task runGameStatsChatChannelGuardSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy non-game chat and correct-guess identity guard smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameStatsChatChannelGuardSmoke'
+}
+
+task runGameStatsRejoinMessageSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy pause and rejoin lifecycle smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameStatsRejoinMessageSmoke'
+}
+
+task runScrambleGuessSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy scramble-guess mutation smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.chat.ScrambleGuessSmoke'
+}
+
+task runTrollModeSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy Troll Mode and GuessPeek interaction smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.chat.TrollModeSmoke'
+}
+
+task runGuessChatAnnotatorSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy GuessPeek annotation smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.chat.GuessChatAnnotatorSmoke'
+}
+
+task runScoreboardBoundNotationSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy custom-scoreboard bound-notation smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.scoreboard.ScoreboardBoundNotationSmoke'
+}
+
+task runScoreboardBuilderRoundsSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy scoreboard builder-row and round-display smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.scoreboard.ScoreboardBuilderRoundsSmoke'
+}
+
+task runGameTrackerPreRoundLeaverSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy round-based inactive-player leaver inference smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.scoreboard.GameTrackerPreRoundLeaverSmoke'
+    args '--inference-only'
+}
+
+task runShortcutReminderSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy bundled translation and shortcut-reminder smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.translation.ShortcutReminderSmoke'
+}
+
+task runShortcutLanguageGroupsSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy shortcut language-group model and reminder smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.translation.ShortcutLanguageGroupsSmoke'
+}
+
+task runGameStatsAutoRequeueSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy auto-requeue delay and lifecycle smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameStatsAutoRequeueSmoke'
+}
+
+task runShowAllMatchingSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy matching-theme output and displayed-count smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.hints.ShowAllMatchingSmoke'
+}
+
+task runGtwDifficultySmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy GTW difficulty selection and reveal filtering smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.gtw.GtwDifficultySmoke'
+}
+
+task runThemePointRevealSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy theme-point reveal translation smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.translation.ThemePointRevealSmoke'
+}
+
+task runEnvironmentChangeNotifierSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy environment chat-change notification smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.overlay.EnvironmentChangeNotifierSmoke'
+}
+
+task runWorldEnvironmentOverlaySmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy world-environment HUD and Preview layout smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.overlay.WorldEnvironmentOverlaySmoke'
+}
+
+task runCommandGtbHelpSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy GTBS command, tab-completion, and help smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.commands.CommandGtbHelpSmoke'
+}
+
+task runUpdateCheckerSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy release-version and update-notice smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.update.UpdateCheckerSmoke'
+}
+
+task runLeaveRejoinSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy /lrj protection-bypass state-machine smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.commands.LeaveRejoinSmoke'
+}
+
+task runGameStatsThemeEvidenceSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy late-theme evidence smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameStatsPreRoundSkipSmoke'
+    args 'theme-evidence'
+}
+
+task runCopyTranslationParserSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy copy-translation parser, capitalization, and output smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.commands.CopyTranslationParserSmoke'
+}
+
+task runPreviewLayoutEditorSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy preview layout editor smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.scoreboard.PreviewLayoutEditorSmoke'
+}
+
+task runGameStatsPendingCurrentSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy pending current-session recovery smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameStatsPendingCurrentSmoke'
+}
+
+task runLeaderboardRowClassifierSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy leaderboard row classifier smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.scoreboard.LeaderboardRowClassifierSmoke'
+}
+
+task runLangPatternsTitleCacheSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy localized Build Battle title cache smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.LangPatternsTitleCacheSmoke'
+}
+
+task runLangPatternsSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy localized chat and scoreboard pattern smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.LangPatternsSmoke'
+}
+
+task runInterfacePreviewSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy preview scoreboard localization smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.scoreboard.InterfacePreviewSmoke'
+}
+
+task runGtbStructuresDefaultsSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Verifies that fresh GTBS settings match the canonical 26.1 profile.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.GtbStructuresDefaultsSmoke'
+}
+
+task runVanillaScoreboardRelocationSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Verifies legacy Vanilla-sidebar preview suppression and offset relocation.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.VanillaScoreboardRelocationSmoke'
+}
+
+task runHandheldItemTrackerSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy handheld item recorder smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.items.HandheldItemTrackerSmoke'
+}
+
+task runModernSpawnEggItemRenderPatchSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy spawn-egg model master-toggle smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.items.ModernSpawnEggItemRenderPatchSmoke'
+}
+
+task runModernEquipmentRenderPatchSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy supplemental equipment render-path smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.items.ModernEquipmentRenderPatchSmoke'
+}
+
+task runBuilderLeaderboardFallbackSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy Build Battle leaderboard fallback smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.player.BuilderLeaderboardFallbackSmoke'
+}
+
+task runRawPacketRecorderSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy raw packet recorder smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.diagnostics.RawPacketRecorderSmoke'
+}
+
+task runPlayerMetaCacheRankHarvestSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy player metadata rank-harvest smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.player.PlayerMetaCacheRankHarvestSmoke'
+}
+
+task runScoreboardVisibleTextSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy scoreboard visible-text smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.ScoreboardVisibleTextSmoke'
+}
+
+task runChatAssistSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Runs the legacy chat cooldown and name-completion smoke test.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.chat.ChatAssistSmoke'
+}
+
+task runGuessSoundsSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Checks the legacy guess sound catalog and per-point selections.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.sound.GuessSoundsSmoke'
+}
+
+task runGameStatsNickBuilderScoreSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Checks confirmed-nick chooser identity and retained builder totals.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameStatsNickBuilderScoreSmoke'
+    if (project.hasProperty('nickScoreCase')) args project.property('nickScoreCase')
+}
+
+[
+    GuessSoundController: 'com.gtbstructures.sound.GuessSoundControllerSmoke',
+    GuessSoundChat: 'com.gtbstructures.sound.GuessSoundChatSmoke',
+    GuessSoundsUiLogic: 'com.gtbstructures.scoreboard.GuessSoundsUiLogicSmoke',
+    CommandGtbGuessSound: 'com.gtbstructures.commands.CommandGtbGuessSoundSmoke',
+    GuessSoundsConfig: 'com.gtbstructures.GuessSoundsConfigSmoke'
+].each { name, smokeClass ->
+    tasks.create(name: "run${name}Smoke", type: JavaExec) {
+        group = 'verification'
+        description = "Checks legacy guess sound ${name} behavior."
+        dependsOn testClasses
+        classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+        main = smokeClass
     }
 }

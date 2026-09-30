@@ -1,6 +1,7 @@
 package com.gtbstructures.items;
 
 import com.gtbstructures.GtbStructures;
+import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.overlay.HudPosition;
 import com.gtbstructures.scoreboard.InterfacePreview;
 import com.gtbstructures.scoreboard.PreviewLayoutEditor;
@@ -681,7 +682,7 @@ public final class HandheldItemTracker {
     private void renderOverlay() {
         if (!GtbStructures.handheldItemOverlay) return;
         if (InterfacePreview.isActive()) {
-            renderPreviewOverlay();
+            renderPreviewOverlay(false);
             return;
         }
         GameStats stats = GameStats.INSTANCE;
@@ -697,13 +698,17 @@ public final class HandheldItemTracker {
 
         GtbStructures.migrateHandheldPanelRatios(sr.getScaledWidth(), sr.getScaledHeight());
         PanelSize panel = panelSize(visible, fr, sr.getScaledWidth(), sr.getScaledHeight());
-        int x = HudPosition.left(GtbStructures.handheldItemPosX, sr.getScaledWidth(), panel.width, 2);
-        int bottom = HudPosition.bottom(GtbStructures.handheldItemPosY, sr.getScaledHeight(), panel.height, 2);
-        drawBackgroundIfEnabled(x, bottom - panel.height, panel.width, panel.height);
-        renderEntries(mc, fr, visible, x, bottom - panel.height, panel, renderSnapshots);
+        renderPanel(mc, sr, fr, visible, panel, renderSnapshots, false);
     }
 
-    private void renderPreviewOverlay() {
+    public void collectPreviewLabel() {
+        if (!runtimeEnabledForMaster(GtbStructures.modEnabled)
+                || !InterfacePreview.isActive()
+                || !GtbStructures.handheldItemOverlay) return;
+        renderPreviewOverlay(true);
+    }
+
+    private void renderPreviewOverlay(boolean layoutOnly) {
         List<GameStats.HandheldItemEntry> visible = visibleEntries(previewRound, visibleMax());
         if (visible.isEmpty()) return;
 
@@ -714,12 +719,34 @@ public final class HandheldItemTracker {
 
         GtbStructures.migrateHandheldPanelRatios(sr.getScaledWidth(), sr.getScaledHeight());
         PanelSize panel = panelSize(visible, fr, sr.getScaledWidth(), sr.getScaledHeight());
-        int x = HudPosition.left(GtbStructures.handheldItemPosX, sr.getScaledWidth(), panel.width, 2);
-        int bottom = HudPosition.bottom(GtbStructures.handheldItemPosY, sr.getScaledHeight(), panel.height, 2);
-        drawBackgroundIfEnabled(x, bottom - panel.height, panel.width, panel.height);
-        PreviewLayoutEditor.register("handhelditem", x, bottom - panel.height, panel.width, panel.height,
-                PreviewLayoutEditor.HANDHELD);
-        renderEntries(mc, fr, visible, x, bottom - panel.height, panel, previewRenderSnapshots);
+        renderPanel(mc, sr, fr, visible, panel, previewRenderSnapshots, layoutOnly);
+    }
+
+    private void renderPanel(Minecraft mc, ScaledResolution sr, FontRenderer fr,
+                             List<GameStats.HandheldItemEntry> visible, PanelSize panel,
+                             Map<String, ItemSnapshot> snapshots, boolean layoutOnly) {
+        float panelScale = HudPanelScale.normalize(GtbStructures.handheldItemScale);
+        int scaledWidth = HudPanelScale.scaledPixels(panel.width, panelScale);
+        int scaledHeight = HudPanelScale.scaledPixels(panel.height, panelScale);
+        int x = HudPosition.left(GtbStructures.handheldItemPosX,
+                sr.getScaledWidth(), scaledWidth, 2);
+        int bottom = HudPosition.bottom(GtbStructures.handheldItemPosY,
+                sr.getScaledHeight(), scaledHeight, 2);
+        int top = bottom - scaledHeight;
+        if (layoutOnly) {
+            PreviewLayoutEditor.register("handhelditem", x, top, scaledWidth, scaledHeight,
+                    PreviewLayoutEditor.HANDHELD);
+            return;
+        }
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(x, top, 0.0F);
+            GlStateManager.scale(panelScale, panelScale, 1.0F);
+            drawBackgroundIfEnabled(0, 0, panel.width, panel.height);
+            renderEntries(mc, fr, visible, 0, 0, panel, snapshots);
+        } finally {
+            GlStateManager.popMatrix();
+        }
     }
 
     private static void drawBackgroundIfEnabled(int x, int y, int width, int height) {

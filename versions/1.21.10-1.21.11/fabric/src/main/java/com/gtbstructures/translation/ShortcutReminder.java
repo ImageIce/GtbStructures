@@ -2,6 +2,7 @@ package com.gtbstructures.translation;
 
 import com.gtbstructures.gtw.GtwLogic;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -30,6 +31,8 @@ public final class ShortcutReminder {
         public boolean showHanzi = true;
         public boolean showJapanese = true;
         public boolean showHangul = true;
+        /** Null captures the current model; platform callers pass a consistent snapshot. */
+        public ShortcutLanguageGroups.State languageGroups;
     }
 
     public static final class RoundState {
@@ -48,7 +51,9 @@ public final class ShortcutReminder {
     public static List<String> prepareMessages(Options options, RoundState round,
                                                String displayedTheme) {
         Options effective = options == null ? new Options() : options;
-        if (!effective.enabled || round == null || round.shortcutReminderSent) {
+        ShortcutLanguageGroups.State languageGroups = effective.languageGroups == null
+                ? ShortcutLanguageGroups.snapshot() : effective.languageGroups;
+        if ((!effective.enabled && !languageGroups.enabled) || round == null || round.shortcutReminderSent) {
             return Collections.emptyList();
         }
         if (displayedTheme == null || displayedTheme.trim().isEmpty()) {
@@ -62,16 +67,22 @@ public final class ShortcutReminder {
 
         round.shortcutReminderSent = true;
         List<String> messages = new ArrayList<String>();
-        messages.add(buildMessage(round.langCode, cleanTheme,
-                effective.showAllShortcuts,
-                effective.showNonAscii,
-                effective.showExtendedLatin,
-                effective.showCyrillic,
-                effective.showHanzi,
-                effective.showJapanese,
-                effective.showHangul));
+        List<TranslationData.ShortcutThemeData> themes =
+                TranslationData.findShortcutThemes(round.langCode, cleanTheme);
+        List<String> combined = new ArrayList<String>();
+        if (effective.enabled) {
+            mergeShortcuts(combined, findMainShortcuts(themes, effective.showAllShortcuts,
+                    effective.showNonAscii, effective.showExtendedLatin, effective.showCyrillic,
+                    effective.showHanzi, effective.showJapanese, effective.showHangul));
+        }
+        if (languageGroups.enabled) {
+            for (ShortcutLanguageGroups.Group group : languageGroups.groups) {
+                if (group.enabled) mergeShortcuts(combined, findGroupShortcuts(themes, group));
+            }
+        }
+        messages.add(formatShortcutMessage(cleanTheme, combined));
 
-        if (effective.showMultiwords) {
+        if (effective.enabled && effective.showMultiwords) {
             String multiwordMessage = buildMultiwordMessage(round.langCode, cleanTheme,
                     effective.showAllMultiwords,
                     effective.showNonAscii,
@@ -108,13 +119,37 @@ public final class ShortcutReminder {
                 showNonAscii, extendedLatin, cyrillic, hanzi, japanese, hangul);
     }
 
+    public static String buildCombinedMessageForTest(String langCode, String displayedTheme,
+                                                     boolean includeMain, boolean showAll,
+                                                     boolean showNonAscii,
+                                                     ShortcutLanguageGroups.State languageGroups) {
+        List<TranslationData.ShortcutThemeData> themes =
+                TranslationData.findShortcutThemes(langCode, displayedTheme);
+        List<String> combined = new ArrayList<String>();
+        if (includeMain) mergeShortcuts(combined, findMainShortcuts(themes, showAll,
+                showNonAscii, true, true, true, true, true));
+        if (languageGroups != null && languageGroups.enabled) {
+            for (ShortcutLanguageGroups.Group group : languageGroups.groups) {
+                if (group.enabled) mergeShortcuts(combined, findGroupShortcuts(themes, group));
+            }
+        }
+        return formatShortcutMessage(displayedTheme, combined);
+    }
+
     private static String buildMessage(String langCode, String displayedTheme,
                                        boolean showAll, boolean showNonAscii,
                                        boolean extendedLatin, boolean cyrillic,
                                        boolean hanzi, boolean japanese,
                                        boolean hangul) {
-        List<TranslationData.ShortcutThemeData> themes =
-                TranslationData.findShortcutThemes(langCode, displayedTheme);
+        return formatShortcutMessage(displayedTheme, findMainShortcuts(
+                TranslationData.findShortcutThemes(langCode, displayedTheme), showAll, showNonAscii,
+                extendedLatin, cyrillic, hanzi, japanese, hangul));
+    }
+
+    private static List<String> findMainShortcuts(
+            List<TranslationData.ShortcutThemeData> themes,
+            boolean showAll, boolean showNonAscii, boolean extendedLatin, boolean cyrillic,
+            boolean hanzi, boolean japanese, boolean hangul) {
         int referenceLength = shortcutReferenceLength(themes);
         Map<String, Candidate> candidates = new LinkedHashMap<String, Candidate>();
         Map<String, List<GtwLogic.LegalShortcutCandidate>> variantCache =
@@ -156,7 +191,6 @@ public final class ShortcutReminder {
 
         List<String> accepted = new ArrayList<String>();
         int minimumLength = Integer.MAX_VALUE;
-        int bestPreference = Integer.MAX_VALUE;
         for (Candidate candidate : candidates.values()) {
             if (!candidate.coveredThemes.containsAll(requiredThemes)) continue;
             if (!candidate.hasMeaningfulForm && candidate.coveredThemes.size() <= 1) continue;
@@ -166,13 +200,11 @@ public final class ShortcutReminder {
             }
             int length = shortcutLength(candidate.processed);
             if (length > referenceLength) continue;
-            if (length < minimumLength
-                    || (length == minimumLength && candidate.preference < bestPreference)) {
+            if (length < minimumLength) {
                 accepted.clear();
                 minimumLength = length;
-                bestPreference = candidate.preference;
             }
-            if (length == minimumLength && candidate.preference == bestPreference) {
+            if (length == minimumLength) {
                 accepted.add(candidate.processed);
             }
         }
@@ -187,11 +219,74 @@ public final class ShortcutReminder {
             }
         });
 
-        StringBuilder message = new StringBuilder(PREFIX);
-        if (accepted.isEmpty()) {
-            return message.append("No shortcuts found for \u00a7f")
-                    .append(displayedTheme).toString();
+        return accepted;
+    }
+
+    private static List<String> findGroupShortcuts(
+            List<TranslationData.ShortcutThemeData> themes,
+            ShortcutLanguageGroups.Group group) {
+        if (themes.isEmpty() || group == null || group.languages.isEmpty()) {
+            return Collections.emptyList();
         }
+        Set<String> requiredThemes = new HashSet<String>();
+        for (TranslationData.ShortcutThemeData theme : themes) requiredThemes.add(theme.englishTheme);
+        Map<String, Candidate> candidates = new LinkedHashMap<String, Candidate>();
+        Map<String, List<GtwLogic.LegalShortcutCandidate>> variantCache =
+                new LinkedHashMap<String, List<GtwLogic.LegalShortcutCandidate>>();
+        for (String language : ShortcutLanguageGroups.orderedSupportedLanguages(group.languages)) {
+            for (TranslationData.ShortcutThemeData theme : themes) {
+                String raw = "en".equals(language) ? theme.englishTheme : theme.translations.get(language);
+                if (raw == null) continue;
+                if (group.rawTranslation) {
+                    addRawTranslationCandidate(candidates, group.rawTranslationAllLowercase
+                                    ? raw.toLowerCase(Locale.ROOT) : raw,
+                            language, Collections.singleton(theme.englishTheme));
+                } else {
+                    addCandidateVariants(candidates, raw, theme, language,
+                            Collections.singleton(theme.englishTheme), true, variantCache);
+                }
+            }
+        }
+        List<String> accepted = new ArrayList<String>();
+        int minimumLength = Integer.MAX_VALUE;
+        for (Candidate candidate : candidates.values()) {
+            if (!candidate.coveredThemes.containsAll(requiredThemes)) continue;
+            if (!candidate.hasMeaningfulForm && candidate.coveredThemes.size() <= 1) continue;
+            int length = shortcutLength(candidate.processed);
+            if (length < minimumLength) { accepted.clear(); minimumLength = length; }
+            if (length == minimumLength) accepted.add(candidate.processed);
+        }
+        return accepted;
+    }
+
+    private static void addRawTranslationCandidate(Map<String, Candidate> candidates,
+                                                    String processed, String explicitLang,
+                                                    Set<String> coveredThemes) {
+        if (processed == null || processed.isEmpty()) return;
+        String key = shortcutKey(processed);
+        Candidate candidate = candidates.get(key);
+        if (candidate == null) { candidate = new Candidate(processed); candidates.put(key, candidate); }
+        candidate.hasMeaningfulForm = true;
+        candidate.preference = 0;
+        if (explicitLang != null) candidate.sourceLangs.add(explicitLang);
+        if (coveredThemes != null) candidate.coveredThemes.addAll(coveredThemes);
+    }
+
+    private static void mergeShortcuts(List<String> target, List<String> additions) {
+        Set<String> keys = new HashSet<String>();
+        for (String value : target) keys.add(shortcutKey(value));
+        for (String value : additions) if (keys.add(shortcutKey(value))) target.add(value);
+    }
+
+    private static String shortcutKey(String value) {
+        return Normalizer.normalize(value == null ? "" : value, Normalizer.Form.NFC)
+                .toLowerCase(Locale.ROOT);
+    }
+
+    private static String formatShortcutMessage(String displayedTheme, List<String> accepted) {
+        StringBuilder message = new StringBuilder(PREFIX);
+        if (accepted.isEmpty()) return message.append("No shortcuts found for \u00a7f")
+                .append(displayedTheme).toString();
         message.append(accepted.size() == 1 ? "Shortcut for \u00a7f" : "Shortcuts for \u00a7f")
                 .append(displayedTheme).append("\u00a77: ");
         for (int i = 0; i < accepted.size(); i++) {
@@ -414,8 +509,21 @@ public final class ShortcutReminder {
                                              String explicitLang, Set<String> coveredThemes,
                                              boolean preferExtendedLatin,
                                              Map<String, List<GtwLogic.LegalShortcutCandidate>> variantCache) {
-        for (GtwLogic.LegalShortcutCandidate variant :
-                legalShortcutCandidates(raw, preferExtendedLatin, variantCache)) {
+        List<GtwLogic.LegalShortcutCandidate> variants =
+                legalShortcutCandidates(raw, preferExtendedLatin, variantCache);
+        int minimumLength = Integer.MAX_VALUE;
+        int bestPreference = Integer.MAX_VALUE;
+        for (GtwLogic.LegalShortcutCandidate variant : variants) {
+            int length = shortcutLength(variant.value);
+            if (length < minimumLength
+                    || (length == minimumLength && variant.preference < bestPreference)) {
+                minimumLength = length;
+                bestPreference = variant.preference;
+            }
+        }
+        for (GtwLogic.LegalShortcutCandidate variant : variants) {
+            if (shortcutLength(variant.value) != minimumLength
+                    || variant.preference != bestPreference) continue;
             addCandidate(candidates, variant.value, variant.preference, theme,
                     explicitLang, coveredThemes, preferExtendedLatin, variantCache);
         }

@@ -19,6 +19,18 @@ import java.lang.reflect.Modifier;
 import java.util.function.Predicate;
 
 public final class PreviewScreenController implements InterfacePreview.ScreenController {
+    enum TextFieldPurpose {
+        HEADER(256),
+        GROUP_NAME(128),
+        GROUP_SEARCH(64);
+
+        final int maxLength;
+
+        TextFieldPurpose(int maxLength) {
+            this.maxLength = maxLength;
+        }
+    }
+
     private static final Logger LOGGER = LoggerFactory.getLogger(PreviewScreenController.class);
     private static final String PREVIEW_SCREEN_CLASS = "com.gtbstructures.scoreboard.FabricPreviewScreen";
     private static final String PREVIEW_SCREEN_INTERNAL = "com/gtbstructures/scoreboard/FabricPreviewScreen";
@@ -41,6 +53,13 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
     private static Object headerEditScreen;
     private static boolean headerEditNeedsLayoutRefresh;
     private static boolean previewOpenFailureLogged;
+
+    private static final class RuntimeMinecraftNames {
+        private static final boolean MAPPINGS_USABLE = resolverMappingsAreLoadable();
+
+        private RuntimeMinecraftNames() {
+        }
+    }
 
     @Override
     public boolean isInGame() {
@@ -92,7 +111,10 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
                 previewOpenFailureLogged = false;
             }
         } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
-            LOGGER.warn("Unable to open GtbStructures Fabric preview screen", e);
+            if (!previewOpenFailureLogged) {
+                previewOpenFailureLogged = true;
+                LOGGER.warn("Unable to open GtbStructures Fabric preview screen", e);
+            }
         }
     }
 
@@ -197,6 +219,12 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
     }
 
     static void beginHeaderEditing(String value) {
+        beginTextEditing(value, TextFieldPurpose.HEADER);
+    }
+
+    static void beginTextEditing(String value, TextFieldPurpose purpose) {
+        final TextFieldPurpose effectivePurpose = purpose == null
+                ? TextFieldPurpose.HEADER : purpose;
         try {
             Object screen = MinecraftClientUiBridge.currentScreen(minecraftClient());
             if (!isPreviewScreen(screen)) return;
@@ -205,18 +233,6 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
                 Object widget = createHeaderEditBox();
                 headerEditBox = widget;
                 headerEditScreen = screen;
-                invokeAny(widget, new Object[] {256},
-                        minecraftMethodName(TEXT_FIELD_WIDGET, "method_1880", "(I)V"),
-                        "setMaxLength", "method_1880");
-                Predicate<String> filter = PreviewScreenController::validHeaderEditCandidate;
-                try {
-                    invokeAny(widget, new Object[] {filter},
-                            minecraftMethodName(TEXT_FIELD_WIDGET, "method_1890",
-                                    "(Ljava/util/function/Predicate;)V"),
-                            "setTextPredicate", "setFilter", "method_1890");
-                } catch (NoSuchMethodException ignored) {
-                    // Minecraft 26.x removed the EditBox predicate hook; max length still bounds input.
-                }
                 invokeAny(screen, new Object[] {widget},
                         minecraftMethodName(SCREEN, "method_37063",
                                 "(Lnet/minecraft/class_364;)Lnet/minecraft/class_364;"),
@@ -225,6 +241,19 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
                         minecraftMethodName(SCREEN, "method_48265",
                                 "(Lnet/minecraft/class_364;)V"),
                         "setInitialFocus", "method_48265");
+            }
+            invokeAny(headerEditBox, new Object[] {effectivePurpose.maxLength},
+                    minecraftMethodName(TEXT_FIELD_WIDGET, "method_1880", "(I)V"),
+                    "setMaxLength", "method_1880");
+            Predicate<String> filter = candidate -> validTextEditCandidate(
+                    effectivePurpose, candidate);
+            try {
+                invokeAny(headerEditBox, new Object[] {filter},
+                        minecraftMethodName(TEXT_FIELD_WIDGET, "method_1890",
+                                "(Ljava/util/function/Predicate;)V"),
+                        "setTextPredicate", "setFilter", "method_1890");
+            } catch (NoSuchMethodException ignored) {
+                // Minecraft 26.x removed the EditBox predicate hook; save validation remains authoritative.
             }
             setHeaderText(value == null ? "" : value);
             invokeAny(headerEditBox, new Object[] {false},
@@ -292,6 +321,19 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
     }
 
     static boolean validHeaderEditCandidate(String value) {
+        return validTextEditCandidate(TextFieldPurpose.HEADER, value);
+    }
+
+    static boolean validGroupNameEditCandidate(String value) {
+        return validTextEditCandidate(TextFieldPurpose.GROUP_NAME, value);
+    }
+
+    private static boolean validTextEditCandidate(TextFieldPurpose purpose, String value) {
+        if (purpose == TextFieldPurpose.GROUP_SEARCH) return true;
+        if (purpose == TextFieldPurpose.GROUP_NAME) {
+            return value != null && value.codePointCount(0, value.length())
+                    <= com.gtbstructures.translation.ShortcutLanguageGroups.MAX_NAME_CODE_POINTS;
+        }
         if (ChatHeader.visibleLength(value) <= ChatHeader.MAX_VISIBLE_LENGTH) return true;
         if (value == null || value.isEmpty()) return false;
         char last = value.charAt(value.length() - 1);
@@ -471,12 +513,7 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
         } catch (ClassNotFoundException ignored) {
             // Define it below.
         }
-        try {
-            return MethodHandles.lookup().defineClass(previewScreenBytes());
-        } catch (LinkageError e) {
-            return Class.forName(PREVIEW_SCREEN_CLASS, false,
-                    PreviewScreenController.class.getClassLoader());
-        }
+        return MethodHandles.lookup().defineClass(previewScreenBytes());
     }
 
     static byte[] previewScreenBytes() {
@@ -788,7 +825,8 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
         try {
             MappingResolver resolver = FabricLoader.getInstance().getMappingResolver();
             String mapped = resolver.mapClassName("intermediary", intermediaryName);
-            if (!intermediaryName.equals(mapped)) return mapped;
+            return runtimeMinecraftName(RuntimeMinecraftNames.MAPPINGS_USABLE,
+                    mapped, officialClassName(intermediaryName));
         } catch (RuntimeException | LinkageError e) {
             // Fall through to the official 26.x names below.
         }
@@ -799,11 +837,32 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
         try {
             MappingResolver resolver = FabricLoader.getInstance().getMappingResolver();
             String mapped = resolver.mapMethodName("intermediary", owner, name, descriptor);
-            if (!name.equals(mapped)) return mapped;
+            return runtimeMinecraftName(RuntimeMinecraftNames.MAPPINGS_USABLE,
+                    mapped, officialMethodName(owner, name));
         } catch (RuntimeException | LinkageError e) {
             // Fall through to the official 26.x names below.
         }
         return officialMethodName(owner, name);
+    }
+
+    private static boolean resolverMappingsAreLoadable() {
+        try {
+            MappingResolver resolver = FabricLoader.getInstance().getMappingResolver();
+            String mappedScreen = resolver.mapClassName("intermediary", SCREEN);
+            if (mappedScreen == null || mappedScreen.isBlank()) return false;
+            Class.forName(mappedScreen, false, PreviewScreenController.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
+    static String runtimeMinecraftName(boolean mappingsUsable, String mapped, String official) {
+        return mappingsUsable ? mappedNameOrFallback(mapped, official) : official;
+    }
+
+    static String mappedNameOrFallback(String mapped, String fallback) {
+        return mapped == null || mapped.isBlank() ? fallback : mapped;
     }
 
     private static String officialClassName(String intermediaryName) {

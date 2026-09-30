@@ -2,6 +2,7 @@ package com.gtbstructures.chat;
 
 import com.gtbstructures.diagnostics.RawPacketRecorder;
 import com.gtbstructures.GtbStructures;
+import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.overlay.HudPosition;
 import com.gtbstructures.scoreboard.InterfacePreview;
 import com.gtbstructures.scoreboard.ScoreboardLayout;
@@ -15,6 +16,7 @@ import io.netty.channel.ChannelPromise;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.network.play.client.C01PacketChatMessage;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
@@ -286,31 +288,40 @@ public final class ChatCooldownCounter {
         int widgetHeight = (showTimer ? mc.fontRendererObj.FONT_HEIGHT : 0)
                 + (showTimer && showBar ? 3 : 0)
                 + (showBar ? BAR_HEIGHT : 0);
-        int widgetLeft = HudPosition.left(GtbStructures.chatCooldownPosX, sr.getScaledWidth(), widgetWidth, 2);
-        int widgetTop = HudPosition.top(GtbStructures.chatCooldownPosY, sr.getScaledHeight(), widgetHeight, 2);
-        int centerX = widgetLeft + widgetWidth / 2;
+        float panelScale = HudPanelScale.normalize(GtbStructures.chatCooldownScale);
+        int scaledWidth = HudPanelScale.scaledPixels(widgetWidth, panelScale);
+        int scaledHeight = HudPanelScale.scaledPixels(widgetHeight, panelScale);
+        int widgetLeft = HudPosition.left(GtbStructures.chatCooldownPosX, sr.getScaledWidth(), scaledWidth, 2);
+        int widgetTop = HudPosition.top(GtbStructures.chatCooldownPosY, sr.getScaledHeight(), scaledHeight, 2);
+        int centerX = widgetWidth / 2;
         int x = centerX - BAR_WIDTH / 2;
-        int y = widgetTop + (showTimer ? mc.fontRendererObj.FONT_HEIGHT + 3 : 0);
+        int y = showTimer ? mc.fontRendererObj.FONT_HEIGHT + 3 : 0;
         int labelX = centerX - labelWidth / 2;
-        int labelY = widgetTop;
-        if (showTimer && GtbStructures.chatCooldownBackground) {
-            Gui.drawRect(
-                    labelX - TIMER_BG_PAD_X,
-                    labelY - TIMER_BG_PAD_Y,
-                    labelX + labelWidth + TIMER_BG_PAD_X,
-                    labelY + mc.fontRendererObj.FONT_HEIGHT + TIMER_BG_PAD_Y,
-                    ScoreboardLayout.BACKGROUND_COLOR
-            );
-        }
-        if (showBar) {
-            if (GtbStructures.chatCooldownBarBackground) {
-                Gui.drawRect(x - 1, y - 1, x + BAR_WIDTH + 1, y + BAR_HEIGHT + 1, ScoreboardLayout.BACKGROUND_COLOR);
-                Gui.drawRect(x, y, x + BAR_WIDTH, y + BAR_HEIGHT, 0x66000000);
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(widgetLeft, widgetTop, 0.0F);
+            GlStateManager.scale(panelScale, panelScale, 1.0F);
+            if (showTimer && GtbStructures.chatCooldownBackground) {
+                Gui.drawRect(
+                        labelX - TIMER_BG_PAD_X,
+                        -TIMER_BG_PAD_Y,
+                        labelX + labelWidth + TIMER_BG_PAD_X,
+                        mc.fontRendererObj.FONT_HEIGHT + TIMER_BG_PAD_Y,
+                        ScoreboardLayout.BACKGROUND_COLOR
+                );
             }
-            Gui.drawRect(x, y, x + fill, y + BAR_HEIGHT, fillColor);
-        }
-        if (showTimer) {
-            mc.fontRendererObj.drawStringWithShadow(label, labelX, labelY, 0xFFFFFF);
+            if (showBar) {
+                if (GtbStructures.chatCooldownBarBackground) {
+                    Gui.drawRect(x - 1, y - 1, x + BAR_WIDTH + 1, y + BAR_HEIGHT + 1, ScoreboardLayout.BACKGROUND_COLOR);
+                    Gui.drawRect(x, y, x + BAR_WIDTH, y + BAR_HEIGHT, 0x66000000);
+                }
+                Gui.drawRect(x, y, x + fill, y + BAR_HEIGHT, fillColor);
+            }
+            if (showTimer) {
+                mc.fontRendererObj.drawStringWithShadow(label, labelX, 0, 0xFFFFFF);
+            }
+        } finally {
+            GlStateManager.popMatrix();
         }
     }
 

@@ -264,10 +264,17 @@ public class TranslationData {
 
     private static class Cursor { int i; }
 
+    private static class ParsedTranslation {
+        String languageCode;
+        String translation;
+        boolean explicitlyUnapproved;
+    }
+
     static void parse(String json) {
         // Build into local maps so concurrent readers never observe a half-built
         // index. Only after parsing completes do we publish via a single
         // volatile assignment to SNAPSHOT.
+        TranslationHistory.setCurrentThemeUniverse(json);
         Map<String, Map<String, Set<String>>> index = new HashMap<String, Map<String, Set<String>>>();
         Map<String, Map<String, Set<String>>> guessIndex = new HashMap<String, Map<String, Set<String>>>();
         Map<String, String> englishThemes = new HashMap<String, String>();
@@ -624,9 +631,10 @@ public class TranslationData {
                                          Map<String, ShortcutThemeData> shortcutThemes) {
         cur.i++; // consume '{'
         String englishTheme = null;
+        long themeId = 0L;
         String selectedShortcut = null;
         List<ShortcutMultiwordData> multiwords = new ArrayList<ShortcutMultiwordData>();
-        List<String[]> pendingTranslations = new ArrayList<String[]>();
+        List<ParsedTranslation> pendingTranslations = new ArrayList<ParsedTranslation>();
 
         while (cur.i < json.length()) {
             skipWs(json, cur);
@@ -647,6 +655,8 @@ public class TranslationData {
                 } else {
                     skipValue(json, cur);
                 }
+            } else if ("id".equals(key)) {
+                themeId = readLong(json, cur);
             } else if ("shortcut".equals(key)) {
                 if (cur.i < json.length() && json.charAt(cur.i) == '"') {
                     selectedShortcut = readString(json, cur);
@@ -669,9 +679,12 @@ public class TranslationData {
             String nfcEnglish = Normalizer.normalize(englishTheme, Normalizer.Form.NFC);
             englishThemes.put(nfcEnglish.toLowerCase(), nfcEnglish);
             Map<String, String> translations = new HashMap<String, String>();
-            for (String[] pair : pendingTranslations) {
-                String lang = pair[0];
-                String tr = pair[1];
+            for (ParsedTranslation pair : pendingTranslations) {
+                String lang = pair.languageCode;
+                String tr = pair.translation;
+                if (pair.explicitlyUnapproved) {
+                    tr = TranslationHistory.latestApproved(themeId, lang);
+                }
                 if (lang == null || tr == null || tr.isEmpty()) continue;
                 String nfcTr = Normalizer.normalize(tr, Normalizer.Form.NFC);
                 translations.put(lang, nfcTr);
@@ -803,7 +816,8 @@ public class TranslationData {
     }
 
     /** Parse the "translations" object: keys are language codes, values are objects with a "translation" string. */
-    private static void parseTranslationsObject(String json, Cursor cur, List<String[]> out) {
+    private static void parseTranslationsObject(String json, Cursor cur,
+                                                List<ParsedTranslation> out) {
         skipWs(json, cur);
         if (cur.i >= json.length() || json.charAt(cur.i) != '{') {
             skipValue(json, cur);
@@ -830,8 +844,11 @@ public class TranslationData {
 
             // Value should be an object (or null for missing translations)
             if (cur.i < json.length() && json.charAt(cur.i) == '{') {
-                String tr = parseLangBody(json, cur);
-                if (tr != null) out.add(new String[]{langKey, tr});
+                ParsedTranslation tr = parseLangBody(json, cur);
+                if (tr != null) {
+                    tr.languageCode = langKey;
+                    out.add(tr);
+                }
             } else {
                 skipValue(json, cur);
             }
@@ -839,7 +856,7 @@ public class TranslationData {
     }
 
     /** Inside a per-language object: extract approved "translation" strings. */
-    private static String parseLangBody(String json, Cursor cur) {
+    private static ParsedTranslation parseLangBody(String json, Cursor cur) {
         cur.i++; // consume '{'
         String tr = null;
         Boolean approved = null;
@@ -869,7 +886,11 @@ public class TranslationData {
                 skipValue(json, cur);
             }
         }
-        return Boolean.FALSE.equals(approved) ? null : tr;
+        if (tr == null) return null;
+        ParsedTranslation parsed = new ParsedTranslation();
+        parsed.translation = tr;
+        parsed.explicitlyUnapproved = Boolean.FALSE.equals(approved);
+        return parsed;
     }
 
     private static Boolean readBoolean(String json, Cursor cur) {
@@ -882,6 +903,19 @@ public class TranslationData {
             return Boolean.FALSE;
         }
         return null;
+    }
+
+    private static long readLong(String json, Cursor cur) {
+        skipWs(json, cur);
+        int start = cur.i;
+        if (cur.i < json.length() && json.charAt(cur.i) == '-') cur.i++;
+        while (cur.i < json.length() && Character.isDigit(json.charAt(cur.i))) cur.i++;
+        if (start == cur.i || (start + 1 == cur.i && json.charAt(start) == '-')) return 0L;
+        try {
+            return Long.parseLong(json.substring(start, cur.i));
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
     }
 
     private static void skipValue(String json, Cursor cur) {
@@ -1108,7 +1142,7 @@ public class TranslationData {
     public static List<String> resolveEnglishThemesAt(
             String dataHash, long seenAt, String langCode, String displayedTheme,
             ScoreDelta builderDelta) {
-        if (dataHash != null && dataHash.equalsIgnoreCase(currentDataHash)) {
+        if (seenAt <= 0L && dataHash != null && dataHash.equalsIgnoreCase(currentDataHash)) {
             return resolveEnglishThemes(langCode, displayedTheme, builderDelta);
         }
         TranslationHistory.HistoricalResolution historical = TranslationHistory.resolve(

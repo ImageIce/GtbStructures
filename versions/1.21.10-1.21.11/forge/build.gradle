@@ -27,6 +27,7 @@ minecraft {
         }
 
         client {
+            property 'forge.enabledGameTestNamespaces', mod_id
         }
     }
 }
@@ -146,8 +147,712 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
+tasks.register('runHintStructureParserSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS hint-structure parser smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.hints.HintStructureParserSmoke'
+}
+
+tasks.register('runHudPositionSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS HUD-position smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.overlay.HudPositionSmoke'
+}
+
+tasks.register('runGtbStructuresSettingsDefaultsSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Verifies that fresh GTBS settings match the canonical 26.1 profile.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.GtbStructuresSettingsDefaultsSmoke'
+}
+
+tasks.register('runForgeHudLayerBridgeSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the cross-version Forge HUD-layer registration smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.overlay.ForgeHudLayerBridgeSmoke'
+}
+
+tasks.register('runForgeGuiTextureBridgeCacheSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Verifies that Forge GUI texture compatibility reflection is cached.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.overlay.ForgeGuiTextureBridgeCacheSmoke'
+}
+
+tasks.register('runTrollModeSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS troll-mode outbound transformer smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.chat.TrollModeSmoke'
+}
+
+tasks.register('runWorldEnvironmentLogicSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS world environment overlay logic smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.overlay.WorldEnvironmentLogicSmoke'
+}
+
+tasks.register('runWorldEnvironmentOverlaySmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS world environment overlay source smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.overlay.WorldEnvironmentOverlaySmoke'
+}
+
+tasks.register('runMinecraftFormattingSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS Minecraft formatting smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.util.MinecraftFormattingSmoke'
+}
+
+tasks.register('runTranslationDataSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS translation data smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.translation.TranslationDataSmoke'
+}
+
+tasks.register('runTranslationHistorySmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS historical translation storage smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.translation.TranslationHistorySmoke'
+}
+
+tasks.register('runCopyTranslationSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS copy-translation smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.translation.CopyTranslationSmoke'
+}
+
+tasks.register('runChatNameCompletionSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS chat name-completion smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.chat.ChatNameCompletionSmoke'
+}
+
+tasks.register('runChatAssistSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS chat assist source smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.chat.ChatAssistSmoke'
+}
+
+tasks.register('runScrambleGuessSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS scramble-guess smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.chat.ScrambleGuessSmoke'
+}
+
+tasks.register('runChatCooldownLogicSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS chat cooldown logic smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.chat.ChatCooldownLogicSmoke'
+}
+
+tasks.register('runModernChatCooldownCounterSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS modern chat cooldown counter smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.chat.ModernChatCooldownCounterSmoke'
+}
+
+tasks.register('runBuilderLeaderboardFallbackSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS builder leaderboard fallback smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.player.BuilderLeaderboardFallbackSmoke'
+}
+
+tasks.register('runPlayerMetaCacheRankHarvestSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS player metadata rank-harvest smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.player.PlayerMetaCacheRankHarvestSmoke'
+}
+
+tasks.register('runBbRankDisplayRepairSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS Build Battle rank-display repair smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.player.BbRankDisplayRepairSmoke'
+}
+
+tasks.register('runModernPlayerListLogicSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS modern player-list bridge smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.player.ModernPlayerListLogicSmoke'
+}
+
+tasks.register('runRawPacketRecorderSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS raw packet recorder smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.diagnostics.RawPacketRecorderSmoke'
+}
+
+tasks.register('runGameExporterSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS game exporter smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameExporterSmoke'
+}
+
+tasks.register('runGameExporterHandheldSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS game exporter handheld-item smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameExporterHandheldSmoke'
+}
+
+tasks.register('runGameStatsAutoRequeueSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats auto-requeue smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsAutoRequeueSmoke'
+}
+
+tasks.register('runGameStatsCompletedGameSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats completed-game finalization smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsCompletedGameSmoke'
+}
+
+tasks.register('runGameStatsLeaderboardDropSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats leaderboard-drop smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsLeaderboardDropSmoke'
+}
+
+tasks.register('runGameStatsPendingCurrentSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats pending-current smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsPendingCurrentSmoke'
+}
+
+tasks.register('runGameStatsNotificationSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats notification delivery smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsNotificationSmoke'
+}
+
+tasks.register('runGameStatsTrollAutoDisableSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS Troll Mode auto-disable smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsTrollAutoDisableSmoke'
+}
+
+tasks.register('runGameStatsSidebarSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS live sidebar stats smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsSidebarSmoke'
+}
+
+tasks.register('runGameStatsChatChannelGuardSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS chat-channel correct-guess regression smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsChatChannelGuardSmoke'
+}
+
+tasks.register('runGameStatsPreRoundSkipSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats pre-round skip smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsPreRoundSkipSmoke'
+}
+
+tasks.register('runGameStatsRejoinMessageSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats rejoin-message smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsRejoinMessageSmoke'
+}
+
+tasks.register('runGameStatsRosterGateSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats roster-gate smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsRosterGateSmoke'
+}
+
+tasks.register('runMinecraftLogThemeExtractorSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS Minecraft-log theme extractor smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.MinecraftLogThemeExtractorSmoke'
+}
+
+tasks.register('runStatsArchiveSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats archive smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.StatsArchiveSmoke'
+}
+
+tasks.register('runStatsThemeResolutionSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS stats theme-resolution smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.StatsThemeResolutionSmoke'
+}
+
+tasks.register('runCommandGtbHelpSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS command help smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.commands.CommandGtbHelpSmoke'
+}
+
+tasks.register('runCommandGtbRuntimeSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS command runtime smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.commands.CommandGtbRuntimeSmoke'
+}
+
+tasks.register('runUpdateCheckerSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS update checker smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.update.UpdateCheckerSmoke'
+}
+
+tasks.register('runModernCommandRegistrationSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS modern command-registration smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.ModernCommandRegistrationSmoke'
+}
+
+tasks.register('runModernRuntimeBridgeSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS modern runtime bridge smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.ModernRuntimeBridgeSmoke'
+}
+
+tasks.register('runHandheldItemTrackerSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS handheld item tracker smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.items.HandheldItemTrackerSmoke'
+}
+
+tasks.register('runGtwLogicSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS Guess The Wordhint logic smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.gtw.GtwLogicSmoke'
+}
+
+tasks.register('runGuessChatAnnotatorSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS guess chat annotator smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.translation.GuessChatAnnotatorSmoke'
+}
+
+tasks.register('runBuilderIconLogicSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS builder icon logic smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.BuilderIconLogicSmoke'
+}
+
+tasks.register('runCustomScoreboardLogicSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS custom-scoreboard logic smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.CustomScoreboardLogicSmoke'
+}
+
+tasks.register('runCustomScoreboardOverlayRendererSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS custom-scoreboard renderer smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.CustomScoreboardOverlayRendererSmoke'
+}
+
+tasks.register('runHypixelSkinScoreboardLogicSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS Hypixel scoreboard skin smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.HypixelSkinScoreboardLogicSmoke'
+}
+
+tasks.register('runPendingBuilderScoreSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS pending-builder source smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.PendingBuilderScoreSmoke'
+}
+
+tasks.register('runGameTrackerFirstRoundZeroSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS first-round zero tracker source smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.GameTrackerFirstRoundZeroSmoke'
+}
+
+tasks.register('runGameTrackerRejoinScoreSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS rejoin score tracker source smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.GameTrackerRejoinScoreSmoke'
+}
+
+tasks.register('runGameTrackerPendingBuilderForkSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS pending-builder fork tracker source smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.GameTrackerPendingBuilderForkSmoke'
+}
+
+tasks.register('runGameTrackerPreRoundLeaverSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS pre-round leaver tracker source smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.GameTrackerPreRoundLeaverSmoke'
+}
+
+tasks.register('runGameStatsLowRosterLeaverSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS authoritative low-roster leaver smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.GameStatsLowRosterLeaverSmoke'
+}
+
+tasks.register('runScoreboardFloorStabilitySmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS scoreboard floor-stability source smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.ScoreboardFloorStabilitySmoke'
+}
+
+tasks.register('runScoreboardScoreRetentionSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS scoreboard score-retention source smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.ScoreboardScoreRetentionSmoke'
+}
+
+tasks.register('runInterfacePreviewSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS interface preview smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.InterfacePreviewSmoke'
+}
+
+tasks.register('runPreviewLayoutEditorSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS preview layout editor smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.PreviewLayoutEditorSmoke'
+}
+
+tasks.register('runPointEntrySmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS point-entry smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.PointEntrySmoke'
+}
+
+tasks.register('runScoreboardLayoutSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS scoreboard-layout smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.ScoreboardLayoutSmoke'
+}
+
+tasks.register('runScoreboardStateSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS scoreboard state smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.ScoreboardStateSmoke'
+}
+
+tasks.register('runThemePointAwardSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS theme-point award smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.translation.ThemePointAwardSmoke'
+}
+
+tasks.register('runThemePointRevealSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS exact theme-point reveal smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.translation.ThemePointRevealSmoke'
+}
+
+tasks.register('runShowAllMatchingSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS show-all-matching smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.translation.ShowAllMatchingSmoke'
+}
+
+tasks.register('runShortcutReminderSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS shortcut reminder smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.translation.ShortcutReminderSmoke'
+}
+
+tasks.register('runShortcutLanguageGroupsSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS shortcut language-group smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.translation.ShortcutLanguageGroupsSmoke'
+}
+
+tasks.register('runLangPatternsSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS language patterns smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.LangPatternsSmoke'
+}
+
+tasks.register('runLeaveRejoinSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS leave/rejoin protection smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.commands.LeaveRejoinSmoke'
+}
+
+tasks.register('runLeaderboardRowClassifierSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS leaderboard-row classifier smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.scoreboard.LeaderboardRowClassifierSmoke'
+}
+
+tasks.register('runDisallowedItemHiderSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTU-compatible disallowed-item hider smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.items.DisallowedItemHiderSmoke'
+}
+
+tasks.register('runClassicFontResourcePackSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS classic font resource-pack smoke test.'
+    dependsOn tasks.processResources, tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.font.ClassicFontResourcePackSmoke'
+}
+
+tasks.register('runScoreDeltaSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS score-delta smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.ScoreDeltaSmoke'
+}
+
+tasks.register('runScoreReconcilerSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the GTBS score-reconciler smoke test.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.stats.ScoreReconcilerSmoke'
+}
+
+tasks.register('runSmokeTests') {
+    group = 'verification'
+    description = 'Runs platform-light GTBS smoke tests.'
+    dependsOn tasks.named('verifyCrossVersionIdentifierLinks'),
+            tasks.named('runBuilderIconLogicSmoke'),
+            tasks.named('runBuilderLeaderboardFallbackSmoke'),
+            tasks.named('runChatAssistSmoke'),
+            tasks.named('runScrambleGuessSmoke'),
+            tasks.named('runChatCooldownLogicSmoke'),
+            tasks.named('runClassicFontResourcePackSmoke'),
+            tasks.named('runModernChatCooldownCounterSmoke'),
+            tasks.named('runChatNameCompletionSmoke'),
+            tasks.named('runCommandGtbHelpSmoke'),
+            tasks.named('runCommandGtbRuntimeSmoke'),
+            tasks.named('runUpdateCheckerSmoke'),
+            tasks.named('runModernCommandRegistrationSmoke'),
+            tasks.named('runCopyTranslationSmoke'),
+            tasks.named('runCustomScoreboardLogicSmoke'),
+            tasks.named('runCustomScoreboardOverlayRendererSmoke'),
+            tasks.named('runDisallowedItemHiderSmoke'),
+            tasks.named('runForgeGuiTextureBridgeCacheSmoke'),
+            tasks.named('runForgeHudLayerBridgeSmoke'),
+            tasks.named('runHypixelSkinScoreboardLogicSmoke'),
+            tasks.named('runGameTrackerFirstRoundZeroSmoke'),
+            tasks.named('runGameTrackerPendingBuilderForkSmoke'),
+            tasks.named('runGameTrackerPreRoundLeaverSmoke'),
+            tasks.named('runGameTrackerRejoinScoreSmoke'),
+            tasks.named('runGameExporterSmoke'),
+            tasks.named('runGameExporterHandheldSmoke'),
+            tasks.named('runGameStatsAutoRequeueSmoke'),
+            tasks.named('runGameStatsCompletedGameSmoke'),
+            tasks.named('runGameStatsLeaderboardDropSmoke'),
+            tasks.named('runGameStatsLowRosterLeaverSmoke'),
+            tasks.named('runGameStatsNotificationSmoke'),
+            tasks.named('runGameStatsPendingCurrentSmoke'),
+            tasks.named('runGameStatsSidebarSmoke'),
+            tasks.named('runGameStatsChatChannelGuardSmoke'),
+            tasks.named('runGameStatsTrollAutoDisableSmoke'),
+            tasks.named('runGameStatsPreRoundSkipSmoke'),
+            tasks.named('runGameStatsRejoinMessageSmoke'),
+            tasks.named('runGameStatsRosterGateSmoke'),
+            tasks.named('runGuessChatAnnotatorSmoke'),
+            tasks.named('runGtwLogicSmoke'),
+            tasks.named('runGtbStructuresSettingsDefaultsSmoke'),
+            tasks.named('runHandheldItemTrackerSmoke'),
+            tasks.named('runHintStructureParserSmoke'),
+            tasks.named('runInterfacePreviewSmoke'),
+            tasks.named('runLangPatternsSmoke'),
+            tasks.named('runLeaveRejoinSmoke'),
+            tasks.named('runLeaderboardRowClassifierSmoke'),
+            tasks.named('runHudPositionSmoke'),
+            tasks.named('runMinecraftFormattingSmoke'),
+            tasks.named('runMinecraftLogThemeExtractorSmoke'),
+            tasks.named('runModernRuntimeBridgeSmoke'),
+            tasks.named('runBbRankDisplayRepairSmoke'),
+            tasks.named('runPlayerMetaCacheRankHarvestSmoke'),
+            tasks.named('runModernPlayerListLogicSmoke'),
+            tasks.named('runPendingBuilderScoreSmoke'),
+            tasks.named('runPointEntrySmoke'),
+            tasks.named('runPreviewLayoutEditorSmoke'),
+            tasks.named('runRawPacketRecorderSmoke'),
+            tasks.named('runScoreboardLayoutSmoke'),
+            tasks.named('runScoreboardFloorStabilitySmoke'),
+            tasks.named('runScoreboardScoreRetentionSmoke'),
+            tasks.named('runScoreboardStateSmoke'),
+            tasks.named('runScoreDeltaSmoke'),
+            tasks.named('runScoreReconcilerSmoke'),
+            tasks.named('runStatsArchiveSmoke'),
+            tasks.named('runStatsThemeResolutionSmoke'),
+            tasks.named('runShortcutLanguageGroupsSmoke'),
+            tasks.named('runShortcutReminderSmoke'),
+            tasks.named('runShowAllMatchingSmoke'),
+            tasks.named('runThemePointAwardSmoke'),
+            tasks.named('runThemePointRevealSmoke'),
+            tasks.named('runTrollModeSmoke'),
+            tasks.named('runTranslationDataSmoke'),
+            tasks.named('runTranslationHistorySmoke'),
+            tasks.named('runWorldEnvironmentLogicSmoke'),
+            tasks.named('runWorldEnvironmentOverlaySmoke')
+}
+
 sourceSets.each {
     def dir = layout.buildDirectory.dir("sourcesSets/$it.name")
     it.output.resourcesDir = dir
     it.java.destinationDirectory = dir
+}
+
+// Shared by the 26.x roots, which discover these same smoke classes automatically.
+def guessSoundMigrationSmokes = [
+        'com.gtbstructures.sound.GuessSoundsModernSmoke',
+        'com.gtbstructures.sound.MinecraftClientSoundBridgeSmoke',
+        'com.gtbstructures.sound.GuessSoundsChatModernSmoke',
+        'com.gtbstructures.sound.SoundIconMappingSmoke',
+        'com.gtbstructures.GuessSoundsConfigModernSmoke',
+        'com.gtbstructures.scoreboard.GuessSoundsUiStateSmoke',
+        'com.gtbstructures.stats.GameStatsNickBuilderScoreSmoke',
+]
+guessSoundMigrationSmokes.each { smokeClass ->
+    def taskName = 'run' + smokeClass.substring(smokeClass.lastIndexOf('.') + 1)
+    tasks.register(taskName, JavaExec) {
+        group = 'verification'
+        dependsOn tasks.testClasses
+        classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+        mainClass = smokeClass
+    }
+}
+tasks.named('runSmokeTests') {
+    dependsOn guessSoundMigrationSmokes.collect { 'run' + it.substring(it.lastIndexOf('.') + 1) }
 }

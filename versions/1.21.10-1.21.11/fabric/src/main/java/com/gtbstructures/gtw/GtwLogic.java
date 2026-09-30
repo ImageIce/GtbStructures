@@ -1,5 +1,7 @@
 package com.gtbstructures.gtw;
 
+import com.gtbstructures.translation.TranslationData;
+
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -15,6 +17,7 @@ import java.util.Random;
 public final class GtwLogic {
 
     private static final Map<String, String> LANG_LOOKUP;
+    private static final Map<String, String> LANGUAGE_DISPLAY_NAMES;
     private static final List<String> ALL_CODES;
     private static final int ACCENT_NORM_CACHE_LIMIT = 512;
     private static final Map<String, String> ACCENT_NORM_CACHE =
@@ -31,36 +34,38 @@ public final class GtwLogic {
     static {
         Map<String, String> lookup = new LinkedHashMap<String, String>();
         Object[][] table = {
-                {"en",    "english",                "en"},
-                {"fr",    "french",                 "fr"},
-                {"de",    "german",                 "de"},
-                {"it",    "italian",                "it"},
-                {"nl",    "dutch",                  "nl"},
-                {"es",    "spanish",                "es"},
-                {"pt",    "portuguese",             "pt"},
-                {"ptbr",  "portuguese (brazil)",    "ptbr"},
-                {"ru",    "russian",                "ru"},
-                {"ko",    "korean",                 "ko"},
-                {"pl",    "polish",                 "pl"},
-                {"ja",    "japanese",               "ja"},
-                {"ir",    "pirate",                 "pirate"},
-                {"no",    "norwegian",              "no"},
-                {"sv",    "swedish",                "sv"},
-                {"tr",    "turkish",                "tr"},
-                {"da",    "danish",                 "da"},
-                {"cs",    "czech",                  "cs"},
-                {"fi",    "finnish",                "fi"},
-                {"zh_cn", "chinese (simplified)",   "zh_cn"},
-                {"zh_tw", "chinese (traditional)",  "zh_tw"},
-                {"ro",    "romanian",               "ro"},
-                {"hu",    "hungarian",              "hu"},
-                {"uk",    "ukrainian",              "uk"},
+                {"en",    "english",                "en",    "English"},
+                {"fr",    "french",                 "fr",    "French"},
+                {"de",    "german",                 "de",    "German"},
+                {"it",    "italian",                "it",    "Italian"},
+                {"nl",    "dutch",                  "nl",    "Dutch"},
+                {"es",    "spanish",                "es",    "Spanish"},
+                {"pt",    "portuguese",             "pt",    "Portuguese"},
+                {"ptbr",  "portuguese (brazil)",    "ptbr",  "Portuguese (BR)"},
+                {"ru",    "russian",                "ru",    "Russian"},
+                {"ko",    "korean",                 "ko",    "Korean"},
+                {"pl",    "polish",                 "pl",    "Polish"},
+                {"ja",    "japanese",               "ja",    "Japanese"},
+                {"ir",    "pirate",                 "pirate", "Pirate Speak"},
+                {"no",    "norwegian",              "no",    "Norwegian"},
+                {"sv",    "swedish",                "sv",    "Swedish"},
+                {"tr",    "turkish",                "tr",    "Turkish"},
+                {"da",    "danish",                 "da",    "Danish"},
+                {"cs",    "czech",                  "cs",    "Czech"},
+                {"fi",    "finnish",                "fi",    "Finnish"},
+                {"zh_cn", "chinese (simplified)",   "zh_cn", "Chinese (Simplified)"},
+                {"zh_tw", "chinese (traditional)",  "zh_tw", "Chinese (Traditional)"},
+                {"ro",    "romanian",               "ro",    "Romanian"},
+                {"hu",    "hungarian",              "hu",    "Hungarian"},
+                {"uk",    "ukrainian",              "uk",    "Ukrainian"},
         };
         List<String> codes = new ArrayList<String>();
+        Map<String, String> displayNames = new LinkedHashMap<String, String>();
         for (Object[] row : table) {
             String code = (String) row[0];
             String name = (String) row[1];
             String mod = (String) row[2];
+            String displayName = (String) row[3];
             lookup.put(code, mod);
             lookup.put(name, mod);
             if ("ptbr".equals(code)) {
@@ -79,12 +84,79 @@ public final class GtwLogic {
                 lookup.put("pirate speak", mod);
             }
             codes.add(code);
+            displayNames.put(mod, displayName);
         }
         LANG_LOOKUP = Collections.unmodifiableMap(lookup);
+        LANGUAGE_DISPLAY_NAMES = Collections.unmodifiableMap(displayNames);
         ALL_CODES = Collections.unmodifiableList(codes);
     }
 
     private GtwLogic() {
+    }
+
+    /** Canonical English-origin difficulty pool names for GTW. */
+    public static String normalizeDifficulty(String value) {
+        if (value == null) return "all";
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return "easy".equals(normalized) || "medium".equals(normalized)
+                || "hard".equals(normalized) || "all".equals(normalized)
+                ? normalized : "all";
+    }
+
+    /** Returns null for user input that is not one of the public difficulty values. */
+    public static String parseDifficulty(String value) {
+        if (value == null) return null;
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return "easy".equals(normalized) || "medium".equals(normalized)
+                || "hard".equals(normalized) || "all".equals(normalized)
+                ? normalized : null;
+    }
+
+    public static boolean difficultyMatches(String englishTheme, String difficulty) {
+        String normalized = normalizeDifficulty(difficulty);
+        return "all".equals(normalized)
+                || normalized.equals(difficultyForLengthBucket(TranslationData.lengthBucket(englishTheme)));
+    }
+
+    public static List<String> filterEnglishThemesByDifficulty(
+            List<String> englishThemes, String difficulty) {
+        if (englishThemes == null || englishThemes.isEmpty()) {
+            return Collections.emptyList();
+        }
+        ArrayList<String> matches = new ArrayList<String>();
+        for (String theme : englishThemes) {
+            if (theme != null && difficultyMatches(theme, difficulty)) matches.add(theme);
+        }
+        return matches;
+    }
+
+    public static String pickEnglishThemeByDifficulty(
+            List<String> englishThemes, String difficulty, Random rng) {
+        List<String> matches = filterEnglishThemesByDifficulty(englishThemes, difficulty);
+        if (matches.isEmpty()) return null;
+        Random effectiveRng = rng == null ? new Random() : rng;
+        return matches.get(effectiveRng.nextInt(matches.size()));
+    }
+
+    public static String difficultyDisplay(String difficulty) {
+        String normalized = normalizeDifficulty(difficulty);
+        if ("easy".equals(normalized)) return "\u00a7aEASY";
+        if ("medium".equals(normalized)) return "\u00a7eMEDIUM";
+        if ("hard".equals(normalized)) return "\u00a7cHARD";
+        return "\u00a7fALL";
+    }
+
+    public static String languageDisplayName(String langCode) {
+        String code = resolveLanguage(langCode);
+        String displayName = LANGUAGE_DISPLAY_NAMES.get(code);
+        if (displayName != null) return displayName;
+        return langCode == null || langCode.trim().isEmpty() ? "English" : langCode;
+    }
+
+    private static String difficultyForLengthBucket(int bucket) {
+        if (bucket == 1) return "easy";
+        if (bucket == 2) return "medium";
+        return "hard";
     }
 
     public static String[] buildProgressiveHints(String text, int maxReveals, Random rng) {

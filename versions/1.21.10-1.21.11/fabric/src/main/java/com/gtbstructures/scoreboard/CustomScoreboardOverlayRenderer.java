@@ -237,17 +237,24 @@ public final class CustomScoreboardOverlayRenderer {
             right[i] = playerRight(players[i], config, expanded);
         }
 
-        String headerLeft = "\u00a77Round";
-        String headerRight = "\u00a7a10\u00a77/\u00a7a10";
-        String timerLeft = "\u00a77Time Left";
-        String timerRight = "\u00a7a0:13";
+        List<CustomScoreboardLogic.MetadataRow> metadataRows =
+                new ArrayList<CustomScoreboardLogic.MetadataRow>();
+        metadataRows.add(new CustomScoreboardLogic.MetadataRow("header", "\u00a77Round",
+                CustomScoreboardLogic.formatRoundProgress(10, 10, false, false)));
+        if (config.defaultExplicitlyShowBuilders) {
+            metadataRows.add(new CustomScoreboardLogic.MetadataRow(
+                    "builder", "\u00a77Builder", previewBuilderValue(players)));
+        }
+        metadataRows.add(new CustomScoreboardLogic.MetadataRow(
+                "timer", "\u00a77Time Left", "\u00a7a0:13"));
         String theme = InterfacePreview.localizedPreviewTheme(lang);
         String themeLabel = "\u00a77Theme [\u00a7a" + lengthBucket(theme) + "\u00a77]:";
         String themeValue = "\u00a7a" + theme;
 
         int contentWidth = 80;
-        contentWidth = Math.max(contentWidth, measurePair(font, headerLeft, headerRight));
-        contentWidth = Math.max(contentWidth, measurePair(font, timerLeft, timerRight));
+        for (CustomScoreboardLogic.MetadataRow row : metadataRows) {
+            contentWidth = Math.max(contentWidth, measurePair(font, row.left, row.right));
+        }
         contentWidth = Math.max(contentWidth, textWidth(font, themeLabel));
         contentWidth = Math.max(contentWidth, textWidth(font, themeValue));
         for (int i = 0; i < players.length; i++) {
@@ -259,26 +266,25 @@ public final class CustomScoreboardOverlayRenderer {
         }
         contentWidth += 6;
 
-        int lineCount = 2 + 1 + players.length + 1 + 2;
+        int lineCount = metadataRows.size() + 1 + players.length + 1 + 2;
         ScoreboardLayout.Placement placement = ScoreboardLayout.place(screenWidth, screenHeight,
                 contentWidth, lineCount, heightOffset);
         int editorLeft = placement.bgX1 - CustomScoreboardLogic.ICON_OUTSIDE_GAP
                 - CustomScoreboardLogic.ICON_DRAW_SIZE;
-        fill(graphics, placement.bgX1, placement.bgY1, placement.bgX2, placement.bgY2,
-                config.backgroundColor());
         PreviewLayoutEditor.registerWithBackground("scoreboard", editorLeft, placement.bgY1,
                 placement.bgX2 - editorLeft, placement.bgY2 - placement.bgY1,
                 PreviewLayoutEditor.SCOREBOARD,
                 (bgLeft, bgTop, bgRight, bgBottom, color) ->
                         fill(graphics, bgLeft, bgTop, bgRight, bgBottom, color));
+        fill(graphics, placement.bgX1, placement.bgY1, placement.bgX2, placement.bgY2,
+                config.backgroundColor());
 
         int y = placement.y;
-        drawPair(graphics, font, headerLeft, headerRight, placement.x, y, contentWidth,
-                config.textShadow);
-        y += ScoreboardLayout.LINE_HEIGHT;
-        drawPair(graphics, font, timerLeft, timerRight, placement.x, y, contentWidth,
-                config.textShadow);
-        y += ScoreboardLayout.LINE_HEIGHT;
+        for (CustomScoreboardLogic.MetadataRow row : metadataRows) {
+            drawPair(graphics, font, row.left, row.right, placement.x, y, contentWidth,
+                    config.textShadow);
+            y += ScoreboardLayout.LINE_HEIGHT;
+        }
         drawSeparator(graphics, placement.x, y, contentWidth);
         y += ScoreboardLayout.LINE_HEIGHT;
 
@@ -331,6 +337,10 @@ public final class CustomScoreboardOverlayRenderer {
         int titleBackground = customPlayerRows ? config.backgroundColor() : 0x60000000;
         int rowBackground = customPlayerRows ? config.backgroundColor() : ScoreboardLayout.BACKGROUND_COLOR;
         boolean shadow = customPlayerRows && config.textShadow;
+        PreviewLayoutEditor.registerWithBackground("scoreboard", editorLeft, topY,
+                rightCellRight - editorLeft, totalPanelHeight + 1,
+                PreviewLayoutEditor.SCOREBOARD,
+                (left, top, right, bottom, color) -> fill(graphics, left, top, right, bottom, color));
         fill(graphics, leftX - 2, topY, rightCellRight, topY + lineHeight, titleBackground);
         fill(graphics, leftX - 2, topY + lineHeight, rightCellRight,
                 topY + lineHeight + 1, rowBackground);
@@ -341,10 +351,6 @@ public final class CustomScoreboardOverlayRenderer {
             y += lineHeight;
         }
 
-        PreviewLayoutEditor.registerWithBackground("scoreboard", editorLeft, topY,
-                rightCellRight - editorLeft, totalPanelHeight + 1,
-                PreviewLayoutEditor.SCOREBOARD,
-                (left, top, right, bottom, color) -> fill(graphics, left, top, right, bottom, color));
         drawTextMaybeShadow(graphics, font, title,
                 leftX + contentWidth / 2 - textWidth(font, title) / 2, topY, 0xFFFFFF,
                 shadow);
@@ -440,6 +446,17 @@ public final class CustomScoreboardOverlayRenderer {
         };
     }
 
+    private static String previewBuilderValue(PreviewPlayer[] players) {
+        if (players != null) {
+            for (PreviewPlayer player : players) {
+                if (player != null && player.currentBuilder) {
+                    return player.nameColor + player.name;
+                }
+            }
+        }
+        return "\u00a7c???";
+    }
+
     private static String playerLeft(PreviewPlayer player, ScoreboardConfig config, boolean expanded,
                                      boolean indentBuilder, String lang, int placeNumber) {
         String place = config.showPlaces(expanded) ? CustomScoreboardLogic.placePrefix(placeNumber) : "";
@@ -524,12 +541,11 @@ public final class CustomScoreboardOverlayRenderer {
         fill(graphics, placement.bgX1, placement.bgY1, placement.bgX2, placement.bgY2,
                 config.backgroundColor());
         int y = placement.y;
-        drawPair(graphics, font, panel.headerLeft, panel.headerRight, placement.x, y, contentWidth,
-                config.textShadow);
-        y += ScoreboardLayout.LINE_HEIGHT;
-        drawPair(graphics, font, panel.timerLeft, panel.timerRight, placement.x, y, contentWidth,
-                config.textShadow);
-        y += ScoreboardLayout.LINE_HEIGHT;
+        for (CustomScoreboardLogic.MetadataRow row : panel.metadataRows) {
+            drawPair(graphics, font, row.left, row.right, placement.x, y, contentWidth,
+                    config.textShadow);
+            y += ScoreboardLayout.LINE_HEIGHT;
+        }
         drawSeparator(graphics, placement.x, y, contentWidth);
         y += ScoreboardLayout.LINE_HEIGHT;
 
@@ -961,8 +977,9 @@ public final class CustomScoreboardOverlayRenderer {
                 || matchesSnapshot(skin, panel)) return;
         List<RawPacketRecorder.ScoreboardLine> snapshotRows =
                 new ArrayList<RawPacketRecorder.ScoreboardLine>();
-        snapshotRows.add(new RawPacketRecorder.ScoreboardLine("header", panel.headerLeft, panel.headerRight));
-        snapshotRows.add(new RawPacketRecorder.ScoreboardLine("timer", panel.timerLeft, panel.timerRight));
+        for (CustomScoreboardLogic.MetadataRow row : panel.metadataRows) {
+            snapshotRows.add(new RawPacketRecorder.ScoreboardLine(row.kind, row.left, row.right));
+        }
         for (CustomScoreboardLogic.Row row : panel.rows) {
             snapshotRows.add(new RawPacketRecorder.ScoreboardLine("player", row.left, row.right));
         }
@@ -1000,18 +1017,19 @@ public final class CustomScoreboardOverlayRenderer {
     }
 
     private static boolean matchesSnapshot(String skin, CustomScoreboardLogic.PanelRows panel) {
-        if (!matchesSnapshotHeader(skin, panel.rows.size() + 4)
-                || !matchesSnapshotRow(0, "header", panel.headerLeft, panel.headerRight)
-                || !matchesSnapshotRow(1, "timer", panel.timerLeft, panel.timerRight)) {
+        if (!matchesSnapshotHeader(skin, panel.metadataRows.size() + panel.rows.size() + 2)) {
             return false;
+        }
+        int snapshotIndex = 0;
+        for (CustomScoreboardLogic.MetadataRow row : panel.metadataRows) {
+            if (!matchesSnapshotRow(snapshotIndex++, row.kind, row.left, row.right)) return false;
         }
         for (int i = 0; i < panel.rows.size(); i++) {
             CustomScoreboardLogic.Row row = panel.rows.get(i);
-            if (!matchesSnapshotRow(i + 2, "player", row.left, row.right)) return false;
+            if (!matchesSnapshotRow(snapshotIndex++, "player", row.left, row.right)) return false;
         }
-        int themeIndex = panel.rows.size() + 2;
-        return matchesSnapshotRow(themeIndex, "theme_label", panel.themeLabel, "")
-                && matchesSnapshotRow(themeIndex + 1, "theme", panel.themeValueLine, "");
+        return matchesSnapshotRow(snapshotIndex, "theme_label", panel.themeLabel, "")
+                && matchesSnapshotRow(snapshotIndex + 1, "theme", panel.themeValueLine, "");
     }
 
     private static boolean matchesHypixelSnapshot(String skin,

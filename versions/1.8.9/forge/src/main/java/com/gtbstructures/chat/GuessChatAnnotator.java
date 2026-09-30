@@ -134,8 +134,11 @@ public final class GuessChatAnnotator {
         String guess = clean.substring(colonIdx + 2).trim();
         if (guess.isEmpty()) return null;
 
-        int visibleStart = visible.indexOf(guess, Math.min(colonIdx + 2, visible.length()));
-        if (visibleStart < 0) visibleStart = Math.min(colonIdx + 2, visible.length());
+        int visibleColonIdx = visible.indexOf(": ");
+        if (visibleColonIdx < 0) return null;
+        int searchFrom = Math.min(visibleColonIdx + 2, visible.length());
+        int visibleStart = visible.indexOf(guess, searchFrom);
+        if (visibleStart < 0) visibleStart = searchFrom;
         return new ParsedGuess(guess, visibleStart, visibleStart + guess.length());
     }
 

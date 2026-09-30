@@ -1,15 +1,20 @@
 package com.gtbstructures;
 
 import com.gtbstructures.chat.ChatHeader;
+import com.gtbstructures.gtw.GtwLogic;
 import com.gtbstructures.items.HandheldItemTracker;
+import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.overlay.WorldEnvironmentLogic;
 import com.gtbstructures.scoreboard.ScoreboardConfig;
+import com.gtbstructures.sound.GuessSounds;
+import com.gtbstructures.translation.ShortcutLanguageGroups;
 import com.gtbstructures.util.MinecraftFormatting;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Properties;
 
 /** Modern runtime settings mirroring the non-excluded 1.8.9 GTBS config. */
@@ -17,19 +22,27 @@ public final class GtbStructuresSettings {
     public static final GtbStructuresSettings INSTANCE = new GtbStructuresSettings();
     public static final float DEFAULT_HANDHELD_PANEL_WIDTH_RATIO = 0.328125F;
     public static final float DEFAULT_HANDHELD_PANEL_HEIGHT_RATIO = 0.3323263F;
+    public static final float DEFAULT_AUTO_REQUEUE_DELAY_SECONDS = 5.0F;
+    public static final float MAX_AUTO_REQUEUE_DELAY_SECONDS = 10.0F;
 
     private File configFile;
     private int legacyHandheldItemPanelWidth = -1;
     private int legacyHandheldItemPanelHeight = -1;
+    private String shortcutReminderLanguageGroupsPrimary =
+            ShortcutLanguageGroups.DEFAULT_SERIALIZED;
+    private String shortcutReminderLanguageGroupsBackup =
+            ShortcutLanguageGroups.DEFAULT_SERIALIZED;
 
     /** Master switch. Missing legacy config entries intentionally migrate to enabled. */
     public boolean modEnabled = true;
     public boolean enabled = false;
     public boolean trackingEnabled = true;
     public boolean autoRequeue = false;
+    public float autoRequeueDelaySeconds = DEFAULT_AUTO_REQUEUE_DELAY_SECONDS;
     public boolean updateNoticeEnabled = true;
     public boolean showAllMatching = false;
     public boolean showAllMatchingShowEnglish = false;
+    public boolean showAllMatchingShowCount = true;
     public boolean themePointReveal = false;
     public boolean themePointRevealShowAfterGuess = false;
     public boolean shortcutReminder = true;
@@ -69,7 +82,9 @@ public final class GtbStructuresSettings {
     public boolean chatCooldownBackground = true;
     public boolean chatCooldownBarBackground = false;
     public boolean gtwShowEnglish = false;
+    public boolean gtwShowCount = true;
     public boolean copyTranslationPrefix = true;
+    public boolean copyTranslationCaps = true;
     public boolean guessPeek = true;
     public boolean guessPeekShowLangCodes = true;
     public String guessPeekDisplay = "hover";
@@ -77,10 +92,16 @@ public final class GtbStructuresSettings {
     public boolean scrambleGuessFancy = false;
     public boolean trollMode = false;
     public boolean trollModeAutoDisable = false;
+    public String guessSound1 = GuessSounds.DEFAULT_SOUND;
+    public String guessSound2 = GuessSounds.DEFAULT_SOUND;
+    public String guessSound3 = GuessSounds.DEFAULT_SOUND;
+    public float guessSoundVolume = GuessSounds.DEFAULT_VOLUME;
+    public boolean lrjBypassLobbyProtection = true;
     public String fontMode = "new";
     public String spawnEggSkin = "new";
     public String environmentTimeIconPreset = "clock";
     public String gtwDefaultLang = "en";
+    public String gtwDifficulty = "all";
     public float posX = 0.5F;
     public float posY = 0.8522013F;
     public float handheldItemPosX = 0.0F;
@@ -89,6 +110,10 @@ public final class GtbStructuresSettings {
     public float environmentPosY = 0.52F;
     public float chatCooldownPosX = 0.5F;
     public float chatCooldownPosY = 0.76F;
+    public float hintStructureScale = HudPanelScale.DEFAULT;
+    public float chatCooldownScale = HudPanelScale.DEFAULT;
+    public float handheldItemScale = HudPanelScale.DEFAULT;
+    public float environmentScale = HudPanelScale.DEFAULT;
     public int handheldItemMaxVisible = 6;
     public float handheldItemPanelWidthRatio = DEFAULT_HANDHELD_PANEL_WIDTH_RATIO;
     public float handheldItemPanelHeightRatio = DEFAULT_HANDHELD_PANEL_HEIGHT_RATIO;
@@ -120,6 +145,10 @@ public final class GtbStructuresSettings {
 
     public synchronized void load() {
         if (configFile == null || !configFile.isFile()) {
+            ShortcutLanguageGroups.load(ShortcutLanguageGroups.DEFAULT_SERIALIZED,
+                    ShortcutLanguageGroups.DEFAULT_SERIALIZED);
+            shortcutReminderLanguageGroupsPrimary = ShortcutLanguageGroups.DEFAULT_SERIALIZED;
+            shortcutReminderLanguageGroupsBackup = ShortcutLanguageGroups.DEFAULT_SERIALIZED;
             normalize();
             return;
         }
@@ -129,6 +158,10 @@ public final class GtbStructuresSettings {
             in = new FileInputStream(configFile);
             p.load(in);
         } catch (IOException ignored) {
+            ShortcutLanguageGroups.load(ShortcutLanguageGroups.DEFAULT_SERIALIZED,
+                    ShortcutLanguageGroups.DEFAULT_SERIALIZED);
+            shortcutReminderLanguageGroupsPrimary = ShortcutLanguageGroups.DEFAULT_SERIALIZED;
+            shortcutReminderLanguageGroupsBackup = ShortcutLanguageGroups.DEFAULT_SERIALIZED;
             normalize();
             return;
         } finally {
@@ -145,9 +178,12 @@ public final class GtbStructuresSettings {
         enabled = bool(p, "enabled", enabled);
         trackingEnabled = bool(p, "trackingEnabled", trackingEnabled);
         autoRequeue = bool(p, "autoRequeue", autoRequeue);
+        autoRequeueDelaySeconds = flt(p, "autoRequeueDelaySeconds",
+                DEFAULT_AUTO_REQUEUE_DELAY_SECONDS);
         updateNoticeEnabled = bool(p, "updateNoticeEnabled", updateNoticeEnabled);
         showAllMatching = bool(p, "showAllMatching", showAllMatching);
         showAllMatchingShowEnglish = bool(p, "showAllMatchingShowEnglish", showAllMatchingShowEnglish);
+        showAllMatchingShowCount = bool(p, "showAllMatchingShowCount", true);
         themePointReveal = bool(p, "themePointReveal", themePointReveal);
         themePointRevealShowAfterGuess = bool(p, "themePointRevealShowAfterGuess", themePointRevealShowAfterGuess);
         shortcutReminder = bool(p, "shortcutReminder", shortcutReminder);
@@ -160,6 +196,12 @@ public final class GtbStructuresSettings {
         shortcutReminderShowAllShortcuts = bool(p, "shortcutReminderShowAllShortcuts", shortcutReminderShowAllShortcuts);
         shortcutReminderShowMultiwords = bool(p, "shortcutReminderShowMultiwords", shortcutReminderShowMultiwords);
         shortcutReminderShowAllMultiwords = bool(p, "shortcutReminderShowAllMultiwords", shortcutReminderShowAllMultiwords);
+        shortcutReminderLanguageGroupsPrimary = p.getProperty("shortcutReminderLanguageGroups",
+                ShortcutLanguageGroups.DEFAULT_SERIALIZED);
+        shortcutReminderLanguageGroupsBackup = p.getProperty("shortcutReminderLanguageGroupsBackup",
+                ShortcutLanguageGroups.DEFAULT_SERIALIZED);
+        ShortcutLanguageGroups.load(shortcutReminderLanguageGroupsPrimary,
+                shortcutReminderLanguageGroupsBackup);
         hintBackgroundOverlay = bool(p, "hintBackgroundOverlay", hintBackgroundOverlay);
         hintStructureBackground = bool(p, "hintStructureBackground", hintStructureBackground);
         handheldItemOverlay = bool(p, "handheldItemOverlay", handheldItemOverlay);
@@ -187,7 +229,9 @@ public final class GtbStructuresSettings {
         chatCooldownBackground = bool(p, "chatCooldownBackground", chatCooldownBackground);
         chatCooldownBarBackground = bool(p, "chatCooldownBarBackground", chatCooldownBarBackground);
         gtwShowEnglish = bool(p, "gtwShowEnglish", gtwShowEnglish);
+        gtwShowCount = bool(p, "gtwShowCount", true);
         copyTranslationPrefix = bool(p, "copyTranslationPrefix", copyTranslationPrefix);
+        copyTranslationCaps = bool(p, "copyTranslationCaps", true);
         guessPeek = bool(p, "guessPeek", guessPeek);
         guessPeekShowLangCodes = bool(p, "guessPeekShowLangCodes", guessPeekShowLangCodes);
         guessPeekDisplay = p.getProperty("guessPeekDisplay", guessPeekDisplay);
@@ -195,6 +239,11 @@ public final class GtbStructuresSettings {
         scrambleGuessFancy = bool(p, "scrambleGuessFancy", scrambleGuessFancy);
         trollMode = bool(p, "trollMode", trollMode);
         trollModeAutoDisable = bool(p, "trollModeAutoDisable", trollModeAutoDisable);
+        guessSound1 = p.getProperty("guessSound1", GuessSounds.DEFAULT_SOUND);
+        guessSound2 = p.getProperty("guessSound2", GuessSounds.DEFAULT_SOUND);
+        guessSound3 = p.getProperty("guessSound3", GuessSounds.DEFAULT_SOUND);
+        guessSoundVolume = flt(p, "guessSoundVolume", GuessSounds.DEFAULT_VOLUME);
+        lrjBypassLobbyProtection = bool(p, "lrjBypassLobbyProtection", true);
         if (!ChatHeader.set(p.getProperty("chatHeader", ChatHeader.DEFAULT_RAW))) {
             ChatHeader.reset();
         }
@@ -202,6 +251,7 @@ public final class GtbStructuresSettings {
         spawnEggSkin = p.getProperty("spawnEggSkin", spawnEggSkin);
         environmentTimeIconPreset = p.getProperty("environmentTimeIconPreset", environmentTimeIconPreset);
         gtwDefaultLang = p.getProperty("gtwDefaultLang", gtwDefaultLang);
+        gtwDifficulty = p.getProperty("gtwDifficulty", gtwDifficulty);
         posX = flt(p, "posX", posX);
         posY = flt(p, "posY", posY);
         handheldItemPosX = flt(p, "handheldItemPosX", handheldItemPosX);
@@ -210,6 +260,10 @@ public final class GtbStructuresSettings {
         environmentPosY = flt(p, "environmentPosY", environmentPosY);
         chatCooldownPosX = flt(p, "chatCooldownPosX", chatCooldownPosX);
         chatCooldownPosY = flt(p, "chatCooldownPosY", chatCooldownPosY);
+        hintStructureScale = flt(p, "hintStructureScale", HudPanelScale.DEFAULT);
+        chatCooldownScale = flt(p, "chatCooldownScale", HudPanelScale.DEFAULT);
+        handheldItemScale = flt(p, "handheldItemScale", HudPanelScale.DEFAULT);
+        environmentScale = flt(p, "environmentScale", HudPanelScale.DEFAULT);
         handheldItemMaxVisible = integer(p, "handheldItemMaxVisible", handheldItemMaxVisible);
         if (p.containsKey("handheldItemPanelWidthRatio")) {
             handheldItemPanelWidthRatio = flt(p, "handheldItemPanelWidthRatio", handheldItemPanelWidthRatio);
@@ -245,6 +299,9 @@ public final class GtbStructuresSettings {
                 p.getProperty("scoreboardShowTitles"), sbConfig.showTitles);
         sbConfig.showEmblems = ScoreboardConfig.parseOption(
                 p.getProperty("scoreboardShowEmblems"), sbConfig.showEmblems);
+        sbConfig.defaultExplicitlyShowBuilders = bool(p, "defaultExplicitlyShowBuilders", false);
+        sbConfig.hypixelShowRounds = ScoreboardConfig.parseOption(
+                p.getProperty("hypixelShowRounds"), ScoreboardConfig.DisplayOption.OFF);
         sbConfig.leftPlayersAtBottom = bool(p, "scoreboardLeftPlayersAtBottom",
                 sbConfig.leftPlayersAtBottom);
         sbConfig.textShadow = bool(p, "scoreboardTextShadow", sbConfig.textShadow);
@@ -262,9 +319,12 @@ public final class GtbStructuresSettings {
         put(p, "enabled", enabled);
         put(p, "trackingEnabled", trackingEnabled);
         put(p, "autoRequeue", autoRequeue);
+        p.setProperty("autoRequeueDelaySeconds",
+                formatAutoRequeueDelaySeconds(autoRequeueDelaySeconds));
         put(p, "updateNoticeEnabled", updateNoticeEnabled);
         put(p, "showAllMatching", showAllMatching);
         put(p, "showAllMatchingShowEnglish", showAllMatchingShowEnglish);
+        put(p, "showAllMatchingShowCount", showAllMatchingShowCount);
         put(p, "themePointReveal", themePointReveal);
         put(p, "themePointRevealShowAfterGuess", themePointRevealShowAfterGuess);
         put(p, "shortcutReminder", shortcutReminder);
@@ -277,6 +337,14 @@ public final class GtbStructuresSettings {
         put(p, "shortcutReminderShowAllShortcuts", shortcutReminderShowAllShortcuts);
         put(p, "shortcutReminderShowMultiwords", shortcutReminderShowMultiwords);
         put(p, "shortcutReminderShowAllMultiwords", shortcutReminderShowAllMultiwords);
+        String serializedLanguageGroups = ShortcutLanguageGroups.serialize();
+        if (!serializedLanguageGroups.equals(shortcutReminderLanguageGroupsPrimary)
+                && ShortcutLanguageGroups.isValidSerialized(shortcutReminderLanguageGroupsPrimary)) {
+            shortcutReminderLanguageGroupsBackup = shortcutReminderLanguageGroupsPrimary;
+        }
+        shortcutReminderLanguageGroupsPrimary = serializedLanguageGroups;
+        p.setProperty("shortcutReminderLanguageGroups", shortcutReminderLanguageGroupsPrimary);
+        p.setProperty("shortcutReminderLanguageGroupsBackup", shortcutReminderLanguageGroupsBackup);
         put(p, "hintBackgroundOverlay", hintBackgroundOverlay);
         put(p, "hintStructureBackground", hintStructureBackground);
         put(p, "handheldItemOverlay", handheldItemOverlay);
@@ -304,7 +372,9 @@ public final class GtbStructuresSettings {
         put(p, "chatCooldownBackground", chatCooldownBackground);
         put(p, "chatCooldownBarBackground", chatCooldownBarBackground);
         put(p, "gtwShowEnglish", gtwShowEnglish);
+        put(p, "gtwShowCount", gtwShowCount);
         put(p, "copyTranslationPrefix", copyTranslationPrefix);
+        put(p, "copyTranslationCaps", copyTranslationCaps);
         put(p, "guessPeek", guessPeek);
         put(p, "guessPeekShowLangCodes", guessPeekShowLangCodes);
         p.setProperty("guessPeekDisplay", normalizeGuessPeekDisplay(guessPeekDisplay));
@@ -312,11 +382,17 @@ public final class GtbStructuresSettings {
         put(p, "scrambleGuessFancy", scrambleGuessFancy);
         put(p, "trollMode", trollMode);
         put(p, "trollModeAutoDisable", trollModeAutoDisable);
+        p.setProperty("guessSound1", guessSound1);
+        p.setProperty("guessSound2", guessSound2);
+        p.setProperty("guessSound3", guessSound3);
+        p.setProperty("guessSoundVolume", Float.toString(guessSoundVolume));
+        put(p, "lrjBypassLobbyProtection", lrjBypassLobbyProtection);
         p.setProperty("chatHeader", ChatHeader.raw());
         p.setProperty("fontMode", fontMode);
         p.setProperty("spawnEggSkin", spawnEggSkin);
         p.setProperty("environmentTimeIconPreset", environmentTimeIconPreset);
         p.setProperty("gtwDefaultLang", gtwDefaultLang);
+        p.setProperty("gtwDifficulty", gtwDifficulty);
         p.setProperty("posX", Float.toString(posX));
         p.setProperty("posY", Float.toString(posY));
         p.setProperty("handheldItemPosX", Float.toString(handheldItemPosX));
@@ -325,6 +401,10 @@ public final class GtbStructuresSettings {
         p.setProperty("environmentPosY", Float.toString(environmentPosY));
         p.setProperty("chatCooldownPosX", Float.toString(chatCooldownPosX));
         p.setProperty("chatCooldownPosY", Float.toString(chatCooldownPosY));
+        p.setProperty("hintStructureScale", Float.toString(hintStructureScale));
+        p.setProperty("chatCooldownScale", Float.toString(chatCooldownScale));
+        p.setProperty("handheldItemScale", Float.toString(handheldItemScale));
+        p.setProperty("environmentScale", Float.toString(environmentScale));
         p.setProperty("handheldItemMaxVisible", Integer.toString(handheldItemMaxVisible));
         p.setProperty("handheldItemPanelWidthRatio", Float.toString(handheldItemPanelWidthRatio));
         p.setProperty("handheldItemPanelHeightRatio", Float.toString(handheldItemPanelHeightRatio));
@@ -345,6 +425,8 @@ public final class GtbStructuresSettings {
         p.setProperty("scoreboardShowPlaces", ScoreboardConfig.displayOption(sbConfig.showPlaces));
         p.setProperty("scoreboardShowTitles", ScoreboardConfig.displayOption(sbConfig.showTitles));
         p.setProperty("scoreboardShowEmblems", ScoreboardConfig.displayOption(sbConfig.showEmblems));
+        put(p, "defaultExplicitlyShowBuilders", sbConfig.defaultExplicitlyShowBuilders);
+        p.setProperty("hypixelShowRounds", ScoreboardConfig.displayOption(sbConfig.hypixelShowRounds));
         put(p, "scoreboardLeftPlayersAtBottom", sbConfig.leftPlayersAtBottom);
         put(p, "scoreboardTextShadow", sbConfig.textShadow);
 
@@ -370,9 +452,11 @@ public final class GtbStructuresSettings {
         enabled = false;
         trackingEnabled = true;
         autoRequeue = false;
+        autoRequeueDelaySeconds = DEFAULT_AUTO_REQUEUE_DELAY_SECONDS;
         updateNoticeEnabled = true;
         showAllMatching = false;
         showAllMatchingShowEnglish = false;
+        showAllMatchingShowCount = true;
         themePointReveal = false;
         themePointRevealShowAfterGuess = false;
         shortcutReminder = true;
@@ -385,6 +469,9 @@ public final class GtbStructuresSettings {
         shortcutReminderShowAllShortcuts = false;
         shortcutReminderShowMultiwords = true;
         shortcutReminderShowAllMultiwords = false;
+        shortcutReminderLanguageGroupsPrimary = ShortcutLanguageGroups.DEFAULT_SERIALIZED;
+        shortcutReminderLanguageGroupsBackup = ShortcutLanguageGroups.DEFAULT_SERIALIZED;
+        ShortcutLanguageGroups.restore(ShortcutLanguageGroups.State.empty());
         hintBackgroundOverlay = false;
         hintStructureBackground = false;
         handheldItemOverlay = false;
@@ -412,7 +499,9 @@ public final class GtbStructuresSettings {
         chatCooldownBackground = true;
         chatCooldownBarBackground = false;
         gtwShowEnglish = false;
+        gtwShowCount = true;
         copyTranslationPrefix = true;
+        copyTranslationCaps = true;
         guessPeek = true;
         guessPeekShowLangCodes = true;
         guessPeekDisplay = "hover";
@@ -420,11 +509,17 @@ public final class GtbStructuresSettings {
         scrambleGuessFancy = false;
         trollMode = false;
         trollModeAutoDisable = false;
+        guessSound1 = GuessSounds.DEFAULT_SOUND;
+        guessSound2 = GuessSounds.DEFAULT_SOUND;
+        guessSound3 = GuessSounds.DEFAULT_SOUND;
+        guessSoundVolume = GuessSounds.DEFAULT_VOLUME;
+        lrjBypassLobbyProtection = true;
         ChatHeader.reset();
         fontMode = "new";
         spawnEggSkin = "new";
         environmentTimeIconPreset = "clock";
         gtwDefaultLang = "en";
+        gtwDifficulty = "all";
         posX = 0.5F;
         posY = 0.8522013F;
         handheldItemPosX = 0.0F;
@@ -433,6 +528,10 @@ public final class GtbStructuresSettings {
         environmentPosY = 0.52F;
         chatCooldownPosX = 0.5F;
         chatCooldownPosY = 0.76F;
+        hintStructureScale = HudPanelScale.DEFAULT;
+        chatCooldownScale = HudPanelScale.DEFAULT;
+        handheldItemScale = HudPanelScale.DEFAULT;
+        environmentScale = HudPanelScale.DEFAULT;
         handheldItemMaxVisible = 6;
         handheldItemPanelWidthRatio = DEFAULT_HANDHELD_PANEL_WIDTH_RATIO;
         handheldItemPanelHeightRatio = DEFAULT_HANDHELD_PANEL_HEIGHT_RATIO;
@@ -453,6 +552,8 @@ public final class GtbStructuresSettings {
         sbConfig.showPlaces = ScoreboardConfig.DisplayOption.OFF;
         sbConfig.showTitles = ScoreboardConfig.DisplayOption.EXPANDED;
         sbConfig.showEmblems = ScoreboardConfig.DisplayOption.ON;
+        sbConfig.defaultExplicitlyShowBuilders = false;
+        sbConfig.hypixelShowRounds = ScoreboardConfig.DisplayOption.OFF;
         sbConfig.leftPlayersAtBottom = true;
         sbConfig.textShadow = true;
         configFile = null;
@@ -489,6 +590,11 @@ public final class GtbStructuresSettings {
     }
 
     private void normalize() {
+        guessSound1 = normalizeGuessSoundChoice(guessSound1);
+        guessSound2 = normalizeGuessSoundChoice(guessSound2);
+        guessSound3 = normalizeGuessSoundChoice(guessSound3);
+        guessSoundVolume = normalizeGuessSoundVolume(guessSoundVolume);
+        autoRequeueDelaySeconds = normalizeAutoRequeueDelaySeconds(autoRequeueDelaySeconds);
         fontMode = normalizeFontMode(fontMode);
         guessPeekDisplay = normalizeGuessPeekDisplay(guessPeekDisplay);
         spawnEggSkin = MinecraftFormatting.normalizeSpawnEggSkin(spawnEggSkin);
@@ -501,6 +607,10 @@ public final class GtbStructuresSettings {
         environmentPosY = clamp01(environmentPosY);
         chatCooldownPosX = clamp01(chatCooldownPosX);
         chatCooldownPosY = clamp01(chatCooldownPosY);
+        hintStructureScale = HudPanelScale.normalize(hintStructureScale);
+        chatCooldownScale = HudPanelScale.normalize(chatCooldownScale);
+        handheldItemScale = HudPanelScale.normalize(handheldItemScale);
+        environmentScale = HudPanelScale.normalize(environmentScale);
         handheldItemMaxVisible = HandheldItemTracker.clampMaxVisible(handheldItemMaxVisible);
         handheldItemPanelWidthRatio = normalizeHandheldPanelRatio(handheldItemPanelWidthRatio);
         handheldItemPanelHeightRatio = normalizeHandheldPanelRatio(handheldItemPanelHeightRatio);
@@ -514,6 +624,7 @@ public final class GtbStructuresSettings {
         sbConfig.clampVisuals();
         if (lastLangCode == null || lastLangCode.trim().isEmpty()) lastLangCode = "en";
         if (gtwDefaultLang == null || gtwDefaultLang.trim().isEmpty()) gtwDefaultLang = "en";
+        gtwDifficulty = GtwLogic.normalizeDifficulty(gtwDifficulty);
     }
 
     private static String normalizeFontMode(String value) {
@@ -528,6 +639,74 @@ public final class GtbStructuresSettings {
     public static float normalizeHandheldPanelRatio(float value) {
         if (Float.isNaN(value) || Float.isInfinite(value)) return 0F;
         return Math.max(0F, Math.min(1F, value));
+    }
+
+    public String guessSound(int points) {
+        if (points == 1) return guessSound1;
+        if (points == 2) return guessSound2;
+        if (points == 3) return guessSound3;
+        throw new IllegalArgumentException("Guess points must be 1, 2 or 3");
+    }
+
+    public void setGuessSound(int points, String value) {
+        String normalized = GuessSounds.normalizeChoice(value);
+        if (normalized == null) throw new IllegalArgumentException("Unknown Minecraft sound: " + value);
+        if (points == 1) guessSound1 = normalized;
+        else if (points == 2) guessSound2 = normalized;
+        else if (points == 3) guessSound3 = normalized;
+        else throw new IllegalArgumentException("Guess points must be 1, 2 or 3");
+    }
+
+    private static String normalizeGuessSoundChoice(String value) {
+        String normalized = GuessSounds.normalizeConfiguredChoice(value);
+        return normalized == null ? GuessSounds.DEFAULT_SOUND : normalized;
+    }
+
+    public static float normalizeGuessSoundVolume(float value) {
+        return Float.isNaN(value) || Float.isInfinite(value) || value < 0F || value > GuessSounds.MAX_VOLUME
+                ? GuessSounds.DEFAULT_VOLUME : value;
+    }
+
+    public static Float parseGuessSoundVolume(String raw) {
+        if (raw == null) return null;
+        try {
+            float value = Float.parseFloat(raw.trim());
+            if (!Float.isFinite(value) || value < 0F || value > GuessSounds.MAX_VOLUME) return null;
+            return value;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    public static String formatGuessSoundVolume(float value) {
+        return String.format(Locale.ROOT, "%.1f", normalizeGuessSoundVolume(value));
+    }
+
+    public static Float parseAutoRequeueDelaySeconds(String raw) {
+        if (raw == null) return null;
+        try {
+            float value = Float.parseFloat(raw.trim());
+            if (Float.isNaN(value) || Float.isInfinite(value)
+                    || value < 0F || value > MAX_AUTO_REQUEUE_DELAY_SECONDS) {
+                return null;
+            }
+            return Float.valueOf(normalizeAutoRequeueDelaySeconds(value));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    public static float normalizeAutoRequeueDelaySeconds(float value) {
+        if (Float.isNaN(value) || Float.isInfinite(value)
+                || value < 0F || value > MAX_AUTO_REQUEUE_DELAY_SECONDS) {
+            return DEFAULT_AUTO_REQUEUE_DELAY_SECONDS;
+        }
+        return Math.round(value * 10F) / 10F;
+    }
+
+    public static String formatAutoRequeueDelaySeconds(float value) {
+        return String.format(Locale.ROOT, "%.1f",
+                Float.valueOf(normalizeAutoRequeueDelaySeconds(value)));
     }
 
     public static int handheldPanelWidthPixels(float ratio, int screenWidth) {

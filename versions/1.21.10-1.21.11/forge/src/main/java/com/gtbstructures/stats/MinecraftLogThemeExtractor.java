@@ -56,6 +56,8 @@ final class MinecraftLogThemeExtractor {
             Pattern.compile("^.{1,32} Message copied to clipboard: (.+)$");
     private static final Pattern GTBS_MATCHING = Pattern.compile(
             "^.{1,32} All themes matching the initial hint \\((.*?)\\): (.+)$");
+    private static final Pattern GTBS_MATCHING_COUNT_SUFFIX =
+            Pattern.compile("\\s+\\(\\d+\\)\\s*$");
     private static final long DAY_MS = 24L * 60L * 60L * 1000L;
     private static final long COPY_ATTACH_MS = 30000L;
     private static final int FINAL_HEADER_LOOKAHEAD_LINES = 10;
@@ -542,7 +544,9 @@ final class MinecraftLogThemeExtractor {
         if (!matcher.matches()) return false;
         ExtractedThemeRound round = ensureRound(timestamp);
         if (round.theme == null || round.theme.trim().isEmpty()) {
-            List<String> candidates = csvValues(matcher.group(2));
+            String payload = GTBS_MATCHING_COUNT_SUFFIX.matcher(matcher.group(2))
+                    .replaceFirst("").trim();
+            List<String> candidates = csvValues(payload);
             if (candidates.size() == 1) {
                 round.theme = candidates.get(0);
                 round.langCode = currentLangCode;

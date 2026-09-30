@@ -13,6 +13,8 @@ base {
 def sharedProjectRoot = file('../../1.21.10-1.21.11/fabric')
 def sharedMainJava = file("${sharedProjectRoot}/src/main/java")
 def sharedMainResources = file("${sharedProjectRoot}/src/main/resources")
+def sharedTestJava = file("${sharedProjectRoot}/src/test/java")
+def sharedTestResources = file("${sharedProjectRoot}/src/test/resources")
 def targetWorkRoot = providers.gradleProperty('gtbsTargetWorkRoot').orNull
 
 if (targetWorkRoot != null && !targetWorkRoot.trim().isEmpty()) {
@@ -43,6 +45,10 @@ sourceSets {
         java.setSrcDirs([sharedMainJava, 'src/main/java'])
         resources.setSrcDirs(['src/main/resources'])
     }
+    test {
+        java.setSrcDirs([sharedTestJava, 'src/test/java'])
+        resources.setSrcDirs(sharedTestResources.exists() ? [sharedTestResources] : [])
+    }
 }
 
 java {
@@ -52,6 +58,10 @@ java {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    failOnNoDiscoveredTests = false
 }
 
 def spawnEggClassicSpecFile = file("${sharedProjectRoot}/src/main/spawn_egg_classic_models.csv")
@@ -150,4 +160,32 @@ tasks.named('sourcesJar', Jar) {
         into 'META-INF'
         rename { 'LICENSE_GtbStructures' }
     }
+}
+
+def smokeTasks = []
+[[root: sharedTestJava, workingDir: sharedProjectRoot],
+ [root: file('src/test/java'), workingDir: projectDir]].each { smokeRoot ->
+    if (!smokeRoot.root.exists()) return
+    fileTree(smokeRoot.root).matching { include '**/*Smoke.java' }.files.sort().each { smokeFile ->
+        def relative = smokeRoot.root.toPath().relativize(smokeFile.toPath()).toString()
+        def mainClassName = relative.replace(File.separatorChar, '.' as char).replaceFirst(/\.java$/, '')
+        def simpleName = mainClassName.substring(mainClassName.lastIndexOf('.') + 1)
+        if (simpleName == 'FabricModMetadataSmoke') return
+        def smokeTask = tasks.register("run${simpleName}", JavaExec) {
+            group = 'verification'
+            description = "Runs ${simpleName}."
+            dependsOn tasks.testClasses
+            classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+            mainClass = mainClassName
+            workingDir = smokeRoot.workingDir
+            systemProperty 'gtbs.targetBuildDir', layout.buildDirectory.get().asFile.absolutePath
+        }
+        smokeTasks << smokeTask
+    }
+}
+
+tasks.register('runSmokeTests') {
+    group = 'verification'
+    description = 'Runs the complete shared GTBS Fabric smoke suite.'
+    dependsOn smokeTasks
 }

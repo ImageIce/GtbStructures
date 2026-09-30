@@ -56,6 +56,11 @@ public final class StatsArchive {
             "Usage: /gtbs stats theme [entries|all]";
     private static final String THEME_EXPORT_PROMPT_MARKER =
             "\u0000gtbs-theme-export:";
+    static final String LOCAL_FILE_NOTICE_MARKER =
+            "\u0000gtbs-local-file:";
+    private static final String LOCAL_FILE_LINK = "Here";
+    private static final String LOCAL_FILE_SUFFIX =
+            "\u00a77 to open the folder)";
     private static final long DAY_MS = 24L * 60L * 60L * 1000L;
     private static final long RAW_LOG_OVERLAP_TOLERANCE_MS = 2L * 60L * 1000L;
     private static final long STATS_PROGRESS_INTERVAL_MS = 15000L;
@@ -212,8 +217,9 @@ public final class StatsArchive {
                         progressNotifier.finish();
                         if (shouldExportTheme) {
                             File file = exportThemeList(finalStatsDir, summary);
-                            queueMessage(CommandGtb.head + "Theme occurrence list exported as "
-                                    + file.getName());
+                            queueMessage(GameExporter.localFileNotice(
+                                    CommandGtb.head + "Theme occurrence list exported as ",
+                                    gameDir, file));
                         } else {
                             queueMessages(renderTheme(summary, entries,
                                     System.currentTimeMillis(), allLogs));
@@ -581,13 +587,14 @@ public final class StatsArchive {
             for (JsonElement roundElement : getArray(session, "rounds")) {
                 if (!roundElement.isJsonObject()) continue;
                 JsonObject round = roundElement.getAsJsonObject();
-                String rawTheme = getString(round, "theme");
-                if (rawTheme == null || rawTheme.trim().isEmpty()) continue;
-
                 long seenAt = getLong(round, "roundEnd", 0L);
                 if (seenAt <= 0L) seenAt = getLong(round, "roundStart", 0L);
                 if (seenAt <= 0L) seenAt = gameEnd;
                 if (seenAt <= 0L) seenAt = gameStart;
+                addBuilderOptionSightings(out, seen, round, sessionLanguage,
+                        translationDataHash, seenAt);
+                String rawTheme = getString(round, "theme");
+                if (rawTheme == null || rawTheme.trim().isEmpty()) continue;
                 List<String> englishThemes = resolveArchiveEnglishThemes(
                         round, rawTheme, sessionLanguage, translationDataHash, seenAt);
                 addThemeRound(out, seen, englishThemes, seenAt);
@@ -641,22 +648,58 @@ public final class StatsArchive {
                 scoreDelta(round, getString(round, "builder")));
     }
 
-    private static void addThemeRound(ThemeSummary summary, Set<String> seen,
-                                      List<String> englishThemes, long seenAt) {
-        summary.totalRounds++;
+    private static void addBuilderOptionSightings(
+            ThemeSummary summary, Set<String> seen, JsonObject round,
+            String sessionLanguage, String translationDataHash, long seenAt) {
+        List<String> options = strings(getArray(round, "builderThemeOptions"));
+        if (options.isEmpty()) return;
+        String selectedTheme = getString(round, "theme");
+        String languageCode = getString(round, "languageCode");
+        if (languageCode == null) {
+            String roundLanguage = getString(round, "language");
+            languageCode = LangPatterns.codeFromDisplayName(
+                    roundLanguage == null ? sessionLanguage : roundLanguage);
+        }
+        for (String option : options) {
+            if (option == null || option.trim().isEmpty()) continue;
+            List<String> englishThemes = TranslationData.resolveEnglishThemesAt(
+                    translationDataHash, seenAt, languageCode, option, null);
+            boolean selected = selectedTheme != null
+                    && option.trim().equalsIgnoreCase(selectedTheme.trim());
+            addThemeSighting(summary, seen, englishThemes, seenAt,
+                    true, !selected);
+        }
+    }
+
+    private static void addThemeSighting(
+            ThemeSummary summary, Set<String> seen,
+            List<String> englishThemes, long seenAt, boolean builderOption,
+            boolean countOccurrence) {
         if (englishThemes == null || englishThemes.isEmpty()) return;
-        summary.themeDifficulty.addEnglishThemes(englishThemes);
-        double weight = 1.0D / englishThemes.size();
+        double weight = countOccurrence ? 1.0D / englishThemes.size() : 0.0D;
         for (String englishTheme : englishThemes) {
             ThemeOccurrence occurrence = summary.byTheme.get(englishTheme);
             if (occurrence == null) {
                 occurrence = new ThemeOccurrence(englishTheme);
                 summary.byTheme.put(englishTheme, occurrence);
             }
+            if (builderOption) {
+                occurrence.lastBuilderOptionSeen =
+                        Math.max(occurrence.lastBuilderOptionSeen, seenAt);
+            } else {
+                occurrence.lastSeen = Math.max(occurrence.lastSeen, seenAt);
+            }
             occurrence.weight += weight;
-            occurrence.lastSeen = Math.max(occurrence.lastSeen, seenAt);
             seen.add(englishTheme);
         }
+    }
+
+    private static void addThemeRound(ThemeSummary summary, Set<String> seen,
+                                      List<String> englishThemes, long seenAt) {
+        summary.totalRounds++;
+        if (englishThemes == null || englishThemes.isEmpty()) return;
+        summary.themeDifficulty.addEnglishThemes(englishThemes);
+        addThemeSighting(summary, seen, englishThemes, seenAt, false, true);
     }
 
     private static boolean overlapsCanonical(long start, long end,
@@ -1161,7 +1204,7 @@ public final class StatsArchive {
                 previous = occurrence.weight;
                 writer.write(rank + ". " + occurrence.theme + " - "
                         + UP_TO_TWO.format(occurrence.weight) + " ("
-                        + stripColors(lastSeenText(occurrence.lastSeen, now)) + ")");
+                        + stripColors(occurrenceSeenText(occurrence, now)) + ")");
                 writer.newLine();
                 index++;
             }
@@ -1254,7 +1297,7 @@ public final class StatsArchive {
             previous = occurrence.weight;
             lines.add("\u00a77" + rank + ". \u00a7f" + occurrence.theme
                     + "\u00a77 - \u00a7f" + UP_TO_TWO.format(occurrence.weight)
-                    + "\u00a77 (" + lastSeenText(occurrence.lastSeen, now) + "\u00a77)");
+                    + "\u00a77 (" + occurrenceSeenText(occurrence, now) + "\u00a77)");
         }
         return lines;
     }
@@ -1269,6 +1312,59 @@ public final class StatsArchive {
             return null;
         }
         return new ThemeExportPrompt(command);
+    }
+
+    public static LocalFileNotice parseLocalFileNotice(String message) {
+        if (message == null) return null;
+        int marker = message.indexOf(LOCAL_FILE_NOTICE_MARKER);
+        if (marker < 0) return null;
+        String command = message.substring(marker + LOCAL_FILE_NOTICE_MARKER.length());
+        if (!"/gtbs openstatsfolder".equals(command)) return null;
+        String visibleText = message.substring(0, marker);
+        int link = visibleText.lastIndexOf(LOCAL_FILE_LINK + LOCAL_FILE_SUFFIX);
+        if (link < 0) return null;
+        return new LocalFileNotice(visibleText.substring(0, link),
+                visibleText.substring(link + LOCAL_FILE_LINK.length()), command,
+                visibleText);
+    }
+
+    public static final class LocalFileNotice {
+        private final String prefix;
+        private final String suffix;
+        private final String command;
+        private final String visibleText;
+
+        private LocalFileNotice(String prefix, String suffix, String command,
+                                String visibleText) {
+            this.prefix = prefix;
+            this.suffix = suffix;
+            this.command = command;
+            this.visibleText = visibleText;
+        }
+
+        public String prefix() {
+            return prefix;
+        }
+
+        public String link() {
+            return LOCAL_FILE_LINK;
+        }
+
+        public String suffix() {
+            return suffix;
+        }
+
+        public String hover() {
+            return "\u00a7fClick to open";
+        }
+
+        public String command() {
+            return command;
+        }
+
+        public String visibleText() {
+            return visibleText;
+        }
     }
 
     public static final class ThemeExportPrompt {
@@ -1333,6 +1429,11 @@ public final class StatsArchive {
         int days = calendarDaysBetween(timestamp, now);
         if (days <= 0) return "Last seen \u00a7ftoday";
         return "Last seen \u00a7f" + days + "\u00a77 day" + (days == 1 ? "" : "s") + " ago";
+    }
+
+    private static String occurrenceSeenText(ThemeOccurrence occurrence, long now) {
+        return lastSeenText(Math.max(occurrence.lastSeen,
+                occurrence.lastBuilderOptionSeen), now);
     }
 
     private static int calendarDaysBetween(long earlier, long later) {
@@ -1614,6 +1715,7 @@ public final class StatsArchive {
         final String theme;
         double weight;
         long lastSeen;
+        long lastBuilderOptionSeen;
 
         ThemeOccurrence(String theme) {
             this.theme = theme;

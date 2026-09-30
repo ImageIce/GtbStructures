@@ -3,11 +3,18 @@ package com.gtbstructures.scoreboard;
 import com.gtbstructures.GtbStructuresSettings;
 import com.gtbstructures.chat.ChatHeader;
 import com.gtbstructures.commands.CommandGtb;
+import com.gtbstructures.commands.CommandGtbRuntime;
+import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.overlay.HudPosition;
 import com.gtbstructures.stats.GameStats;
+import com.gtbstructures.sound.GuessSounds;
+import com.gtbstructures.sound.MinecraftClientSoundBridge;
 import com.gtbstructures.translation.ShortcutReminder;
+import com.gtbstructures.translation.ShortcutLanguageGroups;
 import com.gtbstructures.util.MinecraftFormatting;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -55,8 +62,11 @@ public final class PreviewLayoutEditor {
     private static final int TITLE_HEIGHT = 11;
     private static final int ROW_HEIGHT = 12;
     private static final int HEADER_ROW_HEIGHT = 20;
+    private static final int AUTO_REQUEUE_DELAY_EDITOR_WIDTH = 24;
+    private static final String AUTO_REQUEUE_DELAY_LABEL = "Requeue Delay";
     private static final int LABELS_SCROLL_STEP = ROW_HEIGHT * 3;
     private static final int CHECK_SIZE = 10;
+    private static final int LANGUAGE_GROUP_BUTTON_HEIGHT = 20;
     private static final int CLOSE_SIZE = 11;
     private static final int BACKGROUND_COLUMN_OFFSET = 64;
     private static final int CHILD_ROW_INDENT = CHECK_SIZE + 5;
@@ -68,6 +78,8 @@ public final class PreviewLayoutEditor {
     private static final int SLIDER_ROW_HEIGHT = 16;
     private static final int SLIDER_WIDTH = 74;
     private static final int SLIDER_KNOB_WIDTH = 5;
+    private static final int SLIDER_VALUE_FIELD_WIDTH = 28;
+    private static final int SLIDER_VALUE_FIELD_GAP = 4;
     private static final int HISTORY_LIMIT = 40;
     private static final int RESIZE_HANDLE_VISUAL_RADIUS = 3;
     private static final int RESIZE_HANDLE_HIT_RADIUS = 8;
@@ -99,10 +111,17 @@ public final class PreviewLayoutEditor {
     private String cooldownColorTarget = "timer";
     private final List<ConfigSnapshot> undoStack = new ArrayList<ConfigSnapshot>();
     private final List<ConfigSnapshot> redoStack = new ArrayList<ConfigSnapshot>();
+    private final ShortcutLanguageGroupPreviewManager shortcutGroupManager =
+            new ShortcutLanguageGroupPreviewManager();
+    private final GuessSoundsPreviewPanel guessSoundPanel = new GuessSoundsPreviewPanel();
     private boolean labelsPanelOpen;
     private int labelsScrollOffset;
     private boolean labelsScrollbarDragging;
     private int labelsScrollbarDragOffset;
+    private boolean guessSoundsScrollbarDragging;
+    private int guessSoundsScrollbarDragOffset;
+    private boolean shortcutSubviewScrollbarDragging;
+    private int shortcutSubviewScrollbarDragOffset;
     private boolean previousLeftDown;
     private boolean previousRightDown;
     private boolean previousDeleteDown;
@@ -141,12 +160,35 @@ public final class PreviewLayoutEditor {
     private int activeSliderX;
     private ConfigSnapshot sliderUndoSnapshot;
     private boolean sliderDirty;
+    private ConfigSnapshot externalScaleUndoSnapshot;
+    private ScaleChangeAnchor activeDiscreteScaleChange;
+    private ScaleChangeAnchor pendingDiscreteScaleChange;
+    private String frozenScaleDragFamily = "";
+    private boolean scaleDragMenuRebasePending;
     private boolean headerEditing;
+    private boolean autoRequeueDelayEditing;
+    private String scaleValueEditingId = "";
+    private String scaleValueEditingInitialText = "";
+    private Rect scaleValueInputRect = new Rect(0, 0, 0, 0);
     private int drawMouseX;
     private int drawMouseY;
     private boolean drawLeftDown;
 
     private PreviewLayoutEditor() {
+    }
+
+    /** Brackets a command-originated scale mutation so an open preview can undo it. */
+    public void beginExternalScaleChange(String panel) {
+        externalScaleUndoSnapshot = InterfacePreview.isActive() ? ConfigSnapshot.capture() : null;
+        beginDiscreteScaleChange(panel);
+    }
+
+    public void endExternalScaleChange(String panel) {
+        if (externalScaleUndoSnapshot != null && !externalScaleUndoSnapshot.matchesCurrent()) {
+            recordUndo(externalScaleUndoSnapshot);
+        }
+        externalScaleUndoSnapshot = null;
+        endDiscreteScaleChange(panel);
     }
 
     public static void register(String id, int x, int y, int width, int height, Target target) {
@@ -185,6 +227,7 @@ public final class PreviewLayoutEditor {
     }
 
     public void reset() {
+        if (headerEditing) finishHeaderEditing();
         labels.clear();
         hoverAmounts.clear();
         controlHoverAmounts.clear();
@@ -202,9 +245,15 @@ public final class PreviewLayoutEditor {
         undoStack.clear();
         redoStack.clear();
         labelsPanelOpen = false;
+        shortcutGroupManager.reset();
+        guessSoundPanel.close();
         labelsScrollOffset = 0;
         labelsScrollbarDragging = false;
         labelsScrollbarDragOffset = 0;
+        guessSoundsScrollbarDragging = false;
+        guessSoundsScrollbarDragOffset = 0;
+        shortcutSubviewScrollbarDragging = false;
+        shortcutSubviewScrollbarDragOffset = 0;
         previousLeftDown = false;
         previousRightDown = false;
         previousDeleteDown = false;
@@ -231,7 +280,16 @@ public final class PreviewLayoutEditor {
         activeSlider = "";
         sliderUndoSnapshot = null;
         sliderDirty = false;
+        externalScaleUndoSnapshot = null;
+        activeDiscreteScaleChange = null;
+        pendingDiscreteScaleChange = null;
+        frozenScaleDragFamily = "";
+        scaleDragMenuRebasePending = false;
         headerEditing = false;
+        autoRequeueDelayEditing = false;
+        scaleValueEditingId = "";
+        scaleValueEditingInitialText = "";
+        scaleValueInputRect = new Rect(0, 0, 0, 0);
         PreviewScreenController.cancelHeaderEditing();
         drawMouseX = 0;
         drawMouseY = 0;
@@ -255,7 +313,10 @@ public final class PreviewLayoutEditor {
 
     private void handleInput(EditorRenderer renderer, InputState input, int screenWidth, int screenHeight) {
         if (renderer == null || input == null) return;
+        applyPendingDiscreteScaleChange(screenWidth, screenHeight);
+        rebaseScaleDragMenu(screenWidth, screenHeight);
         boolean modEnabled = GtbStructuresSettings.INSTANCE.modEnabled;
+        if (!modEnabled) guessSoundPanel.close();
         Label selected = labelById(selectedId);
         if (!modEnabled && selected != null) {
             deselect();
@@ -280,13 +341,26 @@ public final class PreviewLayoutEditor {
         boolean deletePressed = input.deleteDown && !previousDeleteDown;
         boolean zPressed = input.zDown && !previousZDown;
 
-        if (input.scrollDelta != 0.0D && labelsPanelOpen
+        if (input.scrollDelta != 0.0D && headerEditing) finishHeaderEditing();
+        if (input.scrollDelta != 0.0D && guessSoundPanel.isOpen()) {
+            guessSoundPanel.scrollAt(input.mouseX, input.mouseY, input.scrollDelta,
+                    guessSoundsLayout(labelsPanelRect(screenWidth, screenHeight)));
+        } else if (input.scrollDelta != 0.0D && shortcutGroupManager.inSubview()) {
+            shortcutGroupManager.scrollBy(input.scrollDelta > 0.0D ? -LABELS_SCROLL_STEP : LABELS_SCROLL_STEP,
+                    shortcutLanguageGroupViewportHeight(labelsPanelRect(screenWidth, screenHeight)), ROW_HEIGHT);
+        } else if (input.scrollDelta != 0.0D && labelsPanelOpen
                 && labelsPanelRect(screenWidth, screenHeight).contains(input.mouseX, input.mouseY)) {
             scrollLabelsBy(input.scrollDelta > 0.0D ? -LABELS_SCROLL_STEP : LABELS_SCROLL_STEP,
                     screenWidth, screenHeight);
         }
 
+        if (escapePressed && guessSoundPanel.isOpen()) { guessSoundPanel.close(); return; }
+        if (escapePressed && shortcutGroupManager.inSubview()) {
+            shortcutGroupManager.back();
+            return;
+        }
         if (escapePressed) {
+            if (headerEditing) finishHeaderEditing();
             InterfacePreview.INSTANCE.disableSilently();
             return;
         }
@@ -317,11 +391,15 @@ public final class PreviewLayoutEditor {
             } else if (handleLabelsPanelClick(renderer, screenWidth, screenHeight, input.mouseX, input.mouseY)) {
                 consumedLeftPress = true;
             } else if (labelsButtonRect(screenWidth).contains(input.mouseX, input.mouseY)) {
+                guessSoundPanel.close();
                 labelsPanelOpen = !labelsPanelOpen;
                 labelsScrollbarDragging = false;
+                guessSoundsScrollbarDragging = false;
+                shortcutSubviewScrollbarDragging = false;
                 if (labelsPanelOpen) labelsScrollOffset = 0;
                 consumedLeftPress = true;
             } else if (doneButtonRect(screenWidth, screenHeight).contains(input.mouseX, input.mouseY)) {
+                if (headerEditing) finishHeaderEditing();
                 InterfacePreview.INSTANCE.disableSilently();
                 return;
             }
@@ -395,6 +473,12 @@ public final class PreviewLayoutEditor {
         if (input.leftDown && labelsScrollbarDragging) {
             updateLabelsScrollbarDrag(screenWidth, screenHeight, input.mouseY);
         }
+        if (input.leftDown && guessSoundsScrollbarDragging) {
+            updateGuessSoundsScrollbarDrag(screenWidth, screenHeight, input.mouseY);
+        }
+        if (input.leftDown && shortcutSubviewScrollbarDragging) {
+            updateShortcutSubviewScrollbarDrag(screenWidth, screenHeight, input.mouseY);
+        }
 
         if (input.leftDown && resizeEdges != 0) {
             resizeHandheldPanel(input.mouseX - dragStartMouseX, input.mouseY - dragStartMouseY);
@@ -412,6 +496,8 @@ public final class PreviewLayoutEditor {
 
         if (leftReleased) {
             labelsScrollbarDragging = false;
+            guessSoundsScrollbarDragging = false;
+            shortcutSubviewScrollbarDragging = false;
             if (!activeSlider.isEmpty()) {
                 finishScoreboardSliderDrag();
             }
@@ -511,6 +597,10 @@ public final class PreviewLayoutEditor {
     }
 
     private void clearActivePanel() {
+        activeDiscreteScaleChange = null;
+        pendingDiscreteScaleChange = null;
+        frozenScaleDragFamily = "";
+        scaleDragMenuRebasePending = false;
         activePanelId = "";
         pinnedPanelFamily = "";
         pinnedPanelX = 0;
@@ -535,10 +625,8 @@ public final class PreviewLayoutEditor {
         if (undoStack.isEmpty()) return;
         ConfigSnapshot current = ConfigSnapshot.capture();
         ConfigSnapshot previous = undoStack.remove(undoStack.size() - 1);
-        if (!current.matchesCurrent()) {
-            redoStack.add(current);
-            if (redoStack.size() > HISTORY_LIMIT) redoStack.remove(0);
-        }
+        redoStack.add(current);
+        if (redoStack.size() > HISTORY_LIMIT) redoStack.remove(0);
         previous.apply();
         GtbStructuresSettings.INSTANCE.save();
     }
@@ -547,10 +635,8 @@ public final class PreviewLayoutEditor {
         if (redoStack.isEmpty()) return;
         ConfigSnapshot current = ConfigSnapshot.capture();
         ConfigSnapshot next = redoStack.remove(redoStack.size() - 1);
-        if (!current.matchesCurrent()) {
-            undoStack.add(current);
-            if (undoStack.size() > HISTORY_LIMIT) undoStack.remove(0);
-        }
+        undoStack.add(current);
+        if (undoStack.size() > HISTORY_LIMIT) undoStack.remove(0);
         next.apply();
         GtbStructuresSettings.INSTANCE.save();
     }
@@ -570,12 +656,21 @@ public final class PreviewLayoutEditor {
         Rect panel = labelsPanelRect(screenWidth, screenHeight);
         if (!panel.contains(mouseX, mouseY)) return false;
         if (panelCloseRect(panel).contains(mouseX, mouseY)) {
+            if (headerEditing) finishHeaderEditing();
+            shortcutGroupManager.closeToLabels();
+            guessSoundPanel.close();
             labelsPanelOpen = false;
             labelsScrollbarDragging = false;
+            guessSoundsScrollbarDragging = false;
+            shortcutSubviewScrollbarDragging = false;
             return true;
         }
 
+        if (guessSoundPanel.isOpen()) return handleGuessSoundsClick(renderer, panel, mouseX, mouseY);
         clampLabelsScroll(screenWidth, screenHeight);
+        if (shortcutGroupManager.inSubview()) {
+            return handleShortcutLanguageGroupSubviewClick(renderer, panel, mouseX, mouseY);
+        }
         if (beginLabelsScrollbarDrag(panel, mouseX, mouseY)) return true;
         if (!labelsBodyViewport(panel).contains(mouseX, mouseY)) return true;
 
@@ -656,6 +751,20 @@ public final class PreviewLayoutEditor {
             return true;
         }
         y += ROW_HEIGHT;
+        if (GtbStructuresSettings.INSTANCE.autoRequeue) {
+            if (handleAutoRequeueDelayRowClick(renderer, panel, x + CHILD_ROW_INDENT, y, mouseX, mouseY)) {
+                return true;
+            }
+            y += ROW_HEIGHT;
+        }
+        if (toggleHit(renderer, x, y, "Bypass /l Protection For /lrj", mouseX, mouseY)) {
+            GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+            recordUndo();
+            settings.lrjBypassLobbyProtection = !settings.lrjBypassLobbyProtection;
+            settings.save();
+            return true;
+        }
+        y += ROW_HEIGHT;
         y = menuSectionYAfter(y);
         if (toggleHit(renderer, x, y, "Guess Peek", mouseX, mouseY)) {
             GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
@@ -706,6 +815,14 @@ public final class PreviewLayoutEditor {
                 GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
                 recordUndo();
                 settings.showAllMatchingShowEnglish = !settings.showAllMatchingShowEnglish;
+                settings.save();
+                return true;
+            }
+            y += ROW_HEIGHT;
+            if (toggleHit(renderer, x + CHILD_ROW_INDENT, y, "Show Total Theme Count", mouseX, mouseY)) {
+                GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+                recordUndo();
+                settings.showAllMatchingShowCount = !settings.showAllMatchingShowCount;
                 settings.save();
                 return true;
             }
@@ -810,6 +927,18 @@ public final class PreviewLayoutEditor {
             }
             y += ROW_HEIGHT;
         }
+        if (toggleHit(renderer, x + CHILD_ROW_INDENT, y, "Language Group Shortcuts", mouseX, mouseY)) {
+            ConfigSnapshot before = ConfigSnapshot.capture();
+            ShortcutLanguageGroups.setEnabled(!ShortcutLanguageGroups.isEnabled());
+            if (!before.matchesCurrent()) { recordUndo(before); settings.save(); }
+            return true;
+        }
+        y += ROW_HEIGHT;
+        if (languageGroupManagerLinkRect(panel, y).contains(mouseX, mouseY)) {
+            shortcutGroupManager.openManager();
+            return true;
+        }
+        y += ROW_HEIGHT;
         y = menuSectionYAfter(y);
         if (toggleHit(renderer, x, y, "Scramble Guess", mouseX, mouseY)) {
             recordUndo();
@@ -840,10 +969,34 @@ public final class PreviewLayoutEditor {
             settings.save();
             return true;
         }
+        if (settings.trollMode) y += ROW_HEIGHT;
+        if (new Rect(x + CHECK_SIZE + 5, y, panel.x2 - PANEL_PAD, y + ROW_HEIGHT)
+                .contains(mouseX, mouseY)) {
+            MinecraftClientSoundBridge.ensureCatalog(); guessSoundPanel.open(); return true;
+        }
         return true;
     }
 
     public boolean onHeaderKeyPressed(int keyCode) {
+        if (guessSoundPanel.isOpen()) {
+            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) {
+                if (headerEditing) finishHeaderEditing();
+                guessSoundPanel.close(); return true;
+            }
+            if (guessSoundPanel.isSearchEditing() && (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
+                    || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER)) {
+                guessSoundPanel.finishSearch(); return true;
+            }
+        }
+        if (shortcutGroupManager.inSubview()) {
+            if (shortcutGroupManager.editing()
+                    && (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
+                    || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER)) {
+                saveShortcutLanguageGroupDraft();
+                return true;
+            }
+            return shortcutGroupManager.handleKey(keyCode);
+        }
         if (!headerEditing) return false;
         if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
                 || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER
@@ -879,7 +1032,26 @@ public final class PreviewLayoutEditor {
         if (!headerEditing) return;
         String requested = PreviewScreenController.finishHeaderEditing();
         headerEditing = false;
+        if (autoRequeueDelayEditing) {
+            autoRequeueDelayEditing = false;
+            commitAutoRequeueDelay(requested);
+            return;
+        }
+        if (!scaleValueEditingId.isEmpty()) {
+            String sliderId = scaleValueEditingId;
+            String initialText = scaleValueEditingInitialText;
+            scaleValueEditingId = "";
+            scaleValueEditingInitialText = "";
+            scaleValueInputRect = new Rect(0, 0, 0, 0);
+            commitScaleValue(sliderId, requested, initialText);
+            return;
+        }
         String prepared = ChatHeader.prepare(requested);
+        if (prepared == null) {
+            GameStats.INSTANCE.queueNotificationMessage(CommandGtb.head + "Header must be at most \u00a7f"
+                    + ChatHeader.MAX_VISIBLE_LENGTH + "\u00a77 visible characters.");
+            return;
+        }
         if (prepared != null && !prepared.equals(ChatHeader.raw())) {
             ConfigSnapshot before = ConfigSnapshot.capture();
             ChatHeader.set(requested);
@@ -904,12 +1076,31 @@ public final class PreviewLayoutEditor {
     }
 
     private Rect headerInputRect(EditorRenderer renderer, Rect panel) {
+        if (!scaleValueEditingId.isEmpty()) return sliderValueInputRect();
+        if (autoRequeueDelayEditing) return autoRequeueDelayInputRect(renderer, panel);
         int x = panel.x1 + PANEL_PAD;
         int y = labelsBodyY(panel) - labelsScrollOffset;
         y = menuSectionYAfter(y);
         int left = headerValueX(renderer, x) - 2;
         return new Rect(left, y, Math.max(left + 16,
                 panel.x2 - PANEL_PAD - LABELS_SCROLLBAR_WIDTH - 3), y + HEADER_ROW_HEIGHT);
+    }
+
+    private Rect autoRequeueDelayInputRect(EditorRenderer renderer, Rect panel) {
+        int x = panel.x1 + PANEL_PAD;
+        int y = labelsBodyY(panel) - labelsScrollOffset;
+        y += ROW_HEIGHT;
+        y = menuSectionYAfter(y);
+        y += HEADER_ROW_HEIGHT;
+        y = menuSectionYAfter(y);
+        y += ROW_HEIGHT * 5;
+        y = menuSectionYAfter(y);
+        y += ROW_HEIGHT * 2;
+        return autoRequeueDelayValueRect(renderer, x + CHILD_ROW_INDENT, y);
+    }
+
+    private Rect sliderValueInputRect() {
+        return scaleValueInputRect;
     }
 
     private void draw(EditorRenderer renderer, InputState input, int screenWidth, int screenHeight) {
@@ -973,6 +1164,15 @@ public final class PreviewLayoutEditor {
         clampLabelsScroll(screenWidth, screenHeight);
         drawPanel(renderer, panel);
         drawLabelsPanelCloseButton(renderer, panel);
+        if (guessSoundPanel.isOpen()) { drawGuessSounds(renderer, panel); return; }
+        if (shortcutGroupManager.view() == ShortcutLanguageGroupPreviewManager.View.GROUPS) {
+            drawShortcutLanguageGroupManager(renderer, panel);
+            return;
+        }
+        if (shortcutGroupManager.view() == ShortcutLanguageGroupPreviewManager.View.EDITOR) {
+            drawShortcutLanguageGroupEditor(renderer, panel);
+            return;
+        }
         int x = panel.x1 + PANEL_PAD;
         int y = panel.y1 + PANEL_PAD;
         renderer.drawString("\u00a7f\u00a7nMenu", x, y, PANEL_TEXT, true);
@@ -1004,6 +1204,12 @@ public final class PreviewLayoutEditor {
             y += ROW_HEIGHT;
             drawToggleRow(renderer, x, y, "Auto Requeue", settings.autoRequeue);
             y += ROW_HEIGHT;
+            if (settings.autoRequeue) {
+                drawAutoRequeueDelayRow(renderer, panel, x + CHILD_ROW_INDENT, y);
+                y += ROW_HEIGHT;
+            }
+            drawToggleRow(renderer, x, y, "Bypass /l Protection For /lrj", settings.lrjBypassLobbyProtection);
+            y += ROW_HEIGHT;
             y = drawMenuSection(renderer, x, y, "Chat");
             drawToggleRow(renderer, x, y, "Guess Peek", settings.guessPeek);
             y += ROW_HEIGHT;
@@ -1025,6 +1231,9 @@ public final class PreviewLayoutEditor {
             if (settings.showAllMatching) {
                 drawToggleRow(renderer, x + CHILD_ROW_INDENT, y, "Show English Translations",
                         settings.showAllMatchingShowEnglish);
+                y += ROW_HEIGHT;
+                drawToggleRow(renderer, x + CHILD_ROW_INDENT, y, "Show Total Theme Count",
+                        settings.showAllMatchingShowCount);
                 y += ROW_HEIGHT;
             }
             drawToggleRow(renderer, x, y, "Reveal Theme Point Value In Chat",
@@ -1076,6 +1285,20 @@ public final class PreviewLayoutEditor {
                         settings.shortcutReminderShowAllShortcuts);
                 y += ROW_HEIGHT;
             }
+            // Language groups are intentionally independent of the main reminder master.
+            drawToggleRow(renderer, x + CHILD_ROW_INDENT, y, "Language Group Shortcuts",
+                    ShortcutLanguageGroups.isEnabled());
+            y += ROW_HEIGHT;
+            String manage = "Manage Language Groups";
+            Rect manageLink = languageGroupManagerLinkRect(panel, y);
+            boolean manageHovered = manageLink.contains(drawMouseX, drawMouseY);
+            renderer.drawString((manageHovered ? "\u00a7f\u00a7n" : "\u00a77") + manage,
+                    manageLink.x1, toggleTextY(y, renderer.fontHeight()),
+                    manageHovered ? PANEL_TEXT : PANEL_MUTED, true);
+            String count = "\u00a77(" + ShortcutLanguageGroups.groups().size() + ")  >";
+            renderer.drawString(count, panel.x2 - PANEL_PAD - renderer.textWidth(count) - 3,
+                    toggleTextY(y, renderer.fontHeight()), PANEL_MUTED, true);
+            y += ROW_HEIGHT;
             y = drawMenuSection(renderer, x, y, "Experimental");
             drawToggleRow(renderer, x, y, "Scramble Guess", settings.scrambleGuess);
             y += ROW_HEIGHT;
@@ -1089,11 +1312,475 @@ public final class PreviewLayoutEditor {
             if (settings.trollMode) {
                 drawToggleRow(renderer, x + CHILD_ROW_INDENT, y, "Disable upon game start",
                         settings.trollModeAutoDisable);
+                y += ROW_HEIGHT;
             }
+            drawMenuSubviewLink(renderer, panel, x, y, "Guess Sounds");
         } finally {
             renderer.disableScissor();
         }
         drawLabelsScrollbar(renderer, panel);
+    }
+
+
+    private static GuessSoundsUiLogic.Layout guessSoundsLayout(Rect panel) {
+        return new GuessSoundsUiLogic.Layout(panel.x1, panel.y1, panel.width(), panel.height());
+    }
+
+    private boolean handleGuessSoundsClick(EditorRenderer renderer, Rect panel, int mouseX, int mouseY) {
+        int x = panel.x1 + PANEL_PAD;
+        if (new Rect(x, panel.y1 + PANEL_PAD - 2, x + 64,
+                panel.y1 + PANEL_PAD + TITLE_HEIGHT + 2).contains(mouseX, mouseY)) {
+            guessSoundPanel.close(); return true;
+        }
+        GuessSoundsUiLogic.Layout layout = guessSoundsLayout(panel);
+        if (beginGuessSoundsScrollbarDrag(panel, layout, mouseX, mouseY)) return true;
+        if (GuessSoundsUiLogic.contains(mouseX, mouseY, layout.searchX, layout.searchY, layout.searchWidth, 16)) {
+            guessSoundPanel.beginSearch(); return true;
+        }
+        guessSoundPanel.finishSearch();
+        int tab = GuessSoundsUiLogic.tabAt(layout, mouseX, mouseY);
+        if (tab >= 0) { guessSoundPanel.selectTab(tab + 1); return true; }
+        if (GuessSoundsUiLogic.contains(mouseX, mouseY, layout.testX, layout.tabsY,
+                GuessSoundsUiLogic.TEST_WIDTH, GuessSoundsUiLogic.BUTTON_HEIGHT)) {
+            MinecraftClientSoundBridge.preview(guessSoundPanel.points()); return true;
+        }
+        String choice = null;
+        if (GuessSoundsUiLogic.contains(mouseX, mouseY, layout.resetX, layout.tabsY,
+                GuessSoundsUiLogic.RESET_WIDTH, GuessSoundsUiLogic.BUTTON_HEIGHT)) choice = GuessSounds.DEFAULT_SOUND;
+        else choice = guessSoundPanel.rowAt(mouseX, mouseY, layout);
+        if (choice != null) {
+            GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+            if (!choice.equals(settings.guessSound(guessSoundPanel.points()))) {
+                recordUndo(); settings.setGuessSound(guessSoundPanel.points(), choice); settings.save();
+            }
+            return true;
+        }
+        SliderSpec slider = SliderSpec.GUESS_SOUND;
+        if (scaleSliderValueFieldRect(renderer, layout.searchX, layout.volumeY, slider).contains(mouseX, mouseY)) {
+            beginScaleValueEditing(slider, scaleSliderValueFieldRect(renderer, layout.searchX, layout.volumeY, slider));
+        } else if (scaleSliderRowRect(renderer, layout.searchX, layout.volumeY, slider).contains(mouseX, mouseY)) {
+            beginScoreboardSliderDrag(slider.id, scaleSliderTrackRect(renderer, layout.searchX, layout.volumeY, slider).x1, mouseX);
+        }
+        return true;
+    }
+
+    private boolean beginGuessSoundsScrollbarDrag(Rect panel, GuessSoundsUiLogic.Layout layout,
+                                                   int mouseX, int mouseY) {
+        List<GuessSoundsUiLogic.Choice> rows = guessSoundPanel.rows();
+        int max = GuessSoundsUiLogic.maxScroll(rows.size(), layout.visibleRows);
+        if (max <= 0 || layout.listHeight <= 0) return false;
+        Rect track = new Rect(panel.x2 - 10, layout.listY, panel.x2 - 6, layout.listY + layout.listHeight);
+        if (!track.contains(mouseX, mouseY)) return false;
+        int thumbHeight = Math.min(layout.listHeight,
+                Math.max(12, layout.listHeight * layout.visibleRows / rows.size()));
+        int thumbY = layout.listY + (layout.listHeight - thumbHeight) * guessSoundPanel.scroll() / max;
+        Rect thumb = new Rect(track.x1, thumbY, track.x2, thumbY + thumbHeight);
+        guessSoundsScrollbarDragOffset = thumb.contains(mouseX, mouseY)
+                ? mouseY - thumb.y1 : thumbHeight / 2;
+        if (!thumb.contains(mouseX, mouseY)) {
+            updateGuessSoundsScrollbar(panel, layout, mouseY);
+        }
+        guessSoundsScrollbarDragging = true;
+        return true;
+    }
+
+    private void updateGuessSoundsScrollbarDrag(int screenWidth, int screenHeight, int mouseY) {
+        Rect panel = labelsPanelRect(screenWidth, screenHeight);
+        GuessSoundsUiLogic.Layout layout = guessSoundsLayout(panel);
+        updateGuessSoundsScrollbar(panel, layout, mouseY);
+    }
+
+    private void updateGuessSoundsScrollbar(Rect panel, GuessSoundsUiLogic.Layout layout, int mouseY) {
+        List<GuessSoundsUiLogic.Choice> rows = guessSoundPanel.rows();
+        int max = GuessSoundsUiLogic.maxScroll(rows.size(), layout.visibleRows);
+        if (max <= 0 || layout.listHeight <= 0) {
+            guessSoundsScrollbarDragging = false;
+            return;
+        }
+        int thumbHeight = Math.min(layout.listHeight,
+                Math.max(12, layout.listHeight * layout.visibleRows / rows.size()));
+        int travel = layout.listHeight - thumbHeight;
+        int thumbY = Math.max(0, Math.min(travel,
+                mouseY - layout.listY - guessSoundsScrollbarDragOffset));
+        guessSoundPanel.setScrollFromScrollbar(
+                (int) Math.round((double) thumbY * max / Math.max(1, travel)), layout);
+    }
+
+    private void drawGuessSounds(EditorRenderer renderer, Rect panel) {
+        MinecraftClientSoundBridge.ensureCatalog();
+        drawLanguageGroupSubviewTitle(renderer, panel, "< Labels", "Guess Sounds");
+        GuessSoundsUiLogic.Layout layout = guessSoundsLayout(panel);
+        for (int tab = 0; tab < 3; tab++) {
+            Rect button = new Rect(layout.searchX + tab * GuessSoundsUiLogic.TAB_STEP, layout.tabsY,
+                    layout.searchX + tab * GuessSoundsUiLogic.TAB_STEP + GuessSoundsUiLogic.TAB_WIDTH,
+                    layout.tabsY + GuessSoundsUiLogic.BUTTON_HEIGHT);
+            drawVanillaButton(renderer, button, GuessSoundsUiLogic.tabCaption(tab), 9200 + tab, drawMouseX, drawMouseY);
+            if (guessSoundPanel.points() == tab + 1) renderer.fill(button.x1, button.y2, button.x2, button.y2 + 2, PANEL_TEXT);
+        }
+        drawVanillaButton(renderer, new Rect(layout.testX, layout.tabsY, layout.testX + GuessSoundsUiLogic.TEST_WIDTH,
+                layout.tabsY + GuessSoundsUiLogic.BUTTON_HEIGHT), "\u00a7fTest", 9300, drawMouseX, drawMouseY);
+        drawVanillaButton(renderer, new Rect(layout.resetX, layout.tabsY, layout.resetX + GuessSoundsUiLogic.RESET_WIDTH,
+                layout.tabsY + GuessSoundsUiLogic.BUTTON_HEIGHT), "\u00a7fReset", 9301, drawMouseX, drawMouseY);
+        if (guessSoundPanel.isSearchEditing()) guessSoundPanel.positionSearch(layout);
+        else {
+            renderer.fill(layout.searchX, layout.searchY, layout.searchX + layout.searchWidth, layout.searchY + 16, 0x66000000);
+            drawOutline(renderer, new Rect(layout.searchX, layout.searchY, layout.searchX + layout.searchWidth, layout.searchY + 16), PANEL_BORDER);
+            String search = guessSoundPanel.search();
+            renderer.drawString(trimTextToWidth(renderer, search.isEmpty() ? "\u00a77Search sounds" : "\u00a7f" + search,
+                    layout.searchWidth - 8), layout.searchX + 4, layout.searchY + 4, PANEL_TEXT, true);
+        }
+        guessSoundPanel.clamp(layout);
+        List<GuessSoundsUiLogic.Choice> rows = guessSoundPanel.rows();
+        renderer.enableScissor(layout.listX, layout.listY, layout.listX + layout.searchWidth, layout.listY + layout.listHeight);
+        try {
+            for (int row = 0; row < layout.visibleRows && row + guessSoundPanel.scroll() < rows.size(); row++) {
+                GuessSoundsUiLogic.Choice choice = rows.get(row + guessSoundPanel.scroll());
+                int y = layout.listY + row * GuessSoundsUiLogic.ROW_HEIGHT;
+                boolean selected = choice.id.equals(GtbStructuresSettings.INSTANCE.guessSound(guessSoundPanel.points()));
+                if (selected || GuessSoundsUiLogic.contains(drawMouseX, drawMouseY, layout.listX, y, layout.listWidth, GuessSoundsUiLogic.ROW_HEIGHT))
+                    renderer.fill(layout.listX, y, layout.listX + layout.listWidth, y + GuessSoundsUiLogic.ROW_HEIGHT - 1,
+                            selected ? 0x80506A8A : 0x304A5260);
+                renderer.drawSoundIcon(choice.id, layout.listX + 2, y + 2);
+                int textX = layout.listX + 22, width = Math.max(1, layout.listWidth - 24);
+                renderer.drawString(trimTextToWidth(renderer, choice.label, width), textX, y + 2, PANEL_TEXT, true);
+                renderer.drawString(trimTextToWidth(renderer, choice.id, width), textX, y + 11, PANEL_MUTED, true);
+            }
+        } finally { renderer.disableScissor(); }
+        int max = GuessSoundsUiLogic.maxScroll(rows.size(), layout.visibleRows);
+        if (max > 0 && layout.listHeight > 0) {
+            int thumb = Math.min(layout.listHeight, Math.max(12, layout.listHeight * layout.visibleRows / rows.size()));
+            int y = layout.listY + (layout.listHeight - thumb) * guessSoundPanel.scroll() / max;
+            int x = panel.x2 - 10;
+            renderer.fill(x, layout.listY, x + 4, layout.listY + layout.listHeight, 0x442A313B);
+            Rect thumbRect = new Rect(x, y, x + 4, y + thumb);
+            renderer.fill(thumbRect.x1, thumbRect.y1, thumbRect.x2, thumbRect.y2,
+                    guessSoundsScrollbarDragging ? 0xFFD5DCE5 : PANEL_MUTED);
+            drawControlFeedback(renderer, "guess-sounds-scrollbar", thumbRect);
+        }
+        drawScaleSliderRow(renderer, layout.searchX, layout.volumeY, SliderSpec.GUESS_SOUND);
+    }
+
+    private void drawShortcutLanguageGroupManager(EditorRenderer renderer, Rect panel) {
+        int x = panel.x1 + PANEL_PAD;
+        drawLanguageGroupSubviewTitle(renderer, panel, "< Labels", "Language Groups");
+        Rect create = new Rect(x, labelsBodyY(panel), x + 96, labelsBodyY(panel) + LANGUAGE_GROUP_BUTTON_HEIGHT);
+        drawVanillaButton(renderer, create, "+ New Group", 1110, drawMouseX, drawMouseY);
+        Rect viewport = new Rect(x, create.y2 + 4, panel.x2 - PANEL_PAD, panel.y2 - PANEL_PAD);
+        List<ShortcutLanguageGroups.Group> groups = ShortcutLanguageGroups.groups();
+        shortcutGroupManager.clampScrolls(viewport.height(), ROW_HEIGHT * 2, 0, ROW_HEIGHT);
+        renderer.enableScissor(viewport.x1, viewport.y1, viewport.x2, viewport.y2);
+        try {
+            int y = viewport.y1 - shortcutGroupManager.groupScroll();
+            if (groups.isEmpty()) {
+                renderer.drawString("\u00a77No language groups yet.", x, y + 3,
+                        PANEL_MUTED, true);
+            }
+            for (ShortcutLanguageGroups.Group group : groups) {
+                String name = trimTextToWidth(renderer, group.name,
+                        Math.max(1, viewport.width() - CHECK_SIZE - 22));
+                drawToggleRow(renderer, x, y, name, group.enabled);
+                String summary = languageGroupSummary(renderer, group,
+                        Math.max(1, viewport.width() - CHILD_ROW_INDENT - 15));
+                renderer.drawString("\u00a77" + summary, x + CHILD_ROW_INDENT,
+                        toggleTextY(y + ROW_HEIGHT, renderer.fontHeight()), PANEL_MUTED, true);
+                renderer.drawString("\u00a77>", panel.x2 - PANEL_PAD - 10,
+                        toggleTextY(y, renderer.fontHeight()), PANEL_MUTED, true);
+                y += ROW_HEIGHT * 2;
+            }
+        } finally {
+            renderer.disableScissor();
+        }
+        drawSubviewScrollbar(renderer, viewport, groups.size() * ROW_HEIGHT * 2,
+                shortcutGroupManager.groupScroll());
+    }
+
+    private int shortcutLanguageGroupViewportHeight(Rect panel) {
+        if (shortcutGroupManager.view() == ShortcutLanguageGroupPreviewManager.View.GROUPS) {
+            return Math.max(0, panel.y2 - PANEL_PAD
+                    - (labelsBodyY(panel) + LANGUAGE_GROUP_BUTTON_HEIGHT + 4));
+        }
+        int listTop = labelsBodyY(panel) + 10 + 20 + ROW_HEIGHT * 2;
+        if (shortcutGroupManager.draftRawTranslation()) listTop += ROW_HEIGHT;
+        listTop += 10 + 20 + LANGUAGE_GROUP_BUTTON_HEIGHT + 2;
+        int footerY = panel.y2 - PANEL_PAD - LANGUAGE_GROUP_BUTTON_HEIGHT;
+        return Math.max(0, footerY - 12 - listTop);
+    }
+
+    private void drawShortcutLanguageGroupEditor(EditorRenderer renderer, Rect panel) {
+        int x = panel.x1 + PANEL_PAD;
+        drawLanguageGroupSubviewTitle(renderer, panel, "< Groups",
+                shortcutGroupManager.isNew() ? "New Group" : "Edit Group");
+        int y = labelsBodyY(panel);
+        renderer.drawString("\u00a77Name", x, y, PANEL_MUTED, true); y += 10;
+        Rect name = new Rect(x, y, panel.x2 - PANEL_PAD, y + 16);
+        drawInactiveTextField(renderer, name);
+        if (shortcutGroupManager.inlineField() == ShortcutLanguageGroupPreviewManager.Field.NAME) {
+            shortcutGroupManager.positionInlineField(name.x1, name.y1, name.width(), name.height());
+        } else {
+            String value = trimTextToWidth(renderer, shortcutGroupManager.draftName(),
+                    Math.max(1, name.width() - 8));
+            renderer.drawString("\u00a7f" + value, x + 4, y + 4, PANEL_TEXT, true);
+        }
+        y += 20;
+        drawToggleRow(renderer, x, y, "Enabled", shortcutGroupManager.draftEnabled()); y += ROW_HEIGHT;
+        drawToggleRow(renderer, x, y, "Raw Translation", shortcutGroupManager.draftRawTranslation()); y += ROW_HEIGHT;
+        if (shortcutGroupManager.draftRawTranslation()) { drawToggleRow(renderer, x + CHILD_ROW_INDENT, y, "Toggle All Lowercase", shortcutGroupManager.draftRawTranslationAllLowercase()); y += ROW_HEIGHT; }
+        renderer.drawString("\u00a77Search Languages", x, y, PANEL_MUTED, true); y += 10;
+        Rect search = new Rect(x, y, panel.x2 - PANEL_PAD, y + 16);
+        drawInactiveTextField(renderer, search);
+        if (shortcutGroupManager.inlineField() == ShortcutLanguageGroupPreviewManager.Field.SEARCH) {
+            shortcutGroupManager.positionInlineField(search.x1, search.y1, search.width(), search.height());
+        } else {
+            String value = shortcutGroupManager.draftSearch();
+            String shown = trimTextToWidth(renderer, value.isEmpty() ? "Search..." : value,
+                    Math.max(1, search.width() - 8));
+            renderer.drawString("\u00a77" + shown, x + 4, y + 4, PANEL_MUTED, true);
+        }
+        y += 20;
+        Rect all = new Rect(x, y, x + 66, y + LANGUAGE_GROUP_BUTTON_HEIGHT);
+        Rect none = new Rect(all.x2 + 4, y, all.x2 + 80, y + LANGUAGE_GROUP_BUTTON_HEIGHT);
+        drawVanillaButton(renderer, all, "Select All", 1111, drawMouseX, drawMouseY);
+        drawVanillaButton(renderer, none, "Select None", 1112, drawMouseX, drawMouseY); y += LANGUAGE_GROUP_BUTTON_HEIGHT + 2;
+        int footerY = panel.y2 - PANEL_PAD - LANGUAGE_GROUP_BUTTON_HEIGHT;
+        Rect viewport = new Rect(x, y, panel.x2 - PANEL_PAD, footerY - 12);
+        List<ShortcutLanguageGroupPreviewManager.LanguageOption> options =
+                shortcutGroupManager.filteredLanguages();
+        shortcutGroupManager.clampScrolls(0, ROW_HEIGHT * 2,
+                viewport.height(), ROW_HEIGHT);
+        renderer.enableScissor(viewport.x1, viewport.y1, viewport.x2, viewport.y2);
+        try {
+            int listY = viewport.y1 - shortcutGroupManager.languageScroll();
+            for (ShortcutLanguageGroupPreviewManager.LanguageOption option : options) {
+                String caption = trimTextToWidth(renderer, option.caption(),
+                        Math.max(1, viewport.width() - CHECK_SIZE - 20));
+                drawToggleRow(renderer, x, listY, caption, option.selected);
+                listY += ROW_HEIGHT;
+            }
+        } finally {
+            renderer.disableScissor();
+        }
+        drawSubviewScrollbar(renderer, viewport, options.size() * ROW_HEIGHT,
+                shortcutGroupManager.languageScroll());
+        if (!shortcutGroupManager.validationError().isEmpty()) {
+            String notice = CommandGtbRuntime.shortcutLanguageGroupValidationNotice(
+                    shortcutGroupManager.validationError(), shortcutGroupManager.validationDetail());
+            renderer.drawString(trimTextToWidth(renderer, notice, panel.width() - PANEL_PAD * 2),
+                    x, footerY - 11, 0xFFFF8D9A, true);
+        }
+        if (shortcutGroupManager.deleteConfirmation()) {
+            renderer.drawString("\u00a7cDelete this group?", x, footerY + 5, 0xFFFF8D9A, true);
+            drawVanillaButton(renderer, new Rect(panel.x2 - 110, footerY, panel.x2 - 56, footerY + 20), "Delete", 1116, drawMouseX, drawMouseY);
+            drawVanillaButton(renderer, new Rect(panel.x2 - 52, footerY, panel.x2 - PANEL_PAD, footerY + 20), "Keep", 1117, drawMouseX, drawMouseY);
+        } else {
+            if (!shortcutGroupManager.isNew()) drawVanillaButton(renderer, new Rect(x, footerY, x + 54, footerY + 20), "Delete", 1113, drawMouseX, drawMouseY);
+            drawVanillaButton(renderer, new Rect(panel.x2 - 112, footerY, panel.x2 - 58, footerY + 20), "Cancel", 1114, drawMouseX, drawMouseY);
+            drawVanillaButton(renderer, new Rect(panel.x2 - 54, footerY, panel.x2 - PANEL_PAD, footerY + 20), "Save", 1115, drawMouseX, drawMouseY);
+        }
+    }
+
+    private boolean handleShortcutLanguageGroupSubviewClick(EditorRenderer renderer, Rect panel, int mouseX, int mouseY) {
+        shortcutGroupManager.finishInlineField();
+        int x = panel.x1 + PANEL_PAD;
+        if (beginShortcutSubviewScrollbarDrag(panel, mouseX, mouseY)) return true;
+        if (new Rect(x, panel.y1 + PANEL_PAD - 2, x + 64, panel.y1 + PANEL_PAD + TITLE_HEIGHT + 2).contains(mouseX, mouseY)) { shortcutGroupManager.back(); return true; }
+        if (shortcutGroupManager.view() == ShortcutLanguageGroupPreviewManager.View.GROUPS) {
+            Rect create = new Rect(x, labelsBodyY(panel), x + 96, labelsBodyY(panel) + LANGUAGE_GROUP_BUTTON_HEIGHT);
+            if (create.contains(mouseX, mouseY)) { shortcutGroupManager.beginNew(); return true; }
+            int y = create.y2 + 4 - shortcutGroupManager.groupScroll(); int index = 1;
+            for (ShortcutLanguageGroups.Group group : ShortcutLanguageGroups.groups()) {
+                if (new Rect(x, y, x + CHECK_SIZE + 5, y + ROW_HEIGHT).contains(mouseX, mouseY)
+                        && mouseY >= create.y2 + 4 && mouseY < panel.y2 - PANEL_PAD) {
+                    ConfigSnapshot before = ConfigSnapshot.capture();
+                    ShortcutLanguageGroups.Result result = shortcutGroupManager.toggleGroup(index);
+                    if (result.success && !before.matchesCurrent()) { recordUndo(before); GtbStructuresSettings.INSTANCE.save(); }
+                    return true;
+                }
+                if (new Rect(x + CHECK_SIZE + 5, y, panel.x2 - PANEL_PAD, y + ROW_HEIGHT * 2).contains(mouseX, mouseY)
+                        && mouseY >= create.y2 + 4 && mouseY < panel.y2 - PANEL_PAD) { shortcutGroupManager.beginEdit(index); return true; }
+                y += ROW_HEIGHT * 2; index++;
+            }
+            return true;
+        }
+        int y = labelsBodyY(panel) + 10; Rect name = new Rect(x, y, panel.x2 - PANEL_PAD, y + 16);
+        if (name.contains(mouseX, mouseY)) { shortcutGroupManager.beginInlineField(ShortcutLanguageGroupPreviewManager.Field.NAME); return true; }
+        y += 20; if (toggleHit(renderer, x, y, "Enabled", mouseX, mouseY)) { shortcutGroupManager.toggleDraftEnabled(); return true; } y += ROW_HEIGHT;
+        if (toggleHit(renderer, x, y, "Raw Translation", mouseX, mouseY)) { shortcutGroupManager.toggleDraftRawTranslation(); return true; } y += ROW_HEIGHT;
+        if (shortcutGroupManager.draftRawTranslation()) { if (toggleHit(renderer, x + CHILD_ROW_INDENT, y, "Toggle All Lowercase", mouseX, mouseY)) { shortcutGroupManager.toggleDraftRawTranslationAllLowercase(); return true; } y += ROW_HEIGHT; }
+        y += 10; Rect search = new Rect(x, y, panel.x2 - PANEL_PAD, y + 16);
+        if (search.contains(mouseX, mouseY)) { shortcutGroupManager.beginInlineField(ShortcutLanguageGroupPreviewManager.Field.SEARCH); return true; }
+        y += 20; Rect all = new Rect(x, y, x + 66, y + 20); Rect none = new Rect(all.x2 + 4, y, all.x2 + 80, y + 20);
+        if (all.contains(mouseX, mouseY)) { shortcutGroupManager.selectAll(); return true; } if (none.contains(mouseX, mouseY)) { shortcutGroupManager.selectNone(); return true; } y += 22;
+        int footerY = panel.y2 - PANEL_PAD - LANGUAGE_GROUP_BUTTON_HEIGHT;
+        int listY = y - shortcutGroupManager.languageScroll();
+        for (ShortcutLanguageGroupPreviewManager.LanguageOption option : shortcutGroupManager.filteredLanguages()) {
+            if (toggleHit(renderer, x, listY, option.caption(), mouseX, mouseY)
+                    && mouseY >= y && mouseY < footerY - 12) { shortcutGroupManager.toggleLanguage(option.code); return true; }
+            listY += ROW_HEIGHT;
+        }
+        if (shortcutGroupManager.deleteConfirmation()) { if (new Rect(panel.x2 - 110, footerY, panel.x2 - 56, footerY + 20).contains(mouseX, mouseY)) { deleteShortcutLanguageGroupDraft(); return true; } if (new Rect(panel.x2 - 52, footerY, panel.x2 - PANEL_PAD, footerY + 20).contains(mouseX, mouseY)) { shortcutGroupManager.cancelDelete(); return true; } }
+        else { if (!shortcutGroupManager.isNew() && new Rect(x, footerY, x + 54, footerY + 20).contains(mouseX, mouseY)) { shortcutGroupManager.requestDelete(); return true; } if (new Rect(panel.x2 - 112, footerY, panel.x2 - 58, footerY + 20).contains(mouseX, mouseY)) { shortcutGroupManager.openManager(); return true; } if (new Rect(panel.x2 - 54, footerY, panel.x2 - PANEL_PAD, footerY + 20).contains(mouseX, mouseY)) { saveShortcutLanguageGroupDraft(); return true; } }
+        return true;
+    }
+
+    private boolean beginShortcutSubviewScrollbarDrag(Rect panel, int mouseX, int mouseY) {
+        Rect viewport = shortcutSubviewViewport(panel);
+        int contentHeight = shortcutSubviewContentHeight();
+        int max = Math.max(0, contentHeight - viewport.height());
+        if (max <= 0 || viewport.height() <= 0) return false;
+        Rect track = new Rect(viewport.x2 - LABELS_SCROLLBAR_WIDTH, viewport.y1,
+                viewport.x2, viewport.y2);
+        if (!track.contains(mouseX, mouseY)) return false;
+        int thumbHeight = subviewScrollbarThumbHeight(viewport.height(), contentHeight);
+        int thumbY = track.y1 + subviewScrollbarThumbOffset(viewport.height(), thumbHeight,
+                max, shortcutSubviewScroll());
+        Rect thumb = new Rect(track.x1, thumbY, track.x2, thumbY + thumbHeight);
+        shortcutSubviewScrollbarDragOffset = thumb.contains(mouseX, mouseY)
+                ? mouseY - thumb.y1 : thumbHeight / 2;
+        if (!thumb.contains(mouseX, mouseY)) updateShortcutSubviewScrollbar(panel, mouseY);
+        shortcutSubviewScrollbarDragging = true;
+        return true;
+    }
+
+    private void updateShortcutSubviewScrollbarDrag(int screenWidth, int screenHeight, int mouseY) {
+        updateShortcutSubviewScrollbar(labelsPanelRect(screenWidth, screenHeight), mouseY);
+    }
+
+    private void updateShortcutSubviewScrollbar(Rect panel, int mouseY) {
+        Rect viewport = shortcutSubviewViewport(panel);
+        int contentHeight = shortcutSubviewContentHeight();
+        int max = Math.max(0, contentHeight - viewport.height());
+        if (max <= 0 || viewport.height() <= 0) {
+            shortcutSubviewScrollbarDragging = false;
+            return;
+        }
+        int thumbHeight = subviewScrollbarThumbHeight(viewport.height(), contentHeight);
+        int travel = viewport.height() - thumbHeight;
+        int thumbY = Math.max(0, Math.min(travel,
+                mouseY - viewport.y1 - shortcutSubviewScrollbarDragOffset));
+        shortcutGroupManager.setScrollFromScrollbar(
+                (int) Math.round((double) thumbY * max / Math.max(1, travel)),
+                viewport.height(), ROW_HEIGHT);
+    }
+
+    private Rect shortcutSubviewViewport(Rect panel) {
+        int x = panel.x1 + PANEL_PAD;
+        if (shortcutGroupManager.view() == ShortcutLanguageGroupPreviewManager.View.GROUPS) {
+            int createY = labelsBodyY(panel);
+            return new Rect(x, createY + LANGUAGE_GROUP_BUTTON_HEIGHT + 4,
+                    panel.x2 - PANEL_PAD, panel.y2 - PANEL_PAD);
+        }
+        int listTop = labelsBodyY(panel) + 10 + 20 + ROW_HEIGHT * 2;
+        if (shortcutGroupManager.draftRawTranslation()) listTop += ROW_HEIGHT;
+        listTop += 10 + 20 + LANGUAGE_GROUP_BUTTON_HEIGHT + 2;
+        int footerY = panel.y2 - PANEL_PAD - LANGUAGE_GROUP_BUTTON_HEIGHT;
+        return new Rect(x, listTop, panel.x2 - PANEL_PAD, footerY - 12);
+    }
+
+    private int shortcutSubviewContentHeight() {
+        if (shortcutGroupManager.view() == ShortcutLanguageGroupPreviewManager.View.GROUPS) {
+            return ShortcutLanguageGroups.groups().size() * ROW_HEIGHT * 2;
+        }
+        return shortcutGroupManager.filteredLanguages().size() * ROW_HEIGHT;
+    }
+
+    private int shortcutSubviewScroll() {
+        return shortcutGroupManager.view() == ShortcutLanguageGroupPreviewManager.View.GROUPS
+                ? shortcutGroupManager.groupScroll() : shortcutGroupManager.languageScroll();
+    }
+
+    private static int subviewScrollbarThumbHeight(int viewportHeight, int contentHeight) {
+        return Math.min(viewportHeight, Math.max(LABELS_SCROLLBAR_MIN_THUMB,
+                viewportHeight * viewportHeight / Math.max(1, contentHeight)));
+    }
+
+    private static int subviewScrollbarThumbOffset(int viewportHeight, int thumbHeight,
+                                                    int maxScroll, int offset) {
+        int travel = viewportHeight - thumbHeight;
+        return travel <= 0 ? 0 : (int) Math.round((double) Math.max(0, Math.min(maxScroll, offset))
+                * travel / maxScroll);
+    }
+    private void saveShortcutLanguageGroupDraft() { ConfigSnapshot before = ConfigSnapshot.capture(); ShortcutLanguageGroups.Result result = shortcutGroupManager.saveDraft(); if (result.success && !before.matchesCurrent()) { recordUndo(before); GtbStructuresSettings.INSTANCE.save(); } else if (!result.success) queueLanguageGroupValidation(result); }
+    private void deleteShortcutLanguageGroupDraft() { ConfigSnapshot before = ConfigSnapshot.capture(); ShortcutLanguageGroups.Result result = shortcutGroupManager.deleteDraft(); if (result.success && !before.matchesCurrent()) { recordUndo(before); GtbStructuresSettings.INSTANCE.save(); } else if (!result.success) queueLanguageGroupValidation(result); }
+    private static void queueLanguageGroupValidation(ShortcutLanguageGroups.Result result) { GameStats.INSTANCE.queueNotificationMessage(CommandGtbRuntime.shortcutLanguageGroupValidationNotice(result.error, result.detail)); }
+
+    private static Rect languageGroupManagerLinkRect(Rect panel, int y) {
+        return new Rect(panel.x1 + PANEL_PAD + CHILD_ROW_INDENT * 2, y,
+                panel.x2 - PANEL_PAD, y + ROW_HEIGHT);
+    }
+
+    private static void drawLanguageGroupSubviewTitle(EditorRenderer renderer, Rect panel,
+                                                       String back, String title) {
+        int y = panel.y1 + PANEL_PAD;
+        renderer.drawString("\u00a7f\u00a7n" + back, panel.x1 + PANEL_PAD, y,
+                PANEL_TEXT, true);
+        int titleX = panel.x1 + (panel.width() - renderer.textWidth(title)) / 2;
+        renderer.drawString("\u00a7f" + title, titleX, y, PANEL_TEXT, true);
+    }
+
+    private void drawMenuSubviewLink(EditorRenderer renderer, Rect panel, int x, int y,
+                                     String caption) {
+        Rect row = new Rect(x + CHECK_SIZE + 5, y, panel.x2 - PANEL_PAD, y + ROW_HEIGHT);
+        boolean hovered = row.contains(drawMouseX, drawMouseY);
+        renderer.drawString((hovered ? "\u00a7f\u00a7n" : "\u00a77") + caption,
+                row.x1, toggleTextY(y, renderer.fontHeight()),
+                hovered ? PANEL_TEXT : PANEL_MUTED, true);
+        String suffix = "\u00a77>";
+        renderer.drawString(suffix, panel.x2 - PANEL_PAD - renderer.textWidth(">") - 3,
+                toggleTextY(y, renderer.fontHeight()), PANEL_MUTED, true);
+    }
+
+    private static void drawInactiveTextField(EditorRenderer renderer, Rect rect) {
+        renderer.fill(rect.x1, rect.y1, rect.x2, rect.y2, 0xFF000000);
+        renderer.fill(rect.x1 + 1, rect.y1 + 1, rect.x2 - 1, rect.y2 - 1, 0xFF202020);
+        drawOutline(renderer, rect, 0xFF9A9A9A);
+    }
+
+    private void drawSubviewScrollbar(EditorRenderer renderer, Rect viewport,
+                                      int contentHeight, int offset) {
+        int maxScroll = Math.max(0, contentHeight - viewport.height());
+        if (maxScroll <= 0 || viewport.height() <= 0) return;
+        int thumbHeight = Math.max(LABELS_SCROLLBAR_MIN_THUMB,
+                viewport.height() * viewport.height() / Math.max(1, contentHeight));
+        thumbHeight = Math.min(viewport.height(), thumbHeight);
+        int travel = viewport.height() - thumbHeight;
+        int thumbY = travel <= 0 ? 0
+                : (int) Math.round((double) Math.max(0, Math.min(maxScroll, offset))
+                * travel / maxScroll);
+        Rect track = new Rect(viewport.x2 - LABELS_SCROLLBAR_WIDTH, viewport.y1,
+                viewport.x2, viewport.y2);
+        renderer.fill(track.x1, track.y1, track.x2, track.y2, 0x442A313B);
+        Rect thumb = new Rect(track.x1, track.y1 + thumbY, track.x2,
+                track.y1 + thumbY + thumbHeight);
+        renderer.fill(thumb.x1, thumb.y1, thumb.x2, thumb.y2,
+                shortcutSubviewScrollbarDragging ? 0xFFD5DCE5 : 0xFF9EA8B5);
+        drawControlFeedback(renderer, "shortcut-subview-scrollbar", thumb);
+    }
+
+    private static String languageGroupSummary(EditorRenderer renderer,
+                                               ShortcutLanguageGroups.Group group,
+                                               int maxWidth) {
+        StringBuilder value = new StringBuilder();
+        for (String code : group.languages) {
+            if (value.length() > 0) value.append(", ");
+            value.append(ShortcutLanguageGroups.isSupportedLanguage(code)
+                    ? ShortcutLanguageGroups.languageDisplayName(code)
+                    : "Unavailable (" + code + ")");
+        }
+        String full = value.toString();
+        return renderer.textWidth(full) <= maxWidth
+                ? full : group.languages.size() + " languages";
+    }
+
+    private static String trimTextToWidth(EditorRenderer renderer, String value, int maxWidth) {
+        String text = value == null ? "" : value;
+        if (renderer.textWidth(text) <= maxWidth) return text;
+        String suffix = "...";
+        int suffixWidth = renderer.textWidth(suffix);
+        while (!text.isEmpty() && renderer.textWidth(text) + suffixWidth > maxWidth) {
+            int codePoints = text.codePointCount(0, text.length());
+            text = text.substring(0, text.offsetByCodePoints(0, codePoints - 1));
+        }
+        return text + suffix;
     }
 
     private static int drawMenuSection(EditorRenderer renderer, int x, int y, String text) {
@@ -1109,7 +1796,7 @@ public final class PreviewLayoutEditor {
     private void drawHeaderRow(EditorRenderer renderer, Rect panel, int x, int y) {
         int textY = y + (HEADER_ROW_HEIGHT - renderer.fontHeight()) / 2;
         int valueX = headerValueX(renderer, x);
-        if (headerEditing) {
+        if (headerEditing && !autoRequeueDelayEditing && scaleValueEditingId.isEmpty()) {
             Rect field = headerInputRect(renderer, panel);
             PreviewScreenController.positionHeaderEditor(field.x1, field.y1,
                     field.width(), field.height());
@@ -1120,6 +1807,83 @@ public final class PreviewLayoutEditor {
         boolean resetHovered = reset.contains(drawMouseX, drawMouseY);
         renderer.drawString(resetHovered ? "\u00a7f\u00a7nReset" : "\u00a77Reset",
                 reset.x1, textY, resetHovered ? PANEL_TEXT : PANEL_MUTED, true);
+    }
+
+    private void drawAutoRequeueDelayRow(EditorRenderer renderer, Rect panel, int x, int y) {
+        int textY = toggleTextY(y, renderer.fontHeight());
+        renderer.drawString(AUTO_REQUEUE_DELAY_LABEL, x, textY, PANEL_TEXT, true);
+        if (autoRequeueDelayEditing) {
+            Rect field = autoRequeueDelayInputRect(renderer, panel);
+            PreviewScreenController.positionHeaderEditor(field.x1, field.y1,
+                    field.width(), field.height());
+            return;
+        }
+        Rect value = autoRequeueDelayValueRect(renderer, x, y);
+        renderer.drawString("\u00a77" + GtbStructuresSettings.formatAutoRequeueDelaySeconds(
+                        GtbStructuresSettings.INSTANCE.autoRequeueDelaySeconds) + "s",
+                value.x1, textY, PANEL_MUTED, true);
+    }
+
+    private boolean handleAutoRequeueDelayRowClick(EditorRenderer renderer, Rect panel, int x, int y,
+                                                    int mouseX, int mouseY) {
+        Rect value = autoRequeueDelayValueRect(renderer, x, y);
+        if (!value.contains(mouseX, mouseY)) return false;
+        if (autoRequeueDelayEditing) return true;
+        headerEditing = true;
+        autoRequeueDelayEditing = true;
+        PreviewScreenController.beginHeaderEditing(GtbStructuresSettings.formatAutoRequeueDelaySeconds(
+                GtbStructuresSettings.INSTANCE.autoRequeueDelaySeconds));
+        return true;
+    }
+
+    private static Rect autoRequeueDelayValueRect(EditorRenderer renderer, int x, int y) {
+        int left = x + renderer.textWidth(AUTO_REQUEUE_DELAY_LABEL) + 5;
+        return new Rect(left, y - 1, left + AUTO_REQUEUE_DELAY_EDITOR_WIDTH, y + ROW_HEIGHT + 1);
+    }
+
+    private void commitAutoRequeueDelay(String requested) {
+        if (requested == null) return;
+        Float delay = GtbStructuresSettings.parseAutoRequeueDelaySeconds(requested);
+        if (delay == null) {
+            GameStats.INSTANCE.queueNotificationMessage(CommandGtb.head
+                    + "Please enter a time from 0.0 to 10.0 seconds.");
+            return;
+        }
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        if (Float.compare(settings.autoRequeueDelaySeconds, delay.floatValue()) == 0) return;
+        ConfigSnapshot before = ConfigSnapshot.capture();
+        settings.autoRequeueDelaySeconds = delay.floatValue();
+        GameStats.INSTANCE.setAutoRequeueDelaySeconds(settings.autoRequeueDelaySeconds);
+        recordUndo(before);
+        settings.save();
+    }
+
+    private void commitScaleValue(String sliderId, String requested, String initialText) {
+        if (requested == null) return;
+        if (requested.equals(initialText)) return;
+        SliderSpec slider = sliderSpec(sliderId);
+        Float value = slider == SliderSpec.GUESS_SOUND
+                ? GtbStructuresSettings.parseGuessSoundVolume(requested) : HudPanelScale.parse(requested);
+        if (slider == null || value == null) {
+            if (slider == SliderSpec.GUESS_SOUND) {
+                GameStats.INSTANCE.queueNotificationMessage(CommandGtb.head + "Volume must be between 0.0 and 30.0.");
+                return;
+            }
+            GameStats.INSTANCE.queueNotificationMessage(CommandGtb.head
+                    + "Usage: /gtbs " + panelCommandNameForSlider(sliderId)
+                    + " scale [0.5-1.5|50%-150%]");
+            return;
+        }
+        if (Float.compare(slider.value(), value.floatValue()) == 0) return;
+        ConfigSnapshot before = ConfigSnapshot.capture();
+        beginDiscreteScaleChange(slider.panel);
+        try {
+            slider.setValue(value.floatValue());
+        } finally {
+            endDiscreteScaleChange(slider.panel);
+        }
+        recordUndo(before);
+        GtbStructuresSettings.INSTANCE.save();
     }
 
     private static void drawToggleRow(EditorRenderer renderer, int x, int y, String text,
@@ -1159,6 +1923,11 @@ public final class PreviewLayoutEditor {
         y += TITLE_HEIGHT + 5;
 
         String key = label.target.key;
+        SliderSpec scaleSlider = scaleSliderForPanelKey(key);
+        if (scaleSlider != null) {
+            drawScaleSliderRow(renderer, x, y, scaleSlider);
+            y += SLIDER_ROW_HEIGHT;
+        }
         if ("scoreboard".equals(key)) {
             drawSection(renderer, x, y, "Skin");
             y += ROW_HEIGHT;
@@ -1179,9 +1948,6 @@ public final class PreviewLayoutEditor {
             y += ROW_HEIGHT + 2;
             drawSection(renderer, x, y, "Details");
             y += ROW_HEIGHT;
-            drawToggleRow(renderer, x, y, "Place Left Players at Bottom",
-                    settings.sbConfig.leftPlayersAtBottom);
-            y += ROW_HEIGHT;
             drawTriStateRow(renderer, x, y, "Show Points Gained In Round",
                     settings.sbConfig.showPointsGainedInRound);
             y += ROW_HEIGHT;
@@ -1190,6 +1956,17 @@ public final class PreviewLayoutEditor {
             drawTriStateRow(renderer, x, y, "Show Titles", settings.sbConfig.showTitles);
             y += ROW_HEIGHT;
             drawTriStateRow(renderer, x, y, "Show Emblems", settings.sbConfig.showEmblems);
+            y += ROW_HEIGHT;
+            if (scoreboardDefaultBuilderOptionVisible(settings.sbConfig.skin)) {
+                drawToggleRow(renderer, x, y, "Explicitly Show Builders",
+                        settings.sbConfig.defaultExplicitlyShowBuilders);
+                y += ROW_HEIGHT;
+            } else if (scoreboardHypixelRoundsOptionVisible(settings.sbConfig.skin)) {
+                drawTriStateRow(renderer, x, y, "Show Rounds", settings.sbConfig.hypixelShowRounds);
+                y += ROW_HEIGHT;
+            }
+            drawToggleRow(renderer, x, y, "Place Left Players at Bottom",
+                    settings.sbConfig.leftPlayersAtBottom);
         } else if ("hint".equals(key)) {
             drawSection(renderer, x, y, "Background");
             y += ROW_HEIGHT;
@@ -1330,6 +2107,19 @@ public final class PreviewLayoutEditor {
         int x = panel.x1 + PANEL_PAD;
         int y = panel.y1 + PANEL_PAD + TITLE_HEIGHT + 5;
         String key = label.target.key;
+        SliderSpec scaleSlider = scaleSliderForPanelKey(key);
+        if (scaleSlider != null) {
+            Rect value = scaleSliderValueFieldRect(renderer, x, y, scaleSlider);
+            if (value.contains(mouseX, mouseY)) {
+                beginScaleValueEditing(scaleSlider, value);
+                return true;
+            }
+            if (scaleSliderRowRect(renderer, x, y, scaleSlider).contains(mouseX, mouseY)) {
+                beginScoreboardSliderDrag(scaleSlider.id, scaleSliderTrackRect(renderer, x, y, scaleSlider).x1, mouseX);
+                return true;
+            }
+            y += SLIDER_ROW_HEIGHT;
+        }
         if ("scoreboard".equals(key)) {
             y += ROW_HEIGHT;
             if (toggleHit(renderer, x, y, "Vanilla", mouseX, mouseY)) {
@@ -1371,13 +2161,6 @@ public final class PreviewLayoutEditor {
                 return true;
             }
             y += ROW_HEIGHT + 2 + ROW_HEIGHT;
-            if (toggleHit(renderer, x, y, "Place Left Players at Bottom", mouseX, mouseY)) {
-                recordUndo();
-                settings.sbConfig.leftPlayersAtBottom = !settings.sbConfig.leftPlayersAtBottom;
-                settings.save();
-                return true;
-            }
-            y += ROW_HEIGHT;
             if (triStateHit(renderer, x, y, "Show Points Gained In Round", mouseX, mouseY)) {
                 recordUndo();
                 settings.sbConfig.showPointsGainedInRound =
@@ -1403,6 +2186,32 @@ public final class PreviewLayoutEditor {
             if (triStateHit(renderer, x, y, "Show Emblems", mouseX, mouseY)) {
                 recordUndo();
                 settings.sbConfig.showEmblems = ScoreboardConfig.cycleOption(settings.sbConfig.showEmblems);
+                settings.save();
+                return true;
+            }
+            y += ROW_HEIGHT;
+            if (scoreboardDefaultBuilderOptionVisible(settings.sbConfig.skin)) {
+                if (toggleHit(renderer, x, y, "Explicitly Show Builders", mouseX, mouseY)) {
+                    recordUndo();
+                    settings.sbConfig.defaultExplicitlyShowBuilders =
+                            !settings.sbConfig.defaultExplicitlyShowBuilders;
+                    settings.save();
+                    return true;
+                }
+                y += ROW_HEIGHT;
+            } else if (scoreboardHypixelRoundsOptionVisible(settings.sbConfig.skin)) {
+                if (triStateHit(renderer, x, y, "Show Rounds", mouseX, mouseY)) {
+                    recordUndo();
+                    settings.sbConfig.hypixelShowRounds =
+                            ScoreboardConfig.cycleOption(settings.sbConfig.hypixelShowRounds);
+                    settings.save();
+                    return true;
+                }
+                y += ROW_HEIGHT;
+            }
+            if (toggleHit(renderer, x, y, "Place Left Players at Bottom", mouseX, mouseY)) {
+                recordUndo();
+                settings.sbConfig.leftPlayersAtBottom = !settings.sbConfig.leftPlayersAtBottom;
                 settings.save();
                 return true;
             }
@@ -1691,12 +2500,27 @@ public final class PreviewLayoutEditor {
         activeSliderX = x;
         sliderUndoSnapshot = ConfigSnapshot.capture();
         sliderDirty = false;
+        SliderSpec scaleSlider = sliderSpec(activeSlider);
+        if (scaleSlider != null && isBottomLeftScaleFamily(scaleSlider.panel)
+                && scaleChangeMatchesPreview(scaleSlider.panel)) {
+            frozenScaleDragFamily = scaleSlider.panel;
+            scaleDragMenuRebasePending = false;
+        }
         updateActiveScoreboardSlider(mouseX);
     }
 
     private void updateActiveScoreboardSlider(int mouseX) {
         if (activeSlider.isEmpty()) return;
         GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        SliderSpec scaleSlider = sliderSpec(activeSlider);
+        if (scaleSlider != null) {
+            float value = scaleSlider.valueAtFraction(sliderValueAtTrack(activeSliderX, mouseX));
+            if (Math.abs(scaleSlider.value() - value) > 0.0001F) {
+                scaleSlider.setValue(value);
+                sliderDirty = true;
+            }
+            return;
+        }
         float value = sliderValueAt(activeSliderX, mouseX);
         if ("backgroundOpacity".equals(activeSlider)) {
             if (Math.abs(settings.sbConfig.backgroundOpacity - value) > 0.0001F) {
@@ -1719,6 +2543,7 @@ public final class PreviewLayoutEditor {
         activeSlider = "";
         sliderUndoSnapshot = null;
         sliderDirty = false;
+        if (!frozenScaleDragFamily.isEmpty()) scaleDragMenuRebasePending = true;
     }
 
     private static void drawPanel(EditorRenderer renderer, Rect panel) {
@@ -1776,6 +2601,42 @@ public final class PreviewLayoutEditor {
         renderer.fill(knob.x1, knob.y1, knob.x2, knob.y2, 0xCC101217);
         INSTANCE.drawControlFeedback(renderer, "slider:" + x + ":" + y, sliderRowRect(x, y));
         drawOutline(renderer, knob, accent);
+    }
+
+    private void drawScaleSliderRow(EditorRenderer renderer, int x, int y, SliderSpec slider) {
+        int textY = toggleTextY(y, renderer.fontHeight());
+        renderer.drawString("\u00a77" + slider.caption, x, textY, PANEL_MUTED, true);
+        Rect track = scaleSliderTrackRect(renderer, x, y, slider);
+        int cy = track.y1 + track.height() / 2;
+        int accent = selectionAccent();
+        int knobCenter = track.x1 + Math.round(slider.fraction() * SLIDER_WIDTH);
+        renderer.fill(track.x1, cy, track.x2, cy + 1, 0xAA7A8492);
+        renderer.fill(track.x1, cy - 1, Math.max(track.x1, knobCenter - 1), cy + 2, accent);
+        Rect knob = new Rect(knobCenter - SLIDER_KNOB_WIDTH / 2, cy - 5,
+                knobCenter - SLIDER_KNOB_WIDTH / 2 + SLIDER_KNOB_WIDTH, cy + 6);
+        renderer.fill(knob.x1, knob.y1, knob.x2, knob.y2, 0xCC101217);
+        drawControlFeedback(renderer, "scale-slider:" + slider.id,
+                scaleSliderHighlightRect(renderer, x, y, slider));
+        drawOutline(renderer, knob, accent);
+        Rect value = scaleSliderValueFieldRect(renderer, x, y, slider);
+        if (slider.id.equals(scaleValueEditingId)) {
+            scaleValueInputRect = value;
+            PreviewScreenController.positionHeaderEditor(value.x1, value.y1, value.width(), value.height());
+            return;
+        }
+        renderer.drawString("\u00a77" + (slider == SliderSpec.GUESS_SOUND
+                ? GtbStructuresSettings.formatGuessSoundVolume(slider.value()) : HudPanelScale.formatPercent(slider.value())),
+                value.x1, textY, PANEL_MUTED, true);
+    }
+
+    private void beginScaleValueEditing(SliderSpec slider, Rect value) {
+        if (slider == null || headerEditing) return;
+        headerEditing = true;
+        scaleValueEditingId = slider.id;
+        scaleValueInputRect = value == null ? new Rect(0, 0, 0, 0) : value;
+        scaleValueEditingInitialText = slider == SliderSpec.GUESS_SOUND
+                ? GtbStructuresSettings.formatGuessSoundVolume(slider.value()) : formatScaleInput(slider.value());
+        PreviewScreenController.beginHeaderEditing(scaleValueEditingInitialText);
     }
 
     private static void drawStepper(EditorRenderer renderer, int x, int y, int value) {
@@ -2098,10 +2959,10 @@ public final class PreviewLayoutEditor {
         GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
         if (!settings.modEnabled) return collapsedLabelsPanelHeight();
         int rows = 6;
-        rows += 2;
+        rows += 2 + (settings.autoRequeue ? 1 : 0);
         rows += 1;
         rows += 1 + (settings.guessPeek ? 4 : 0);
-        rows += 1 + (settings.showAllMatching ? 1 : 0);
+        rows += 1 + (settings.showAllMatching ? 2 : 0);
         rows += 1 + (settings.themePointReveal ? 1 : 0);
         rows += 1;
         if (settings.shortcutReminder) {
@@ -2109,7 +2970,10 @@ public final class PreviewLayoutEditor {
             if (settings.shortcutReminderShowMultiwords) rows += 1;
             if (settings.shortcutReminderShowNonAscii) rows += 5;
         }
-        rows += 2 + (settings.scrambleGuess ? 1 : 0) + (settings.trollMode ? 1 : 0);
+        // Always present: groups can be prepared while the ordinary reminder is disabled.
+        rows += 2;
+        rows += 3 + (settings.scrambleGuess ? 1 : 0) + (settings.trollMode ? 1 : 0);
+        rows += 1; // Keep the final Guess Sounds link clear of the viewport scissor edge.
         return PANEL_PAD * 2 + TITLE_HEIGHT + 4
                 + rows * ROW_HEIGHT
                 + (HEADER_ROW_HEIGHT - ROW_HEIGHT)
@@ -2289,11 +3153,15 @@ public final class PreviewLayoutEditor {
         if ((resizeEdges & RESIZE_LEFT) != 0) dx = -dx;
         int width = resizeStartWidth;
         if ((resizeEdges & (RESIZE_LEFT | RESIZE_RIGHT)) != 0) {
+            float scale = HudPanelScale.normalize(settings.handheldItemScale);
+            int requestedDisplayedWidth = Math.max(1, resizeStartWidth + dx);
+            int requestedBaseWidth = HudPanelScale.basePixels(requestedDisplayedWidth, scale);
             width = GtbStructuresSettings.handheldPanelWidthPixels(
                     GtbStructuresSettings.handheldPanelWidthRatioForPixels(
-                            resizeStartWidth + dx, resizeScreenWidth), resizeScreenWidth);
+                            requestedBaseWidth, resizeScreenWidth), resizeScreenWidth);
             settings.handheldItemPanelWidthRatio = GtbStructuresSettings.handheldPanelWidthRatioForPixels(
                     width, resizeScreenWidth);
+            width = HudPanelScale.scaledPixels(width, scale);
             int desiredLeft = (resizeEdges & RESIZE_LEFT) != 0
                     ? resizeStartRight - width : resizeStartLeft;
             settings.handheldItemPosX = normalizedPoint(desiredLeft, MARGIN,
@@ -2302,11 +3170,15 @@ public final class PreviewLayoutEditor {
         if ((resizeEdges & RESIZE_TOP) != 0) dy = -dy;
         int height = resizeStartHeight;
         if ((resizeEdges & (RESIZE_TOP | RESIZE_BOTTOM)) != 0) {
+            float scale = HudPanelScale.normalize(settings.handheldItemScale);
+            int requestedDisplayedHeight = Math.max(1, resizeStartHeight + dy);
+            int requestedBaseHeight = HudPanelScale.basePixels(requestedDisplayedHeight, scale);
             height = GtbStructuresSettings.handheldPanelHeightPixels(
                     GtbStructuresSettings.handheldPanelHeightRatioForPixels(
-                            resizeStartHeight + dy, resizeScreenHeight), resizeScreenHeight);
+                            requestedBaseHeight, resizeScreenHeight), resizeScreenHeight);
             settings.handheldItemPanelHeightRatio = GtbStructuresSettings.handheldPanelHeightRatioForPixels(
                     height, resizeScreenHeight);
+            height = HudPanelScale.scaledPixels(height, scale);
             int desiredBottom = (resizeEdges & RESIZE_TOP) != 0
                     ? resizeStartBottom : resizeStartTop + height;
             settings.handheldItemPosY = normalizedPoint(desiredBottom, height + MARGIN,
@@ -2429,8 +3301,9 @@ public final class PreviewLayoutEditor {
         String family = panelFamily(label);
         boolean activeDragFollow = dragArmed && dragPanelFollows
                 && !pinnedPanelFamily.isEmpty() && pinnedPanelFamily.equals(family);
+        boolean panelPositionFrozen = activeDragFollow || scaleDragMenuFrozenForFamily(family);
         if (!pinnedPanelFamily.isEmpty() && pinnedPanelFamily.equals(family)) {
-            x = activeDragFollow ? pinnedPanelX : pinnedPanelXFollowingLabel(label, width, screenWidth);
+            x = panelPositionFrozen ? pinnedPanelX : pinnedPanelXFollowingLabel(label, width, screenWidth);
             y = pinnedPanelY;
         } else {
             Rect natural = naturalSettingsPanelRect(label, screenWidth, screenHeight, width, height);
@@ -2441,8 +3314,117 @@ public final class PreviewLayoutEditor {
         pinnedPanelFamily = family;
         pinnedPanelX = clamped.x1;
         pinnedPanelY = clamped.y1;
-        if (!activeDragFollow) rememberPinnedPanelAnchor(label, clamped);
+        if (!panelPositionFrozen) rememberPinnedPanelAnchor(label, clamped);
         return clamped;
+    }
+
+    private void beginDiscreteScaleChange(String panel) {
+        activeDiscreteScaleChange = null;
+        String family = normalizeScalePanelFamily(panel);
+        if (!scaleChangeMatchesPreview(family)) return;
+        Label label = activePanelLabel();
+        if (label == null) return;
+        activeDiscreteScaleChange = new ScaleChangeAnchor(family, panelScale(family),
+                label.x1, label.y1, label.x2, label.y2,
+                pinnedPanelX, pinnedPanelY,
+                pinnedPanelAnchorValid ? pinnedPanelAnchorSide : -1);
+    }
+
+    private void endDiscreteScaleChange(String panel) {
+        ScaleChangeAnchor anchor = activeDiscreteScaleChange;
+        activeDiscreteScaleChange = null;
+        String family = normalizeScalePanelFamily(panel);
+        if (anchor == null || !anchor.family.equals(family)
+                || Float.compare(anchor.scale, panelScale(family)) == 0) return;
+        pendingDiscreteScaleChange = anchor;
+    }
+
+    private void applyPendingDiscreteScaleChange(int screenWidth, int screenHeight) {
+        ScaleChangeAnchor anchor = pendingDiscreteScaleChange;
+        if (anchor == null) return;
+        pendingDiscreteScaleChange = null;
+        if (!scaleChangeMatchesPreview(anchor.family)) return;
+        Label label = activePanelLabel();
+        if (label == null || !anchor.family.equals(panelFamily(label))) return;
+        ScaleChangePlacement placement = discreteScalePlacement(anchor.x1, anchor.y1,
+                anchor.x2, anchor.y2, label.x1, label.y1, label.x2, label.y2,
+                anchor.menuX, anchor.menuY, anchor.anchorSide);
+        int dx = placement.labelX - label.x1;
+        int dy = placement.labelY - label.y1;
+        label.target.movePixels(dx, dy, label.width(), label.height(), screenWidth, screenHeight);
+        for (int i = 0; i < labels.size(); i++) {
+            Label current = labels.get(i);
+            if (anchor.family.equals(panelFamily(current))) {
+                labels.set(i, new Label(current.id, current.x1 + dx, current.y1 + dy,
+                        current.x2 + dx, current.y2 + dy, current.target));
+            }
+        }
+        Label adjusted = activePanelLabel();
+        if (adjusted == null) return;
+        Rect menu = clampPanelRect(placement.menuX, placement.menuY,
+                settingsPanelWidth(adjusted), settingsPanelHeight(adjusted), screenWidth, screenHeight);
+        pinnedPanelX = menu.x1;
+        pinnedPanelY = menu.y1;
+        rememberPinnedPanelAnchor(adjusted, menu);
+        GtbStructuresSettings.INSTANCE.save();
+    }
+
+    private boolean scaleDragMenuFrozenForFamily(String family) {
+        return !frozenScaleDragFamily.isEmpty() && frozenScaleDragFamily.equals(family);
+    }
+
+    private void rebaseScaleDragMenu(int screenWidth, int screenHeight) {
+        if (!scaleDragMenuRebasePending || !activeSlider.isEmpty()) return;
+        Label label = activePanelLabel();
+        if (label != null && frozenScaleDragFamily.equals(panelFamily(label))) {
+            Rect menu = clampPanelRect(pinnedPanelX, pinnedPanelY,
+                    settingsPanelWidth(label), settingsPanelHeight(label), screenWidth, screenHeight);
+            pinnedPanelX = menu.x1;
+            pinnedPanelY = menu.y1;
+            rememberPinnedPanelAnchor(label, menu);
+        }
+        scaleDragMenuRebasePending = false;
+        frozenScaleDragFamily = "";
+    }
+
+    private static boolean isBottomLeftScaleFamily(String panel) {
+        return "handheld".equals(panel) || "environment".equals(panel);
+    }
+
+    private boolean scaleChangeMatchesPreview(String panel) {
+        if (!InterfacePreview.isActive() || !isBottomLeftScaleFamily(panel)
+                || !panel.equals(pinnedPanelFamily)) return false;
+        Label label = activePanelLabel();
+        return label != null && panel.equals(panelFamily(label));
+    }
+
+    private static String normalizeScalePanelFamily(String panel) {
+        if (panel == null) return "";
+        String family = panel.toLowerCase(Locale.ROOT);
+        if (family.startsWith("environment")) return "environment";
+        if ("handhelditem".equals(family)) return "handheld";
+        return family;
+    }
+
+    private static float panelScale(String family) {
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        if ("handheld".equals(family)) return settings.handheldItemScale;
+        if ("environment".equals(family)) return settings.environmentScale;
+        if ("hint".equals(family)) return settings.hintStructureScale;
+        if ("cooldown".equals(family)) return settings.chatCooldownScale;
+        return Float.NaN;
+    }
+
+    private static ScaleChangePlacement discreteScalePlacement(
+            int oldX1, int oldY1, int oldX2, int oldY2,
+            int newX1, int newY1, int newX2, int newY2,
+            int menuX, int menuY, int anchorSide) {
+        int adjustedX = oldX1;
+        int adjustedY = oldY2 - (newY2 - newY1);
+        int oldAnchorX = labelAnchorX(oldX1, oldX2, anchorSide);
+        int newAnchorX = labelAnchorX(adjustedX, adjustedX + (newX2 - newX1), anchorSide);
+        return new ScaleChangePlacement(adjustedX, adjustedY,
+                menuX + newAnchorX - oldAnchorX, menuY + adjustedY - oldY1);
     }
 
     private static Rect naturalSettingsPanelRect(Label label, int screenWidth, int screenHeight,
@@ -2490,21 +3472,22 @@ public final class PreviewLayoutEditor {
     }
 
     private static int settingsPanelWidth(Label label) {
-        String key = label.target.key;
-        if ("cooldown".equals(key)) return 155;
-        if ("handheld".equals(key)) return 145;
-        if ("environment".equals(key) || key.startsWith("environment_")) return 150;
-        if ("hint".equals(key)) return 145;
-        if ("scoreboard".equals(key)) return 202;
+        return settingsPanelWidthForKey(label.target.key);
+    }
+
+    private static int settingsPanelWidthForKey(String key) {
+        if ("scoreboard".equals(key) || "hint".equals(key) || "cooldown".equals(key)
+                || "handheld".equals(key) || "environment".equals(key)
+                || key.startsWith("environment_")) return 230;
         return 128;
     }
 
     private static int settingsPanelHeight(Label label) {
         String key = label.target.key;
-        if ("hint".equals(key)) return 150;
-        if ("handheld".equals(key)) return 282;
-        if ("environment".equals(key) || key.startsWith("environment_")) return 162;
-        if ("cooldown".equals(key)) return 126;
+        if ("hint".equals(key)) return 154;
+        if ("handheld".equals(key)) return GtbStructuresSettings.INSTANCE.handheldItemVerticalLayout ? 283 : 259;
+        if ("environment".equals(key) || key.startsWith("environment_")) return 178;
+        if ("cooldown".equals(key)) return 142;
         if ("scoreboard".equals(key)) {
             return scoreboardSettingsPanelHeight(GtbStructuresSettings.INSTANCE.sbConfig.skin);
         }
@@ -2512,7 +3495,7 @@ public final class PreviewLayoutEditor {
     }
 
     private static int scoreboardSettingsPanelHeight(String skin) {
-        return scoreboardStyleOptionsVisible(skin) ? 204 : 78;
+        return scoreboardStyleOptionsVisible(skin) ? 216 : 74;
     }
 
     private static boolean scoreboardStyleOptionsVisible(String skin) {
@@ -2521,6 +3504,22 @@ public final class PreviewLayoutEditor {
 
     static boolean scoreboardStyleOptionsVisibleForTest(String skin) {
         return scoreboardStyleOptionsVisible(skin);
+    }
+
+    private static boolean scoreboardDefaultBuilderOptionVisible(String skin) {
+        return "default".equals(ScoreboardConfig.normalizeSkin(skin));
+    }
+
+    private static boolean scoreboardHypixelRoundsOptionVisible(String skin) {
+        return "hypixel".equals(ScoreboardConfig.normalizeSkin(skin));
+    }
+
+    static boolean scoreboardDefaultBuilderOptionVisibleForTest(String skin) {
+        return scoreboardDefaultBuilderOptionVisible(skin);
+    }
+
+    static boolean scoreboardHypixelRoundsOptionVisibleForTest(String skin) {
+        return scoreboardHypixelRoundsOptionVisible(skin);
     }
 
     static int scoreboardSettingsPanelHeightForTest(String skin) {
@@ -2751,32 +3750,39 @@ public final class PreviewLayoutEditor {
     static int labelsPanelHeightForTest(boolean guessPeek, boolean showMatching,
                                         boolean shortcutReminder, boolean showNonAscii) {
         return labelsPanelHeightForTest(guessPeek, showMatching,
-                shortcutReminder, showNonAscii, false, true);
+                shortcutReminder, showNonAscii, false, true, false, false);
     }
 
     static int labelsPanelHeightForTest(boolean guessPeek, boolean showMatching,
                                         boolean shortcutReminder, boolean showNonAscii,
                                         boolean showMultiwords) {
         return labelsPanelHeightForTest(guessPeek, showMatching,
-                shortcutReminder, showNonAscii, showMultiwords, true, false);
+                shortcutReminder, showNonAscii, showMultiwords, true, false, false);
     }
 
     static int labelsPanelHeightForTest(boolean guessPeek, boolean showMatching,
                                         boolean shortcutReminder, boolean showNonAscii,
                                         boolean showMultiwords, boolean themePointReveal) {
         return labelsPanelHeightForTest(guessPeek, showMatching, shortcutReminder, showNonAscii,
-                showMultiwords, themePointReveal, false);
+                showMultiwords, themePointReveal, false, false);
+    }
+
+    static int labelsPanelHeightForTest(boolean guessPeek, boolean showMatching,
+                                         boolean shortcutReminder, boolean showNonAscii,
+                                         boolean showMultiwords, boolean themePointReveal,
+                                         boolean trollMode) {
+        return labelsPanelHeightForTest(guessPeek, showMatching, shortcutReminder, showNonAscii,
+                showMultiwords, themePointReveal, trollMode, false);
     }
 
     static int labelsPanelHeightForTest(boolean guessPeek, boolean showMatching,
                                         boolean shortcutReminder, boolean showNonAscii,
                                         boolean showMultiwords, boolean themePointReveal,
-                                        boolean trollMode) {
-        int rows = 5;
-        rows += 2;
-        rows += 1;
+                                        boolean trollMode, boolean autoRequeue) {
+        int rows = 6;
+        rows += 3 + (autoRequeue ? 1 : 0);
         rows += 1 + (guessPeek ? 4 : 0);
-        rows += 1 + (showMatching ? 1 : 0);
+        rows += 1 + (showMatching ? 2 : 0);
         rows += 1 + (themePointReveal ? 1 : 0);
         rows += 1;
         if (shortcutReminder) {
@@ -2784,7 +3790,9 @@ public final class PreviewLayoutEditor {
             if (showMultiwords) rows += 1;
             if (showNonAscii) rows += 5;
         }
-        rows += 1 + (trollMode ? 1 : 0);
+        rows += 2;
+        rows += 3 + (trollMode ? 1 : 0);
+        rows += 1; // Bottom scroll clearance for the final Guess Sounds link.
         return PANEL_PAD * 2 + TITLE_HEIGHT + 4
                 + rows * ROW_HEIGHT
                 + (HEADER_ROW_HEIGHT - ROW_HEIGHT)
@@ -2793,6 +3801,32 @@ public final class PreviewLayoutEditor {
 
     static int headerBlockHeightForTest() {
         return sectionBlockHeight() + HEADER_ROW_HEIGHT;
+    }
+
+    static boolean autoRequeueDelayVisibleForTest(boolean autoRequeue) {
+        return autoRequeue;
+    }
+
+    static String autoRequeueDelayIdleTextForTest(float value) {
+        return "\u00a77" + GtbStructuresSettings.formatAutoRequeueDelaySeconds(value) + "s";
+    }
+
+    static int autoRequeueDelayEditorWidthForTest() {
+        return AUTO_REQUEUE_DELAY_EDITOR_WIDTH;
+    }
+
+    static int autoRequeueDelayEditorTopForTest(int rowY) {
+        return rowY - 1;
+    }
+
+    static int autoRequeueDelayEditorHeightForTest() {
+        return ROW_HEIGHT + 2;
+    }
+
+    static boolean commitAutoRequeueDelayForTest(String requested) {
+        float before = GtbStructuresSettings.INSTANCE.autoRequeueDelaySeconds;
+        INSTANCE.commitAutoRequeueDelay(requested);
+        return Float.compare(before, GtbStructuresSettings.INSTANCE.autoRequeueDelaySeconds) != 0;
     }
 
     static boolean toggleHitForTest(int x, int y, int textWidth, int mouseX, int mouseY) {
@@ -2805,7 +3839,7 @@ public final class PreviewLayoutEditor {
     }
 
     static int experimentalRowsForTest(boolean scrambleGuess, boolean trollMode) {
-        return 2 + (scrambleGuess ? 1 : 0) + (trollMode ? 1 : 0);
+        return 3 + (scrambleGuess ? 1 : 0) + (trollMode ? 1 : 0);
     }
 
     public static void setShortcutReminderShowNonAscii(ShortcutReminder.Options options, boolean enabled) {
@@ -3015,6 +4049,58 @@ public final class PreviewLayoutEditor {
         return HudPosition.clamp01((float) (mouseX - track.x1) / (float) SLIDER_WIDTH);
     }
 
+    private static float sliderValueAtTrack(int trackX, int mouseX) {
+        return HudPosition.clamp01((float) (mouseX - trackX) / (float) SLIDER_WIDTH);
+    }
+
+    private static Rect scaleSliderTrackRect(EditorRenderer renderer, int x, int y, SliderSpec slider) {
+        int captionWidth = renderer.textWidth(slider.caption);
+        int hoverLeft = x + Math.max(0, captionWidth) + 4;
+        int trackX = hoverLeft + 3;
+        int trackY = y + (SLIDER_ROW_HEIGHT - 10) / 2 - 4;
+        return new Rect(trackX, trackY, trackX + SLIDER_WIDTH, trackY + 10);
+    }
+
+    private static Rect scaleSliderRowRect(EditorRenderer renderer, int x, int y, SliderSpec slider) {
+        Rect track = scaleSliderTrackRect(renderer, x, y, slider);
+        return new Rect(track.x1 - 3, y - 1, track.x2 + 5, y + SLIDER_ROW_HEIGHT - 1);
+    }
+
+    private static Rect scaleSliderHighlightRect(EditorRenderer renderer, int x, int y, SliderSpec slider) {
+        Rect row = scaleSliderRowRect(renderer, x, y, slider);
+        Rect track = scaleSliderTrackRect(renderer, x, y, slider);
+        int centerY = track.y1 + track.height() / 2;
+        return new Rect(row.x1, centerY - (SLIDER_ROW_HEIGHT - 1) / 2,
+                row.x2, centerY + SLIDER_ROW_HEIGHT / 2);
+    }
+
+    private static Rect scaleSliderValueFieldRect(EditorRenderer renderer, int x, int y, SliderSpec slider) {
+        Rect row = scaleSliderRowRect(renderer, x, y, slider);
+        int fieldX = row.x2 + SLIDER_VALUE_FIELD_GAP;
+        return new Rect(fieldX, y - 2, fieldX + SLIDER_VALUE_FIELD_WIDTH, y + SLIDER_ROW_HEIGHT - 4);
+    }
+
+    private static SliderSpec scaleSliderForPanelKey(String key) {
+        if ("hint".equals(key)) return SliderSpec.HINT;
+        if ("cooldown".equals(key)) return SliderSpec.COOLDOWN;
+        if ("handheld".equals(key)) return SliderSpec.HANDHELD;
+        if (key != null && key.startsWith("environment")) return SliderSpec.ENVIRONMENT;
+        return null;
+    }
+
+    private static SliderSpec sliderSpec(String id) {
+        return SliderSpec.byId(id);
+    }
+
+    private static String panelCommandNameForSlider(String id) {
+        SliderSpec slider = sliderSpec(id);
+        return slider == null ? "hintstructure" : slider.commandName;
+    }
+
+    private static String formatScaleInput(float value) {
+        return new BigDecimal(Float.toString(value)).setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
     static int sliderTrackCenterYForTest(int x, int y) {
         Rect track = sliderTrackRect(x, y);
         return track.y1 + track.height() / 2;
@@ -3022,6 +4108,101 @@ public final class PreviewLayoutEditor {
 
     static float sliderValueForTest(int x, int mouseX) {
         return sliderValueAt(x, mouseX);
+    }
+
+    static String scaleSliderIdForPanelForTest(String key) {
+        SliderSpec slider = scaleSliderForPanelKey(key);
+        return slider == null ? "" : slider.id;
+    }
+
+    static int scaleSliderTrackWidthForTest() {
+        return SLIDER_WIDTH;
+    }
+
+    static int scaleSliderValueFieldWidthForTest() {
+        return SLIDER_VALUE_FIELD_WIDTH;
+    }
+
+    static int scaleSliderValueFieldGapForTest() {
+        return SLIDER_VALUE_FIELD_GAP;
+    }
+
+    static boolean scaleDragFreezesMenuForTest(String panel) {
+        return isBottomLeftScaleFamily(panel);
+    }
+
+    static String scaleSliderInputTextForTest(float value) {
+        return formatScaleInput(value);
+    }
+
+    static boolean scaleSliderUntouchedCommitForTest(float current, String requested) {
+        return requested != null && requested.equals(formatScaleInput(current));
+    }
+
+    static int scaleSliderHoverLeftForTest(int x, int rowY, int captionWidth) {
+        return scaleSliderHighlightForTest(x, rowY, captionWidth)[0];
+    }
+
+    static int scaleSliderHoverTopForTest(int x, int rowY, int captionWidth) {
+        return scaleSliderHighlightForTest(x, rowY, captionWidth)[1];
+    }
+
+    static int scaleSliderHoverBottomForTest(int x, int rowY, int captionWidth) {
+        return scaleSliderHighlightForTest(x, rowY, captionWidth)[3];
+    }
+
+    static int scaleSliderFillEndForTest(int trackX, int knobCenter) {
+        return Math.max(trackX, knobCenter - 1);
+    }
+
+    static boolean scaleSliderValueFieldOutsideClickRowForTest(int x, int captionWidth) {
+        int trackX = x + Math.max(0, captionWidth) + 7;
+        int rowRight = trackX + SLIDER_WIDTH + 5;
+        int valueLeft = rowRight + SLIDER_VALUE_FIELD_GAP;
+        return valueLeft >= rowRight;
+    }
+
+    private static int[] scaleSliderHighlightForTest(int x, int rowY, int captionWidth) {
+        int trackX = x + Math.max(0, captionWidth) + 7;
+        int centerY = rowY + (SLIDER_ROW_HEIGHT - 10) / 2 - 4 + 5;
+        return new int[] {trackX - 3, centerY - (SLIDER_ROW_HEIGHT - 1) / 2,
+                trackX + SLIDER_WIDTH + 5, centerY + SLIDER_ROW_HEIGHT / 2};
+    }
+
+    static String scaleSliderIdleTextForTest(float value) {
+        return "\u00a77" + HudPanelScale.formatPercent(value);
+    }
+
+    static Float parseScaleSliderValueForTest(String value) {
+        return HudPanelScale.parse(value);
+    }
+
+    static float scaleSliderValueForFractionForTest(float fraction) {
+        return SliderSpec.HINT.valueAtFraction(fraction);
+    }
+
+    static float scaleSliderFractionForValueForTest(float value) {
+        return SliderSpec.HINT.fractionForValue(value);
+    }
+
+    static int scaledHandheldBasePixelsForTest(int displayedPixels, float scale) {
+        return HudPanelScale.basePixels(displayedPixels, scale);
+    }
+
+    static int scaledHandheldDisplayedPixelsForTest(int basePixels, float scale) {
+        return HudPanelScale.scaledPixels(basePixels, scale);
+    }
+
+    static ScaleChangePlacement discreteScalePlacementForTest(
+            int oldX1, int oldY1, int oldX2, int oldY2,
+            int newX1, int newY1, int newX2, int newY2,
+            int menuX, int menuY, int anchorSide) {
+        return discreteScalePlacement(oldX1, oldY1, oldX2, oldY2,
+                newX1, newY1, newX2, newY2, menuX, menuY, anchorSide);
+    }
+
+    static int settingsPanelWidthForTest(String key) {
+        return settingsPanelWidthForKey(key == null ? "" : key);
     }
 
     public enum ShortcutNonAsciiCategory {
@@ -3037,6 +4218,70 @@ public final class PreviewLayoutEditor {
         TOP_LEFT,
         BOTTOM_LEFT,
         SCOREBOARD_Y
+    }
+
+    private static final class SliderSpec {
+        private static final SliderSpec GUESS_SOUND = new SliderSpec("guessSoundVolume", "guesssound", "guesssound", "Overall volume");
+        private static final SliderSpec HINT = new SliderSpec("hintStructureScale", "hint", "hintstructure", "Scale");
+        private static final SliderSpec COOLDOWN = new SliderSpec("chatCooldownScale", "cooldown", "cooldowncounter", "Scale");
+        private static final SliderSpec HANDHELD = new SliderSpec("handheldItemScale", "handheld", "handhelditem", "Scale");
+        private static final SliderSpec ENVIRONMENT = new SliderSpec("environmentScale", "environment", "environment", "Scale");
+
+        private final String id;
+        private final String panel;
+        private final String commandName;
+        private final String caption;
+
+        private SliderSpec(String id, String panel, String commandName, String caption) {
+            this.id = id;
+            this.panel = panel;
+            this.commandName = commandName;
+            this.caption = caption;
+        }
+
+        private static SliderSpec byId(String id) {
+            if (GUESS_SOUND.id.equals(id)) return GUESS_SOUND;
+            if (HINT.id.equals(id)) return HINT;
+            if (COOLDOWN.id.equals(id)) return COOLDOWN;
+            if (HANDHELD.id.equals(id)) return HANDHELD;
+            if (ENVIRONMENT.id.equals(id)) return ENVIRONMENT;
+            return null;
+        }
+
+        private float value() {
+            GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+            if (this == GUESS_SOUND) return GtbStructuresSettings.normalizeGuessSoundVolume(settings.guessSoundVolume);
+            if ("hint".equals(panel)) return HudPanelScale.normalize(settings.hintStructureScale);
+            if ("cooldown".equals(panel)) return HudPanelScale.normalize(settings.chatCooldownScale);
+            if ("handheld".equals(panel)) return HudPanelScale.normalize(settings.handheldItemScale);
+            return HudPanelScale.normalize(settings.environmentScale);
+        }
+
+        private void setValue(float value) {
+            if (this == GUESS_SOUND) { GtbStructuresSettings.INSTANCE.guessSoundVolume = GtbStructuresSettings.normalizeGuessSoundVolume(value); return; }
+            value = HudPanelScale.normalize(value);
+            GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+            if ("hint".equals(panel)) settings.hintStructureScale = value;
+            else if ("cooldown".equals(panel)) settings.chatCooldownScale = value;
+            else if ("handheld".equals(panel)) settings.handheldItemScale = value;
+            else settings.environmentScale = value;
+        }
+
+        private float fraction() {
+            return fractionForValue(value());
+        }
+
+        private float fractionForValue(float value) {
+            if (this == GUESS_SOUND) return HudPosition.clamp01(value / GuessSounds.MAX_VOLUME);
+            return HudPosition.clamp01((HudPanelScale.normalize(value) - HudPanelScale.MIN)
+                    / (HudPanelScale.MAX - HudPanelScale.MIN));
+        }
+
+        private float valueAtFraction(float fraction) {
+            if (this == GUESS_SOUND) return HudPosition.clamp01(fraction) * GuessSounds.MAX_VOLUME;
+            return HudPanelScale.normalize(HudPanelScale.MIN
+                    + HudPosition.clamp01(fraction) * (HudPanelScale.MAX - HudPanelScale.MIN));
+        }
     }
 
     public static final class Target {
@@ -3196,6 +4441,8 @@ public final class PreviewLayoutEditor {
     }
 
     private static final class ConfigSnapshot {
+        private final String guessSound1, guessSound2, guessSound3;
+        private final float guessSoundVolume;
         private final boolean modEnabled;
         private final boolean enabled;
         private final boolean hintBackgroundOverlay;
@@ -3223,6 +4470,10 @@ public final class PreviewLayoutEditor {
         private final boolean chatCooldownBarEnabled;
         private final boolean chatCooldownBackground;
         private final boolean chatCooldownBarBackground;
+        private final float hintStructureScale;
+        private final float chatCooldownScale;
+        private final float handheldItemScale;
+        private final float environmentScale;
         private final boolean scoreboardEnabled;
         private final float scoreboardBackgroundOpacity;
         private final float scoreboardHighlightIntensity;
@@ -3230,10 +4481,14 @@ public final class PreviewLayoutEditor {
         private final ScoreboardConfig.DisplayOption scoreboardShowPlaces;
         private final ScoreboardConfig.DisplayOption scoreboardShowTitles;
         private final ScoreboardConfig.DisplayOption scoreboardShowEmblems;
+        private final boolean scoreboardDefaultExplicitlyShowBuilders;
+        private final ScoreboardConfig.DisplayOption scoreboardHypixelShowRounds;
         private final boolean scoreboardLeftPlayersAtBottom;
         private final boolean scoreboardTextShadow;
         private final boolean trackingEnabled;
         private final boolean autoRequeue;
+        private final boolean lrjBypassLobbyProtection;
+        private final float autoRequeueDelaySeconds;
         private final boolean guessPeek;
         private final boolean guessPeekShowLangCodes;
         private final String guessPeekDisplay;
@@ -3244,6 +4499,8 @@ public final class PreviewLayoutEditor {
         private final String chatHeaderRaw;
         private final boolean showAllMatching;
         private final boolean showAllMatchingShowEnglish;
+        private final boolean showAllMatchingShowCount;
+        private final boolean gtwShowCount;
         private final boolean themePointReveal;
         private final boolean themePointRevealShowAfterGuess;
         private final boolean shortcutReminder;
@@ -3257,6 +4514,7 @@ public final class PreviewLayoutEditor {
         private final boolean shortcutReminderShowMultiwords;
         private final boolean shortcutReminderShowAllMultiwords;
         private final boolean copyTranslationPrefix;
+        private final boolean copyTranslationCaps;
         private final boolean gtwShowEnglish;
         private final float posX;
         private final float posY;
@@ -3278,9 +4536,12 @@ public final class PreviewLayoutEditor {
         private final String chatCooldownBarColor;
         private final String chatCooldownTimerColor;
         private final String scoreboardSkin;
+        private final ShortcutLanguageGroups.State shortcutLanguageGroups;
 
         private ConfigSnapshot() {
             GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+            guessSound1 = settings.guessSound1; guessSound2 = settings.guessSound2; guessSound3 = settings.guessSound3;
+            guessSoundVolume = settings.guessSoundVolume;
             modEnabled = settings.modEnabled;
             enabled = settings.enabled;
             hintBackgroundOverlay = settings.hintBackgroundOverlay;
@@ -3308,6 +4569,10 @@ public final class PreviewLayoutEditor {
             chatCooldownBarEnabled = settings.chatCooldownBarEnabled;
             chatCooldownBackground = settings.chatCooldownBackground;
             chatCooldownBarBackground = settings.chatCooldownBarBackground;
+            hintStructureScale = settings.hintStructureScale;
+            chatCooldownScale = settings.chatCooldownScale;
+            handheldItemScale = settings.handheldItemScale;
+            environmentScale = settings.environmentScale;
             scoreboardEnabled = settings.sbConfig.isCustomEnabled();
             scoreboardBackgroundOpacity = settings.sbConfig.backgroundOpacity;
             scoreboardHighlightIntensity = settings.sbConfig.highlightIntensity;
@@ -3315,10 +4580,14 @@ public final class PreviewLayoutEditor {
             scoreboardShowPlaces = settings.sbConfig.showPlaces;
             scoreboardShowTitles = settings.sbConfig.showTitles;
             scoreboardShowEmblems = settings.sbConfig.showEmblems;
+            scoreboardDefaultExplicitlyShowBuilders = settings.sbConfig.defaultExplicitlyShowBuilders;
+            scoreboardHypixelShowRounds = settings.sbConfig.hypixelShowRounds;
             scoreboardLeftPlayersAtBottom = settings.sbConfig.leftPlayersAtBottom;
             scoreboardTextShadow = settings.sbConfig.textShadow;
             trackingEnabled = settings.trackingEnabled;
             autoRequeue = settings.autoRequeue;
+            lrjBypassLobbyProtection = settings.lrjBypassLobbyProtection;
+            autoRequeueDelaySeconds = settings.autoRequeueDelaySeconds;
             guessPeek = settings.guessPeek;
             guessPeekShowLangCodes = settings.guessPeekShowLangCodes;
             guessPeekDisplay = settings.guessPeekDisplay;
@@ -3329,6 +4598,8 @@ public final class PreviewLayoutEditor {
             chatHeaderRaw = ChatHeader.raw();
             showAllMatching = settings.showAllMatching;
             showAllMatchingShowEnglish = settings.showAllMatchingShowEnglish;
+            showAllMatchingShowCount = settings.showAllMatchingShowCount;
+            gtwShowCount = settings.gtwShowCount;
             themePointReveal = settings.themePointReveal;
             themePointRevealShowAfterGuess = settings.themePointRevealShowAfterGuess;
             shortcutReminder = settings.shortcutReminder;
@@ -3342,6 +4613,7 @@ public final class PreviewLayoutEditor {
             shortcutReminderShowMultiwords = settings.shortcutReminderShowMultiwords;
             shortcutReminderShowAllMultiwords = settings.shortcutReminderShowAllMultiwords;
             copyTranslationPrefix = settings.copyTranslationPrefix;
+            copyTranslationCaps = settings.copyTranslationCaps;
             gtwShowEnglish = settings.gtwShowEnglish;
             posX = settings.posX;
             posY = settings.posY;
@@ -3363,6 +4635,7 @@ public final class PreviewLayoutEditor {
             chatCooldownBarColor = settings.chatCooldownBarColor;
             chatCooldownTimerColor = settings.chatCooldownTimerColor;
             scoreboardSkin = settings.sbConfig.skin;
+            shortcutLanguageGroups = ShortcutLanguageGroups.snapshot();
         }
 
         private static ConfigSnapshot capture() {
@@ -3371,6 +4644,8 @@ public final class PreviewLayoutEditor {
 
         private void apply() {
             GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+            settings.guessSound1 = guessSound1; settings.guessSound2 = guessSound2; settings.guessSound3 = guessSound3;
+            settings.guessSoundVolume = guessSoundVolume;
             settings.modEnabled = modEnabled;
             settings.enabled = enabled;
             settings.hintBackgroundOverlay = hintBackgroundOverlay;
@@ -3398,6 +4673,10 @@ public final class PreviewLayoutEditor {
             settings.chatCooldownBarEnabled = chatCooldownBarEnabled;
             settings.chatCooldownBackground = chatCooldownBackground;
             settings.chatCooldownBarBackground = chatCooldownBarBackground;
+            settings.hintStructureScale = hintStructureScale;
+            settings.chatCooldownScale = chatCooldownScale;
+            settings.handheldItemScale = handheldItemScale;
+            settings.environmentScale = environmentScale;
             if (scoreboardEnabled && !"vanilla".equals(ScoreboardConfig.normalizeSkin(scoreboardSkin))) {
                 settings.sbConfig.setSkin(scoreboardSkin);
             } else {
@@ -3409,10 +4688,14 @@ public final class PreviewLayoutEditor {
             settings.sbConfig.showPlaces = scoreboardShowPlaces;
             settings.sbConfig.showTitles = scoreboardShowTitles;
             settings.sbConfig.showEmblems = scoreboardShowEmblems;
+            settings.sbConfig.defaultExplicitlyShowBuilders = scoreboardDefaultExplicitlyShowBuilders;
+            settings.sbConfig.hypixelShowRounds = scoreboardHypixelShowRounds;
             settings.sbConfig.leftPlayersAtBottom = scoreboardLeftPlayersAtBottom;
             settings.sbConfig.textShadow = scoreboardTextShadow;
             settings.trackingEnabled = trackingEnabled;
             settings.autoRequeue = autoRequeue;
+            settings.lrjBypassLobbyProtection = lrjBypassLobbyProtection;
+            settings.autoRequeueDelaySeconds = autoRequeueDelaySeconds;
             settings.guessPeek = guessPeek;
             settings.guessPeekShowLangCodes = guessPeekShowLangCodes;
             settings.guessPeekDisplay = guessPeekDisplay;
@@ -3424,6 +4707,8 @@ public final class PreviewLayoutEditor {
             CommandGtb.refreshHeader();
             settings.showAllMatching = showAllMatching;
             settings.showAllMatchingShowEnglish = showAllMatchingShowEnglish;
+            settings.showAllMatchingShowCount = showAllMatchingShowCount;
+            settings.gtwShowCount = gtwShowCount;
             settings.themePointReveal = themePointReveal;
             settings.themePointRevealShowAfterGuess = themePointRevealShowAfterGuess;
             settings.shortcutReminder = shortcutReminder;
@@ -3437,8 +4722,10 @@ public final class PreviewLayoutEditor {
             settings.shortcutReminderShowMultiwords = shortcutReminderShowMultiwords;
             settings.shortcutReminderShowAllMultiwords = shortcutReminderShowAllMultiwords;
             settings.copyTranslationPrefix = copyTranslationPrefix;
+            settings.copyTranslationCaps = copyTranslationCaps;
             settings.gtwShowEnglish = gtwShowEnglish;
             GameStats.INSTANCE.setTrackingEnabled(trackingEnabled);
+            GameStats.INSTANCE.setAutoRequeueDelaySeconds(autoRequeueDelaySeconds);
             GameStats.INSTANCE.setAutoRequeue(autoRequeue);
             settings.posX = posX;
             settings.posY = posY;
@@ -3459,11 +4746,14 @@ public final class PreviewLayoutEditor {
             settings.colorBrackets = colorBrackets;
             settings.chatCooldownBarColor = chatCooldownBarColor;
             settings.chatCooldownTimerColor = chatCooldownTimerColor;
+            ShortcutLanguageGroups.restore(shortcutLanguageGroups);
         }
 
         private boolean matchesCurrent() {
             GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
-            return modEnabled == settings.modEnabled
+            return same(guessSound1, settings.guessSound1) && same(guessSound2, settings.guessSound2)
+                    && same(guessSound3, settings.guessSound3) && Float.compare(guessSoundVolume, settings.guessSoundVolume) == 0
+                    && modEnabled == settings.modEnabled
                     && enabled == settings.enabled
                     && hintBackgroundOverlay == settings.hintBackgroundOverlay
                     && hintStructureBackground == settings.hintStructureBackground
@@ -3490,6 +4780,10 @@ public final class PreviewLayoutEditor {
                     && chatCooldownBarEnabled == settings.chatCooldownBarEnabled
                     && chatCooldownBackground == settings.chatCooldownBackground
                     && chatCooldownBarBackground == settings.chatCooldownBarBackground
+                    && Float.compare(hintStructureScale, settings.hintStructureScale) == 0
+                    && Float.compare(chatCooldownScale, settings.chatCooldownScale) == 0
+                    && Float.compare(handheldItemScale, settings.handheldItemScale) == 0
+                    && Float.compare(environmentScale, settings.environmentScale) == 0
                     && scoreboardEnabled == settings.sbConfig.isCustomEnabled()
                     && scoreboardBackgroundOpacity == settings.sbConfig.backgroundOpacity
                     && scoreboardHighlightIntensity == settings.sbConfig.highlightIntensity
@@ -3497,10 +4791,15 @@ public final class PreviewLayoutEditor {
                     && scoreboardShowPlaces == settings.sbConfig.showPlaces
                     && scoreboardShowTitles == settings.sbConfig.showTitles
                     && scoreboardShowEmblems == settings.sbConfig.showEmblems
+                    && scoreboardDefaultExplicitlyShowBuilders
+                    == settings.sbConfig.defaultExplicitlyShowBuilders
+                    && scoreboardHypixelShowRounds == settings.sbConfig.hypixelShowRounds
                     && scoreboardLeftPlayersAtBottom == settings.sbConfig.leftPlayersAtBottom
                     && scoreboardTextShadow == settings.sbConfig.textShadow
                     && trackingEnabled == settings.trackingEnabled
                     && autoRequeue == settings.autoRequeue
+                    && lrjBypassLobbyProtection == settings.lrjBypassLobbyProtection
+                    && Float.compare(autoRequeueDelaySeconds, settings.autoRequeueDelaySeconds) == 0
                     && guessPeek == settings.guessPeek
                     && guessPeekShowLangCodes == settings.guessPeekShowLangCodes
                     && guessPeekDisplay.equals(settings.guessPeekDisplay)
@@ -3511,6 +4810,8 @@ public final class PreviewLayoutEditor {
                     && same(chatHeaderRaw, ChatHeader.raw())
                     && showAllMatching == settings.showAllMatching
                     && showAllMatchingShowEnglish == settings.showAllMatchingShowEnglish
+                    && showAllMatchingShowCount == settings.showAllMatchingShowCount
+                    && gtwShowCount == settings.gtwShowCount
                     && themePointReveal == settings.themePointReveal
                     && themePointRevealShowAfterGuess == settings.themePointRevealShowAfterGuess
                     && shortcutReminder == settings.shortcutReminder
@@ -3524,6 +4825,7 @@ public final class PreviewLayoutEditor {
                     && shortcutReminderShowMultiwords == settings.shortcutReminderShowMultiwords
                     && shortcutReminderShowAllMultiwords == settings.shortcutReminderShowAllMultiwords
                     && copyTranslationPrefix == settings.copyTranslationPrefix
+                    && copyTranslationCaps == settings.copyTranslationCaps
                     && gtwShowEnglish == settings.gtwShowEnglish
                     && posX == settings.posX
                     && posY == settings.posY
@@ -3544,12 +4846,52 @@ public final class PreviewLayoutEditor {
                     && same(colorBrackets, settings.colorBrackets)
                     && same(chatCooldownBarColor, settings.chatCooldownBarColor)
                     && same(chatCooldownTimerColor, settings.chatCooldownTimerColor)
-                    && same(scoreboardSkin, settings.sbConfig.skin);
+                    && same(scoreboardSkin, settings.sbConfig.skin)
+                    && shortcutLanguageGroups.equals(ShortcutLanguageGroups.snapshot());
         }
 
         private static boolean same(String left, String right) {
             if (left == null) return right == null;
             return left.equals(right);
+        }
+    }
+
+    static final class ScaleChangePlacement {
+        final int labelX;
+        final int labelY;
+        final int menuX;
+        final int menuY;
+
+        ScaleChangePlacement(int labelX, int labelY, int menuX, int menuY) {
+            this.labelX = labelX;
+            this.labelY = labelY;
+            this.menuX = menuX;
+            this.menuY = menuY;
+        }
+    }
+
+    private static final class ScaleChangeAnchor {
+        private final String family;
+        private final float scale;
+        private final int x1;
+        private final int y1;
+        private final int x2;
+        private final int y2;
+        private final int menuX;
+        private final int menuY;
+        private final int anchorSide;
+
+        private ScaleChangeAnchor(String family, float scale, int x1, int y1, int x2, int y2,
+                                  int menuX, int menuY, int anchorSide) {
+            this.family = family;
+            this.scale = scale;
+            this.x1 = x1;
+            this.y1 = y1;
+            this.x2 = x2;
+            this.y2 = y2;
+            this.menuX = menuX;
+            this.menuY = menuY;
+            this.anchorSide = anchorSide;
         }
     }
 
@@ -3710,6 +5052,7 @@ public final class PreviewLayoutEditor {
                                           String text, int mouseX, int mouseY) {
             return false;
         }
+        default void drawSoundIcon(String soundId, int x, int y) { }
         default void enableScissor(int left, int top, int right, int bottom) {
         }
         default void disableScissor() {

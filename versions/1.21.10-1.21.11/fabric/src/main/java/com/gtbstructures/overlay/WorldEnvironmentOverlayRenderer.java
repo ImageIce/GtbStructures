@@ -259,29 +259,38 @@ public final class WorldEnvironmentOverlayRenderer {
         if (font == null) return;
 
         int panelHeight = rows.size() * WorldEnvironmentLogic.ROW_HEIGHT;
+        float scale = HudPanelScale.normalize(settings.environmentScale);
+        int scaledWidth = HudPanelScale.scaledPixels(WorldEnvironmentLogic.PANEL_WIDTH, scale);
+        int scaledHeight = HudPanelScale.scaledPixels(panelHeight, scale);
         Object window = invokeAny(mc, "getWindow", "method_22683");
         int screenWidth = intValue(invokeAny(window, "getScaledWidth", "getGuiScaledWidth", "method_4486"));
         int screenHeight = intValue(invokeAny(window, "getScaledHeight", "getGuiScaledHeight", "method_4502"));
         int x = HudPosition.left(settings.environmentPosX, screenWidth,
-                WorldEnvironmentLogic.PANEL_WIDTH, MARGIN);
-        int bottom = HudPosition.bottom(settings.environmentPosY, screenHeight, panelHeight, MARGIN);
-        int y = bottom - panelHeight;
-        if (settings.environmentBackground) {
-            fill(graphics, x - 1, y - 1,
-                    x + WorldEnvironmentLogic.PANEL_WIDTH + 1, y + panelHeight + 1,
-                    ScoreboardLayout.BACKGROUND_COLOR);
-        }
+                scaledWidth, MARGIN);
+        int bottom = HudPosition.bottom(settings.environmentPosY, screenHeight, scaledHeight, MARGIN);
+        int y = bottom - scaledHeight;
         if (InterfacePreview.isActive()) {
             PreviewLayoutEditor.registerWithBackground(
                     WorldEnvironmentLogic.previewRegistrationId(rows.size(), rows.get(0).id),
-                    x, y, WorldEnvironmentLogic.PANEL_WIDTH, panelHeight,
+                    x, y, scaledWidth, scaledHeight,
                     previewTarget(rows),
                     (bgLeft, bgTop, bgRight, bgBottom, color) ->
                             fill(graphics, bgLeft, bgTop, bgRight, bgBottom, color));
         }
-        for (WorldEnvironmentLogic.Row row : rows) {
-            renderRow(graphics, font, x, y, row);
-            y += WorldEnvironmentLogic.ROW_HEIGHT;
+        FabricHudPose.Scope pose = FabricHudPose.push(graphics, x, y, scale);
+        try {
+            if (settings.environmentBackground) {
+                fill(graphics, -1, -1,
+                        WorldEnvironmentLogic.PANEL_WIDTH + 1, panelHeight + 1,
+                        ScoreboardLayout.BACKGROUND_COLOR);
+            }
+            int rowY = 0;
+            for (WorldEnvironmentLogic.Row row : rows) {
+                renderRow(graphics, font, 0, rowY, row);
+                rowY += WorldEnvironmentLogic.ROW_HEIGHT;
+            }
+        } finally {
+            pose.pop();
         }
     }
 

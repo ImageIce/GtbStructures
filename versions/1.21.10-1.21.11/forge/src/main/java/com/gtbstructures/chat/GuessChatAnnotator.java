@@ -34,8 +34,11 @@ public final class GuessChatAnnotator {
         String guess = clean.substring(colonIdx + 2).trim();
         if (guess.isEmpty()) return null;
 
-        int visibleStart = visible.indexOf(guess, Math.min(colonIdx + 2, visible.length()));
-        if (visibleStart < 0) visibleStart = Math.min(colonIdx + 2, visible.length());
+        int visibleColonIdx = visible.indexOf(": ");
+        if (visibleColonIdx < 0) return null;
+        int searchFrom = Math.min(visibleColonIdx + 2, visible.length());
+        int visibleStart = visible.indexOf(guess, searchFrom);
+        if (visibleStart < 0) visibleStart = searchFrom;
         return new ParsedGuess(guess, visibleStart, visibleStart + guess.length());
     }
 
@@ -142,6 +145,11 @@ public final class GuessChatAnnotator {
             sb.append(list.get(i));
         }
         return sb.toString();
+    }
+
+    /** Uses the same visible coordinate system as ParsedGuess, including embedded legacy codes. */
+    public static int visibleTextLength(String text) {
+        return stripControlCodes(text).length();
     }
 
     public static Split splitFormattedGuess(String formatted, int visibleStart, int visibleEnd) {

@@ -4,9 +4,16 @@ import com.gtbstructures.GtbStructures;
 import com.gtbstructures.translation.TranslationData;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.event.ClickEvent;
+import net.minecraft.event.HoverEvent;
+import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.ChatStyle;
+import net.minecraft.util.EnumChatFormatting;
+import net.minecraft.util.IChatComponent;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
+import java.awt.Desktop;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -493,6 +500,102 @@ public class GameExporter {
         File statsDir = new File(new File(gameDir, "config"), "gtbstats");
         if (!statsDir.exists()) statsDir.mkdirs();
         return statsDir;
+    }
+
+    static String relativePathForChat(File gameDir, File file) {
+        if (file == null) return "";
+        String fallback = normalizePath(file.getPath());
+        if (gameDir == null) return fallback;
+        try {
+            java.nio.file.Path root = gameDir.getCanonicalFile().toPath();
+            java.nio.file.Path target = file.getCanonicalFile().toPath();
+            if (target.startsWith(root)) {
+                return normalizePath(root.relativize(target).toString());
+            }
+        } catch (IOException ignored) {
+            // The generated file is still useful to identify by its normalized path.
+        }
+        return fallback;
+    }
+
+    static String displayPathForChat(File gameDir, File file) {
+        String relativePath = relativePathForChat(gameDir, file);
+        if (gameDir == null || relativePath.length() == 0) return relativePath;
+        String gameDirectoryPath = gameDirectoryPathForChat(gameDir);
+        if (gameDirectoryPath.length() == 0) return relativePath;
+        return gameDirectoryPath + "/" + relativePath;
+    }
+
+    static IChatComponent localFileNotice(String prefix, File gameDir, File file) {
+        ChatComponentText notice = new ChatComponentText(
+                prefix + displayPathForChat(gameDir, file));
+        notice.appendSibling(new ChatComponentText(" \u00a77(Click "));
+
+        ChatComponentText here = new ChatComponentText("Here");
+        here.setChatStyle(new ChatStyle()
+                .setColor(EnumChatFormatting.WHITE)
+                .setUnderlined(true)
+                .setChatHoverEvent(new HoverEvent(
+                        HoverEvent.Action.SHOW_TEXT,
+                        new ChatComponentText("\u00a7fClick to open")))
+                .setChatClickEvent(new ClickEvent(
+                        ClickEvent.Action.RUN_COMMAND,
+                        "/gtbs openstatsfolder")));
+        notice.appendSibling(here);
+        notice.appendSibling(new ChatComponentText("\u00a77 to open the folder)"));
+        return notice;
+    }
+
+    public static void openStatsFolderAsync(File gameDir) {
+        startStatsFolderOpen(gameDir, new FolderOpenAction() {
+            @Override
+            public void open(File folder) throws Exception {
+                if (!Desktop.isDesktopSupported()) {
+                    throw new UnsupportedOperationException("Desktop integration is unavailable");
+                }
+                Desktop desktop = Desktop.getDesktop();
+                if (!desktop.isSupported(Desktop.Action.OPEN)) {
+                    throw new UnsupportedOperationException("Folder opening is unavailable");
+                }
+                desktop.open(folder);
+            }
+        });
+    }
+
+    static Thread startStatsFolderOpen(File gameDir, final FolderOpenAction action) {
+        final File folder = getStatsDir(gameDir);
+        if (folder == null || action == null) return null;
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    action.open(folder.getCanonicalFile());
+                } catch (Throwable throwable) {
+                    LOGGER.warn("Failed to open the GTBS stats folder", throwable);
+                }
+            }
+        }, "GtbStructures-FolderOpen");
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
+    }
+
+    interface FolderOpenAction {
+        void open(File folder) throws Exception;
+    }
+
+    private static String gameDirectoryPathForChat(File gameDir) {
+        File root;
+        try {
+            root = gameDir.getCanonicalFile();
+        } catch (IOException ignored) {
+            root = gameDir.getAbsoluteFile();
+        }
+        return root.getName();
+    }
+
+    private static String normalizePath(String path) {
+        return path == null ? "" : path.replace('\\', '/');
     }
 
 }

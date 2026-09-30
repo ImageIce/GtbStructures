@@ -65,8 +65,6 @@ public final class GtbStructuresFabric implements ClientModInitializer {
     public static final String MOD_ID = "gtbstructures";
     private static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private static final String PLAY_GTB_COMMAND = "/play build_battle_guess_the_build";
-    private static final long LOBBY_REJOIN_MIN_WAIT_MS = 750L;
-    private static final long LOBBY_REJOIN_MAX_WAIT_MS = 3500L;
     private static final int PLAYER_LIST_POLL_INTERVAL_TICKS = 20;
     private static final int CLASSIC_FONT_REFRESH_INTERVAL_TICKS = 20;
     private static final String[] TEAM_COLOR_NAMES = new String[] {
@@ -83,8 +81,6 @@ public final class GtbStructuresFabric implements ClientModInitializer {
     private static int playerListTickCounter;
     private static GameStats.TrackingState lastPlayerListPollState;
     private static boolean fabricBbRankRepairDisabled;
-    private static String pendingLobbyRejoinCommand;
-    private static long pendingLobbyRejoinAtMs;
     private static boolean commandRefreshLogged;
     private static boolean fabricCommandCompletionsRefreshed;
     private static boolean updateNoticeRemoteJoinObserved;
@@ -165,6 +161,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                             ensureFabricClientCommandsRegistered();
                             applyClassicFontMode(args[0]);
                             InterfacePreview.tick();
+                            CommandGtbRuntime.onLeaveRejoinClientTick();
                             if (!GtbStructuresSettings.INSTANCE.modEnabled) {
                                 bbRankDisplayRepair.restoreAll();
                                 GameStats.INSTANCE.discardPendingAutonomousActions();
@@ -172,7 +169,6 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                                 ModernChatCooldownCounter.onTick(false, currentState(),
                                         System.currentTimeMillis());
                                 resetFabricPlayerListPoll();
-                                sendQueuedLobbyRejoinIfReady();
                                 return null;
                             }
                             updateLocalPlayerName();
@@ -196,7 +192,6 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                                 pollFabricScoreboard(args[0]);
                             }
                             bbRankDisplayRepair.onClientTick(GameStats.INSTANCE.shouldRepairBbRankDisplay());
-                            sendQueuedLobbyRejoinIfReady();
                             return null;
                         }
                         if (method.getName().equals("toString")) return "GtbStructures tick callback";
@@ -282,6 +277,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
     private static void handleClientConnectionBoundary(String reason) {
         bbRankDisplayRepair.restoreAll();
         InterfacePreview.INSTANCE.disableSilently();
+        CommandGtbRuntime.onClientConnectionBoundary("join".equals(reason));
         ModernRuntimeBridge.onClientUnavailable();
         ModernPlayerListLogic.applySnapshot(new ModernPlayerListLogic.Snapshot(), playerListRoster);
         playerListRoster.clear();
@@ -337,28 +333,6 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                 && GameStats.INSTANCE.consumeAutoRequeueIfReady(System.currentTimeMillis())) {
             runtimeServices.sendServerCommand(PLAY_GTB_COMMAND);
         }
-    }
-
-    private static void queueLobbyRejoin(String command) {
-        pendingLobbyRejoinCommand = command;
-        pendingLobbyRejoinAtMs = System.currentTimeMillis();
-    }
-
-    private static void sendQueuedLobbyRejoinIfReady() {
-        if (runtimeServices == null || pendingLobbyRejoinCommand == null) return;
-        long now = System.currentTimeMillis();
-        long elapsed = now - pendingLobbyRejoinAtMs;
-        GameStats.TrackingState state = GameStats.INSTANCE.getState();
-        if (!shouldSendQueuedLobbyRejoin(state, elapsed)) return;
-        String command = pendingLobbyRejoinCommand;
-        pendingLobbyRejoinCommand = null;
-        pendingLobbyRejoinAtMs = 0L;
-        runtimeServices.sendServerCommand(command);
-    }
-
-    static boolean shouldSendQueuedLobbyRejoin(GameStats.TrackingState state, long elapsedMs) {
-        if (elapsedMs < LOBBY_REJOIN_MIN_WAIT_MS) return false;
-        return state == GameStats.TrackingState.LOBBY || elapsedMs >= LOBBY_REJOIN_MAX_WAIT_MS;
     }
 
     private static GtbGame.State currentState() {
@@ -585,9 +559,10 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                     new Class<?>[] {callbackClass},
                     (proxy, method, args) -> {
                         if (method.getName().equals("onReceiveChatMessage") && args != null && args.length >= 1) {
+                            String cleanText = componentString(args[0]);
                             if (!GtbStructuresSettings.INSTANCE.modEnabled) return null;
                             ModernRuntimeBridge.onChat(formattedComponentString(args[0]),
-                                    componentString(args[0]));
+                                    cleanText);
                             return null;
                         }
                         if (method.getName().equals("toString")) return "GtbStructures chat callback";
@@ -674,25 +649,30 @@ public final class GtbStructuresFabric implements ClientModInitializer {
         if ("suffix".equals(display)) {
             Object suffix = literalText(textClass,
                     GuessChatAnnotator.suffixText(annotation.tooltip));
-            return assembleGuessPeekMessage(original, suffix, null, null, display, textClass);
+            return assembleGuessPeekMessage(original, suffix, null, null, display, textClass,
+                    parsed.visibleGuessStart, parsed.visibleGuessEnd);
         }
         Object hover = createHoverEvent(annotation.tooltip);
         if (hover == null) return null;
         String command = GuessChatAnnotator.copyCommandForGuess(annotation.copyGuess);
         Object click = createClickEvent(command);
-        return assembleGuessPeekMessage(original, null, hover, click, display, textClass);
+        return assembleGuessPeekMessage(original, null, hover, click, display, textClass,
+                parsed.visibleGuessStart, parsed.visibleGuessEnd);
     }
 
     private static Object assembleGuessPeekMessage(Object original, Object suffix,
                                                    Object hover, Object click,
-                                                   String display, Class<?> textClass)
+                                                   String display, Class<?> textClass,
+                                                   int visibleGuessStart, int visibleGuessEnd)
             throws ReflectiveOperationException {
         GuessPeekComponentParts parts = detachTrailingCopyButton(original, textClass);
         Object root = parts.base;
         if ("suffix".equals(display)) {
             if (suffix == null || !appendText(root, suffix, textClass)) return null;
-        } else if (!applyGuessPeekStyle(root, hover, click)) {
-            return null;
+        } else {
+            root = rebuildGuessPeekStyleRange(root, hover, click, textClass,
+                    visibleGuessStart, visibleGuessEnd);
+            if (root == null) return null;
         }
         if (parts.trailing != null) appendText(root, parts.trailing, textClass);
         return root;
@@ -700,9 +680,113 @@ public final class GtbStructuresFabric implements ClientModInitializer {
 
     static Object assembleGuessPeekMessageForTest(Object original, Object suffix,
                                                   Object hover, Object click,
-                                                  String display, Class<?> textClass)
+                                                  String display, Class<?> textClass,
+                                                  int visibleGuessStart, int visibleGuessEnd)
             throws ReflectiveOperationException {
-        return assembleGuessPeekMessage(original, suffix, hover, click, display, textClass);
+        return assembleGuessPeekMessage(original, suffix, hover, click, display, textClass,
+                visibleGuessStart, visibleGuessEnd);
+    }
+
+    private static Object rebuildGuessPeekStyleRange(Object text, Object hover, Object click,
+                                                     Class<?> textClass,
+                                                     int visibleStart, int visibleEnd)
+            throws ReflectiveOperationException {
+        if (text == null || hover == null || visibleStart < 0 || visibleEnd <= visibleStart) {
+            return null;
+        }
+        int[] cursor = new int[] {0};
+        boolean[] applied = new boolean[] {false};
+        Object rebuilt = rebuildGuessPeekComponent(text, hover, click, textClass,
+                visibleStart, visibleEnd, cursor, applied);
+        return applied[0] ? rebuilt : null;
+    }
+
+    private static Object rebuildGuessPeekComponent(Object text, Object hover, Object click,
+                                                     Class<?> textClass,
+                                                     int visibleStart, int visibleEnd,
+                                                     int[] cursor, boolean[] applied)
+            throws ReflectiveOperationException {
+        String fullText = componentString(text);
+        int componentStart = cursor[0];
+        int componentEnd = componentStart + GuessChatAnnotator.visibleTextLength(fullText);
+        if (visibleEnd <= componentStart || visibleStart >= componentEnd) {
+            cursor[0] = componentEnd;
+            Object copy = copyText(text, textClass);
+            return copy == null ? text : copy;
+        }
+
+        Object rebuilt = literalText(textClass, "");
+        copyComponentStyle(text, rebuilt);
+        Object rawSiblings = invokeAnyOrNull(text, "getSiblings", "method_10855");
+        @SuppressWarnings("unchecked")
+        List<Object> siblings = rawSiblings instanceof List
+                ? (List<Object>) rawSiblings : List.of();
+        int siblingLength = 0;
+        for (Object sibling : siblings) siblingLength += componentString(sibling).length();
+        int ownLength = Math.max(0, fullText.length() - siblingLength);
+        String ownText = fullText.substring(0, Math.min(ownLength, fullText.length()));
+        appendGuessPeekSegments(rebuilt, ownText, hover, click, textClass,
+                visibleStart, visibleEnd, cursor, applied);
+        for (Object sibling : siblings) {
+            Object rebuiltSibling = rebuildGuessPeekComponent(sibling, hover, click, textClass,
+                    visibleStart, visibleEnd, cursor, applied);
+            if (!appendText(rebuilt, rebuiltSibling, textClass)) {
+                throw new NoSuchMethodException("Unable to rebuild GuessPeek component child");
+            }
+        }
+        return rebuilt;
+    }
+
+    private static void appendGuessPeekSegments(Object root, String text,
+                                                Object hover, Object click,
+                                                Class<?> textClass,
+                                                int visibleStart, int visibleEnd,
+                                                int[] cursor, boolean[] applied)
+            throws ReflectiveOperationException {
+        int start = cursor[0];
+        int end = start + GuessChatAnnotator.visibleTextLength(text);
+        int activeStart = Math.max(start, visibleStart);
+        int activeEnd = Math.min(end, visibleEnd);
+        if (activeStart >= activeEnd) {
+            appendGuessPeekSegment(root, text, false, hover, click, textClass, applied);
+            cursor[0] = end;
+            return;
+        }
+        // MVP++ names/ranks can contain literal section codes inside a component.
+        // Split in visible coordinates and restore inline formatting on each new segment.
+        GuessChatAnnotator.Split split = GuessChatAnnotator.splitFormattedGuess(
+                text, activeStart - start, activeEnd - start);
+        appendGuessPeekSegment(root, split.prefix,
+                false, hover, click, textClass, applied);
+        appendGuessPeekSegment(root, split.guess, true, hover, click, textClass, applied);
+        appendGuessPeekSegment(root, split.suffix,
+                false, hover, click, textClass, applied);
+        cursor[0] = end;
+    }
+
+    private static void appendGuessPeekSegment(Object root, String value, boolean active,
+                                               Object hover, Object click, Class<?> textClass,
+                                               boolean[] applied)
+            throws ReflectiveOperationException {
+        if (value.isEmpty()) return;
+        Object segment = literalText(textClass, value);
+        if (active) {
+            if (!applyGuessPeekStyle(segment, hover, click)) {
+                throw new NoSuchMethodException("Unable to style exact GuessPeek range");
+            }
+            applied[0] = true;
+        }
+        if (!appendText(root, segment, textClass)) {
+            throw new NoSuchMethodException("Unable to append GuessPeek component segment");
+        }
+    }
+
+    private static void copyComponentStyle(Object source, Object target)
+            throws ReflectiveOperationException {
+        Object style = invokeAnyOrNull(source, "getStyle", "method_10866");
+        if (style != null && invokeAnyWithArg(target, style, "setStyle", "method_10862") == null) {
+            throw new NoSuchMethodException("Unable to preserve GuessPeek component style");
+        }
     }
 
     private static GuessPeekComponentParts detachTrailingCopyButton(Object original, Class<?> textClass) {
@@ -1035,9 +1119,9 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                     new Class<?>[] {callbackClass},
                     (proxy, method, args) -> {
                         if (method.getName().equals("onReceiveGameMessage") && args != null && args.length >= 2) {
-                            if (!GtbStructuresSettings.INSTANCE.modEnabled) return null;
                             String text = componentString(args[0]);
                             boolean overlay = args[1] instanceof Boolean && ((Boolean) args[1]).booleanValue();
+                            if (!GtbStructuresSettings.INSTANCE.modEnabled) return null;
                             if (overlay) ModernRuntimeBridge.onActionbar(text);
                             else ModernRuntimeBridge.onChat(formattedComponentString(args[0]), text);
                             return null;
@@ -1247,6 +1331,8 @@ public final class GtbStructuresFabric implements ClientModInitializer {
     private static void sendClientFeedback(String message) {
         StatsArchive.ThemeExportPrompt prompt =
                 StatsArchive.parseThemeExportPrompt(message);
+        StatsArchive.LocalFileNotice localFileNotice =
+                StatsArchive.parseLocalFileNotice(message);
         try {
             Object client = FabricServices.minecraftClient();
             Object chatHud = MinecraftClientUiBridge.chatHud(client);
@@ -1259,6 +1345,17 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                 }
                 message = prompt.visibleText();
             }
+            if (localFileNotice != null) {
+                Object component = buildPrompt(localFileNotice.prefix(),
+                        localFileNotice.link(), localFileNotice.suffix(),
+                        localFileNotice.hover(), localFileNotice.command());
+                if (component != null
+                        && invokeTextObjectAny(chatHud, component,
+                        "addMessage", "addClientSystemMessage", "method_1812")) {
+                    return;
+                }
+                message = localFileNotice.visibleText();
+            }
             invokeTextAny(chatHud, message, "addMessage", "addClientSystemMessage", "method_1812");
         } catch (ReflectiveOperationException | RuntimeException e) {
             LOGGER.warn("Unable to send GtbStructures Fabric local command feedback", e);
@@ -1268,18 +1365,25 @@ public final class GtbStructuresFabric implements ClientModInitializer {
     private static Object buildThemeExportPrompt(
             StatsArchive.ThemeExportPrompt prompt)
             throws ReflectiveOperationException {
+        return buildPrompt(prompt.prefix(), prompt.link(), prompt.suffix(),
+                prompt.hover(), prompt.command());
+    }
+
+    private static Object buildPrompt(String prefix, String linkText, String suffix,
+                                      String hoverText, String command)
+            throws ReflectiveOperationException {
         Class<?> textClass = classAny("net.minecraft.text.Text",
                 "net.minecraft.network.chat.Component", "net.minecraft.class_2561");
-        Object root = legacyFormattedText(textClass, prompt.prefix());
+        Object root = legacyFormattedText(textClass, prefix);
         Object link = legacyFormattedText(textClass,
-                "\u00a7f\u00a7n" + prompt.link());
-        Object hover = createHoverEvent(prompt.hover());
-        Object click = createClickEvent(prompt.command());
+                "\u00a7f\u00a7n" + linkText);
+        Object hover = createHoverEvent(hoverText);
+        Object click = createClickEvent(command);
         if (hover == null || click == null
                 || !applyGuessPeekStyle(link, hover, click)
                 || !appendText(root, link, textClass)
                 || !appendText(root,
-                legacyFormattedText(textClass, prompt.suffix()), textClass)) {
+                legacyFormattedText(textClass, suffix), textClass)) {
             return null;
         }
         return root;
@@ -1529,11 +1633,17 @@ public final class GtbStructuresFabric implements ClientModInitializer {
             applyFabricRosterObjectiveGate(scoreboard);
             ModernPlayerListLogic.Snapshot snapshot = new ModernPlayerListLogic.Snapshot();
             Set<String> observedTeams = new LinkedHashSet<String>();
+            String accountUuid = runtimeServices == null
+                    ? null : PlayerUuid.normalize(runtimeServices.accountPlayerUuid());
             boolean repairBbRanks = GameStats.INSTANCE.shouldRepairBbRankDisplay()
                     && !fabricBbRankRepairDisabled;
             for (Object entry : entries) {
                 String name = playerEntryName(entry);
                 if (name == null || name.isEmpty()) continue;
+                String entryUuid = playerEntryUuid(entry);
+                if (accountUuid != null && accountUuid.equals(entryUuid)) {
+                    GameStats.INSTANCE.confirmServerLocalPlayerName(name);
+                }
                 snapshot.addPlayer(name, playerEntryDisplay(entry));
                 Object team = playerEntryTeam(entry);
                 if (team == null && scoreboard != null) team = teamForPlayer(scoreboard, name);
@@ -1608,6 +1718,15 @@ public final class GtbStructuresFabric implements ClientModInitializer {
         if (name != null && !name.isEmpty()) return name;
         Object direct = invokeAnyOrNull(entry, "getName", "name");
         return direct instanceof String ? (String) direct : null;
+    }
+
+    private static String playerEntryUuid(Object entry) throws ReflectiveOperationException {
+        Object profile = invokeAnyOrNull(entry, "getProfile", "profile", "method_2966");
+        if (profile == null) profile = FabricServices.fieldAny(entry, "profile", "field_3701");
+        if (profile == null) return null;
+        Object uuid = invokeAnyOrNull(profile, "id", "getId", "getProfileId");
+        if (uuid == null) uuid = fieldAnyDeep(profile, "id");
+        return PlayerUuid.normalize(uuid);
     }
 
     private static String profileName(Object profile) throws ReflectiveOperationException {
@@ -2534,8 +2653,12 @@ public final class GtbStructuresFabric implements ClientModInitializer {
         }
 
         @Override
-        public void sendServerCommandAfterLobby(String command) {
-            queueLobbyRejoin(command);
+        public boolean playerAvailable() {
+            try {
+                return player() != null;
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                return false;
+            }
         }
 
         @Override

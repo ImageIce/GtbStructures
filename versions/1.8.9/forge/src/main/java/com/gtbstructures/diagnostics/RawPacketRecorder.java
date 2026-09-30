@@ -303,9 +303,6 @@ public final class RawPacketRecorder {
 
     private static boolean shouldCapturePacket(Object packet) {
         try {
-            if (packet instanceof S29PacketSoundEffect) {
-                return isThunderSound(((S29PacketSoundEffect) packet).getSoundName());
-            }
             if (packet instanceof S2CPacketSpawnGlobalEntity) {
                 return ((S2CPacketSpawnGlobalEntity) packet).func_149053_g() == 1;
             }

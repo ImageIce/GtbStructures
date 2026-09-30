@@ -11,6 +11,18 @@ import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
 public final class PreviewScreenController implements InterfacePreview.ScreenController {
+    enum TextFieldPurpose {
+        HEADER(256),
+        GROUP_NAME(128),
+        GROUP_SEARCH(64);
+
+        final int maxLength;
+
+        TextFieldPurpose(int maxLength) {
+            this.maxLength = maxLength;
+        }
+    }
+
     private static double pendingScrollDelta;
 
     @Override
@@ -72,8 +84,13 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
     }
 
     static void beginHeaderEditing(String value) {
+        beginTextEditing(value, TextFieldPurpose.HEADER);
+    }
+
+    static void beginTextEditing(String value, TextFieldPurpose purpose) {
         PreviewScreen screen = previewScreen();
-        if (screen != null) screen.beginHeaderEditing(value);
+        if (screen != null) screen.beginTextEditing(value,
+                purpose == null ? TextFieldPurpose.HEADER : purpose);
     }
 
     static String finishHeaderEditing() {
@@ -105,6 +122,7 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
     private static final class PreviewScreen extends Screen {
         private EditBox headerEditBox;
         private boolean headerEditNeedsLayoutRefresh;
+        private TextFieldPurpose textFieldPurpose = TextFieldPurpose.HEADER;
 
         private PreviewScreen() {
             super(Component.empty());
@@ -136,7 +154,7 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
                 int cursor = Math.max(0, Math.min(headerEditBox.getCursorPosition(), value.length()));
                 String candidate = value.substring(0, cursor) + event.codepointAsString()
                         + value.substring(cursor);
-                if (!validHeaderEditCandidate(candidate)) return true;
+                if (!validTextEditCandidate(textFieldPurpose, candidate)) return true;
                 if (headerEditBox.charTyped(event)) return true;
             }
             return super.charTyped(event);
@@ -159,13 +177,14 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
             return false;
         }
 
-        private void beginHeaderEditing(String value) {
+        private void beginTextEditing(String value, TextFieldPurpose purpose) {
             if (headerEditBox == null) {
                 headerEditBox = new EditBox(font, -1000, -1000, 1, 1, Component.empty());
-                headerEditBox.setMaxLength(256);
                 addRenderableWidget(headerEditBox);
                 setInitialFocus(headerEditBox);
             }
+            textFieldPurpose = purpose;
+            headerEditBox.setMaxLength(purpose.maxLength);
             headerEditBox.setValue(value == null ? "" : value);
             headerEditBox.setCursorPosition(headerEditBox.getValue().length());
             headerEditBox.setFocused(true);
@@ -205,6 +224,19 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
     }
 
     private static boolean validHeaderEditCandidate(String value) {
+        return validTextEditCandidate(TextFieldPurpose.HEADER, value);
+    }
+
+    static boolean validGroupNameEditCandidate(String value) {
+        return validTextEditCandidate(TextFieldPurpose.GROUP_NAME, value);
+    }
+
+    private static boolean validTextEditCandidate(TextFieldPurpose purpose, String value) {
+        if (purpose == TextFieldPurpose.GROUP_SEARCH) return true;
+        if (purpose == TextFieldPurpose.GROUP_NAME) {
+            return value != null && value.codePointCount(0, value.length())
+                    <= com.gtbstructures.translation.ShortcutLanguageGroups.MAX_NAME_CODE_POINTS;
+        }
         if (ChatHeader.visibleLength(value) <= ChatHeader.MAX_VISIBLE_LENGTH) return true;
         if (value == null || value.isEmpty()) return false;
         char last = value.charAt(value.length() - 1);

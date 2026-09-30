@@ -86,8 +86,10 @@ public final class ShowAllMatching {
         final String asyncHint = r.effectiveInitialHint;
         final int asyncThemeCharCount = r.themeCharCount;
         final boolean asyncShowEnglish = GtbStructures.showAllMatchingShowEnglish;
+        final boolean asyncShowCount = GtbStructures.showAllMatchingShowCount;
         r.showAllMatchingSent = true;
-        if (queueAsyncMessage(asyncLangCode, asyncHint, asyncThemeCharCount, asyncShowEnglish)) return;
+        if (queueAsyncMessage(asyncLangCode, asyncHint, asyncThemeCharCount,
+                asyncShowEnglish, asyncShowCount)) return;
 
         String langCode = r.langCode;
         String hint = r.effectiveInitialHint;
@@ -116,7 +118,7 @@ public final class ShowAllMatching {
         boolean isEnglish = isEnglish(langCode);
         boolean isPirate = isPirate(langCode);
         // Showing the English origin is meaningless for real English (it IS the English).
-        boolean withEnglish = GtbStructures.showAllMatchingShowEnglish && !isEnglish;
+        boolean withEnglish = asyncShowEnglish && !isEnglish;
 
         StringBuilder sb = new StringBuilder();
         sb.append(CommandGtb.head);
@@ -140,6 +142,7 @@ public final class ShowAllMatching {
                 sb.append(")");
             }
         }
+        appendCountSuffix(sb, matches.size(), asyncShowCount);
 
         // Queue for the next client tick so this message lands AFTER the chat event
         // that triggered it. Minecraft.addScheduledTask runs synchronously when the
@@ -150,11 +153,13 @@ public final class ShowAllMatching {
 
     private static boolean queueAsyncMessage(final String langCode, final String hint,
                                              final int themeCharCount,
-                                             final boolean showEnglishConfig) {
+                                             final boolean showEnglishConfig,
+                                             final boolean showCountConfig) {
         WORKER.execute(new Runnable() {
             @Override public void run() {
                 try {
-                    String line = buildMessage(langCode, hint, themeCharCount, showEnglishConfig);
+                    String line = buildMessage(langCode, hint, themeCharCount,
+                            showEnglishConfig, showCountConfig);
                     if (line != null && !line.isEmpty()) PENDING.add(line);
                 } catch (Throwable ignored) {
                     // Optional chat feature; never risk the client thread.
@@ -165,7 +170,7 @@ public final class ShowAllMatching {
     }
 
     private static String buildMessage(String langCode, String hint, int themeCharCount,
-                                       boolean showEnglishConfig) {
+                                       boolean showEnglishConfig, boolean showCountConfig) {
         Map<String, Set<String>> matches;
         String displayedHint;
         if (hint != null && !hint.isEmpty()) {
@@ -206,7 +211,18 @@ public final class ShowAllMatching {
                 sb.append(")");
             }
         }
+        appendCountSuffix(sb, matches.size(), showCountConfig);
         return sb.toString();
+    }
+
+    static String buildMessageForTest(String langCode, String hint, int themeCharCount,
+                                      boolean showEnglishConfig, boolean showCountConfig) {
+        return buildMessage(langCode, hint, themeCharCount,
+                showEnglishConfig, showCountConfig);
+    }
+
+    private static void appendCountSuffix(StringBuilder sb, int count, boolean showCount) {
+        if (showCount) sb.append(" \u00a77(\u00a7e").append(count).append("\u00a77)");
     }
 
     /** Drain queued chat lines. Called from {@link GtbStructures#onClientTick} once per tick. */

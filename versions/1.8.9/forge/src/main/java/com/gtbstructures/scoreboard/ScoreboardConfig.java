@@ -52,6 +52,12 @@ public class ScoreboardConfig {
     public DisplayOption showTitles = DisplayOption.EXPANDED;
     public DisplayOption showEmblems = DisplayOption.ON;
 
+    /** Show a dedicated current-builder row in the default custom skin. */
+    public boolean defaultExplicitlyShowBuilders = false;
+
+    /** Show round progress beside the Builder label in the Hypixel-style custom skin. */
+    public DisplayOption hypixelShowRounds = DisplayOption.OFF;
+
     /** Shared text-shadow setting. */
     public boolean textShadow = true;
 
@@ -111,6 +117,10 @@ public class ScoreboardConfig {
         return optionActive(showEmblems, expanded);
     }
 
+    public boolean showHypixelRounds(boolean expanded) {
+        return optionActive(hypixelShowRounds, expanded);
+    }
+
     public int backgroundColor() {
         return alphaColor(0x000000, backgroundOpacity);
     }
@@ -138,6 +148,7 @@ public class ScoreboardConfig {
         showPlaces = normalizeOption(showPlaces, DisplayOption.OFF);
         showTitles = normalizeOption(showTitles, DisplayOption.EXPANDED);
         showEmblems = normalizeOption(showEmblems, DisplayOption.ON);
+        hypixelShowRounds = normalizeOption(hypixelShowRounds, DisplayOption.OFF);
     }
 
     /** Normalize a persisted or requested skin name. */

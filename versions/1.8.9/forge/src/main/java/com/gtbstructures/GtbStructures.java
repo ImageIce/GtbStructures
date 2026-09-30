@@ -18,6 +18,7 @@ import com.gtbstructures.items.ModernEquipmentItemPatch;
 import com.gtbstructures.items.ModernEquipmentRenderPatch;
 import com.gtbstructures.items.ModernSpawnEggItemRenderPatch;
 import com.gtbstructures.overlay.HudPosition;
+import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.overlay.WorldEnvironmentOverlay;
 import com.gtbstructures.player.BbRankDisplayRepair;
 import com.gtbstructures.player.BuilderLeaderboardFallback;
@@ -29,8 +30,10 @@ import com.gtbstructures.scoreboard.InterfacePreview;
 import com.gtbstructures.scoreboard.PreviewLayoutEditor;
 import com.gtbstructures.scoreboard.ScoreboardConfig;
 import com.gtbstructures.scoreboard.ScoreboardLayout;
+import com.gtbstructures.sound.GuessSounds;
 import com.gtbstructures.stats.GameStats;
 import com.gtbstructures.stats.LangPatterns;
+import com.gtbstructures.translation.ShortcutLanguageGroups;
 import com.gtbstructures.translation.ShortcutReminder;
 import com.gtbstructures.translation.ThemePointReveal;
 import com.gtbstructures.translation.TranslationData;
@@ -58,6 +61,7 @@ import net.minecraftforge.client.event.GuiOpenEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.GuiIngameForge;
 import net.minecraftforge.common.config.Configuration;
+import net.minecraftforge.common.config.Property;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
@@ -81,6 +85,8 @@ public class GtbStructures {
     public static final String MODID = "gtbstructures";
     public static final String NAME = "GtbStructures";
     public static final String VERSION = "1.1";
+    public static final float DEFAULT_AUTO_REQUEUE_DELAY_SECONDS = 5.0F;
+    public static final float MAX_AUTO_REQUEUE_DELAY_SECONDS = 10.0F;
 
     private static final Logger LOGGER = LogManager.getLogger("GtbStructures");
 
@@ -89,9 +95,12 @@ public class GtbStructures {
     public static boolean enabled = false;
     public static boolean trackingEnabled = true;
     public static boolean autoRequeue = false;
+    public static float autoRequeueDelaySeconds = DEFAULT_AUTO_REQUEUE_DELAY_SECONDS;
+    public static boolean lrjBypassLobbyProtection = true;
     public static boolean updateNoticeEnabled = true;
     public static boolean showAllMatching = false;
     public static boolean showAllMatchingShowEnglish = false;
+    public static boolean showAllMatchingShowCount = true;
     public static boolean themePointReveal = false;
     public static boolean themePointRevealShowAfterGuess = false;
     public static boolean shortcutReminder = true;
@@ -139,7 +148,10 @@ public class GtbStructures {
     public static boolean chatCooldownBackground = true;
     public static boolean chatCooldownBarBackground = false;
     public static boolean gtwShowEnglish = false;
+    public static boolean gtwShowCount = true;
+    public static String gtwDifficulty = "all";
     public static boolean copyTranslationPrefix = true;
+    public static boolean copyTranslationCaps = true;
     public static boolean guessPeek = true;
     public static boolean guessPeekShowLangCodes = true;
     public static String guessPeekDisplay = "hover";
@@ -160,6 +172,10 @@ public class GtbStructures {
     public static float environmentPosY = 0.52f;
     public static float chatCooldownPosX = 0.5f;
     public static float chatCooldownPosY = 0.76f;
+    public static float hintStructureScale = HudPanelScale.DEFAULT;
+    public static float chatCooldownScale = HudPanelScale.DEFAULT;
+    public static float handheldItemScale = HudPanelScale.DEFAULT;
+    public static float environmentScale = HudPanelScale.DEFAULT;
     public static int handheldItemMaxVisible = 6;
     public static final float DEFAULT_HANDHELD_ITEM_PANEL_WIDTH_RATIO = 0.328125f;
     public static final float DEFAULT_HANDHELD_ITEM_PANEL_HEIGHT_RATIO = 0.3323263f;
@@ -238,6 +254,7 @@ public class GtbStructures {
         CommandGtw.register();
         CommandGuess.register();
         GameStats.INSTANCE.setTrackingEnabled(trackingEnabled);
+        GameStats.INSTANCE.setAutoRequeueDelaySeconds(autoRequeueDelaySeconds);
         GameStats.INSTANCE.setAutoRequeue(autoRequeue);
         // Archive the prior cache before refreshing translations for this instance.
         TranslationData.initAsync(Minecraft.getMinecraft().mcDataDir);
@@ -261,9 +278,17 @@ public class GtbStructures {
             enabled = config.getBoolean("enabled", Configuration.CATEGORY_GENERAL, false, "Whether the hint overlay is enabled");
             trackingEnabled = config.getBoolean("trackingEnabled", Configuration.CATEGORY_GENERAL, true, "Whether game stats tracking is enabled");
             autoRequeue = config.getBoolean("autoRequeue", Configuration.CATEGORY_GENERAL, false, "Whether to auto-requeue for GTB after a game ends");
+            autoRequeueDelaySeconds = normalizeAutoRequeueDelaySeconds(config.getFloat(
+                    "autoRequeueDelaySeconds", Configuration.CATEGORY_GENERAL,
+                    DEFAULT_AUTO_REQUEUE_DELAY_SECONDS, 0F, MAX_AUTO_REQUEUE_DELAY_SECONDS,
+                    "Seconds after the first final GTB roster capture before auto-requeueing (0.0-10.0)"));
+            lrjBypassLobbyProtection = config.getBoolean("lrjBypassLobbyProtection",
+                    Configuration.CATEGORY_GENERAL, true,
+                    "Whether /lrj retries once after Hypixel's translated /l protection prompt");
             updateNoticeEnabled = config.getBoolean("updateNoticeEnabled", Configuration.CATEGORY_GENERAL, true, "Whether to check GitHub and show a notice when a newer GTBS version is available");
             showAllMatching = config.getBoolean("showAllMatching", Configuration.CATEGORY_GENERAL, false, "Whether to show all themes matching the effective initial hint after a round resolves");
             showAllMatchingShowEnglish = config.getBoolean("showAllMatchingShowEnglish", Configuration.CATEGORY_GENERAL, false, "When showAllMatching is on and the language is not English, also show the English theme(s) next to each translation");
+            showAllMatchingShowCount = config.getBoolean("showAllMatchingShowCount", Configuration.CATEGORY_GENERAL, true, "Whether Show All Matching output ends with the total number of displayed themes");
             themePointReveal = config.getBoolean("themePointReveal", Configuration.CATEGORY_GENERAL, false, "Whether to reveal an exact current GTB theme point value in chat");
             themePointRevealShowAfterGuess = config.getBoolean("themePointRevealShowAfterGuess", Configuration.CATEGORY_GENERAL, false, "Whether theme point reveal may still fire after the complete theme is revealed");
             shortcutReminder = config.getBoolean("shortcutReminder", Configuration.CATEGORY_GENERAL, true, "Whether to show accepted shortcut guesses after each revealed GTB theme");
@@ -276,6 +301,26 @@ public class GtbStructures {
             shortcutReminderShowAllShortcuts = config.getBoolean("shortcutReminderShowAllShortcuts", Configuration.CATEGORY_GENERAL, false, "Whether shortcut reminders show every shortest accepted shortcut instead of only the selected shortcut");
             shortcutReminderShowMultiwords = config.getBoolean("shortcutReminderShowMultiwords", Configuration.CATEGORY_GENERAL, true, "Whether shortcut reminders also show accepted multiword metadata after each revealed GTB theme");
             shortcutReminderShowAllMultiwords = config.getBoolean("shortcutReminderShowAllMultiwords", Configuration.CATEGORY_GENERAL, false, "Whether multiword reminders show every accepted multiword per theme set instead of only the shortest one");
+            String languageGroupsJson = config.getString(
+                    "shortcutReminderLanguageGroups", Configuration.CATEGORY_GENERAL,
+                    ShortcutLanguageGroups.DEFAULT_SERIALIZED,
+                    "Versioned JSON configuration for independent shortcut language groups");
+            String languageGroupsBackup = config.getString(
+                    "shortcutReminderLanguageGroupsBackup", Configuration.CATEGORY_GENERAL,
+                    ShortcutLanguageGroups.DEFAULT_SERIALIZED,
+                    "Last recoverable shortcut language-group JSON configuration");
+            ShortcutLanguageGroups.LoadReport languageGroupsReport =
+                    ShortcutLanguageGroups.load(languageGroupsJson, languageGroupsBackup);
+            for (String warning : languageGroupsReport.warnings) {
+                LOGGER.warn(warning);
+            }
+            String normalizedLanguageGroups = ShortcutLanguageGroups.serialize();
+            if (!normalizedLanguageGroups.equals(languageGroupsJson)) {
+                config.get(Configuration.CATEGORY_GENERAL,
+                        "shortcutReminderLanguageGroups",
+                        ShortcutLanguageGroups.DEFAULT_SERIALIZED)
+                        .set(normalizedLanguageGroups);
+            }
             hintBackgroundOverlay = config.getBoolean("hintBackgroundOverlay", Configuration.CATEGORY_GENERAL, false, "Whether to draw the scoreboard-style background behind GTB actionbar hint text");
             hintStructureBackground = config.getBoolean("hintStructureBackground", Configuration.CATEGORY_GENERAL, hintBackgroundOverlay, "Whether to draw the scoreboard-style background behind the GTB hint structure overlay");
             handheldItemOverlay = config.getBoolean("handheldItemOverlay", Configuration.CATEGORY_GENERAL, false, "Whether to draw the builder handheld item history overlay during GTB rounds");
@@ -308,6 +353,10 @@ public class GtbStructures {
             environmentPosY = config.getFloat("environmentPosY", Configuration.CATEGORY_GENERAL, 0.52f, 0f, 1f, "Vertical bottom of the GTB weather/biome overlay (0-1)");
             chatCooldownPosX = config.getFloat("chatCooldownPosX", Configuration.CATEGORY_GENERAL, 0.5f, 0f, 1f, "Horizontal center of the chat cooldown counter (0-1)");
             chatCooldownPosY = config.getFloat("chatCooldownPosY", Configuration.CATEGORY_GENERAL, 0.76f, 0f, 1f, "Vertical center of the chat cooldown counter (0-1)");
+            hintStructureScale = HudPanelScale.normalize(config.getFloat("hintStructureScale", Configuration.CATEGORY_GENERAL, HudPanelScale.DEFAULT, HudPanelScale.MIN, HudPanelScale.MAX, "Scale of the hint structure panel (0.5-1.5)"));
+            chatCooldownScale = HudPanelScale.normalize(config.getFloat("chatCooldownScale", Configuration.CATEGORY_GENERAL, HudPanelScale.DEFAULT, HudPanelScale.MIN, HudPanelScale.MAX, "Scale of the chat cooldown panel (0.5-1.5)"));
+            handheldItemScale = HudPanelScale.normalize(config.getFloat("handheldItemScale", Configuration.CATEGORY_GENERAL, HudPanelScale.DEFAULT, HudPanelScale.MIN, HudPanelScale.MAX, "Scale of the handheld item panel (0.5-1.5)"));
+            environmentScale = HudPanelScale.normalize(config.getFloat("environmentScale", Configuration.CATEGORY_GENERAL, HudPanelScale.DEFAULT, HudPanelScale.MIN, HudPanelScale.MAX, "Scale of the environment panel (0.5-1.5)"));
             handheldItemMaxVisible = config.getInt("handheldItemMaxVisible", Configuration.CATEGORY_GENERAL, 6, 2, 10, "Maximum builder handheld items shown in the overlay. The full round history is still recorded.");
             handheldItemMaxVisible = HandheldItemTracker.clampMaxVisible(handheldItemMaxVisible);
             if (config.hasKey(Configuration.CATEGORY_GENERAL, "handheldItemPanelWidthRatio")) {
@@ -321,7 +370,10 @@ public class GtbStructures {
                 legacyHandheldItemPanelHeight = config.getInt("handheldItemPanelHeight", Configuration.CATEGORY_GENERAL, 108, 1, Integer.MAX_VALUE, "Legacy handheld item panel height in GUI pixels");
             }
             gtwShowEnglish = config.getBoolean("gtwShowEnglish", Configuration.CATEGORY_GENERAL, false, "Whether /gtbs gtw reveal/list lines show the English theme name(s) next to each translation");
+            gtwShowCount = config.getBoolean("gtwShowCount", Configuration.CATEGORY_GENERAL, true, "Whether /gtbs gtw matching-theme output ends with the total number of displayed themes");
+            gtwDifficulty = GtwGame.normalizeDifficulty(config.getString("gtwDifficulty", Configuration.CATEGORY_GENERAL, "all", "GTW theme difficulty: easy, medium, hard, or all. Difficulty follows the space-inclusive English theme length point value."));
             copyTranslationPrefix = config.getBoolean("copyTranslationPrefix", Configuration.CATEGORY_GENERAL, true, "Whether /gtbs copytranslation includes the \"The theme is \" prefix in copied messages");
+            copyTranslationCaps = config.getBoolean("copyTranslationCaps", Configuration.CATEGORY_GENERAL, true, "Whether /gtbs copytranslation capitalizes the first letter of every copied translation");
             guessPeek = config.getBoolean("guessPeek", Configuration.CATEGORY_GENERAL, true, "Whether GTB player guesses get hover/click English-theme annotations");
             guessPeekShowLangCodes = config.getBoolean("guessPeekShowLangCodes", Configuration.CATEGORY_GENERAL, true, "Whether guesspeek hover text includes source language codes");
             guessPeekDisplay = normalizeGuessPeekDisplay(config.getString("guessPeekDisplay", Configuration.CATEGORY_GENERAL, "hover", "Guess peek result display: hover or suffix"));
@@ -329,6 +381,7 @@ public class GtbStructures {
             scrambleGuessFancy = config.getBoolean("scrambleGuessFancy", Configuration.CATEGORY_GENERAL, false, "Whether scrambled guesses may use random GTB-accepted spelling modifications");
             trollMode = config.getBoolean("trollMode", Configuration.CATEGORY_GENERAL, false, "Whether valid outbound GTB guesses are changed into visually similar invalid guesses");
             trollModeAutoDisable = config.getBoolean("trollModeAutoDisable", Configuration.CATEGORY_GENERAL, false, "Whether Troll Mode automatically turns off when a GTB game starts");
+            loadGuessSoundsConfig();
             if (!ChatHeader.set(config.getString("chatHeader", Configuration.CATEGORY_GENERAL,
                     ChatHeader.DEFAULT_RAW, "Custom formatting-aware prefix for GTBS chat notices"))) {
                 ChatHeader.reset();
@@ -370,6 +423,10 @@ public class GtbStructures {
             sbConfig.showPlaces = ScoreboardConfig.parseOption(config.getString("showPlaces", "scoreboard", "off", "Whether to show leaderboard place numbers: off, expanded, or on."));
             sbConfig.showTitles = ScoreboardConfig.parseOption(config.getString("showTitles", "scoreboard", "expanded", "Whether to show Build Battle titles: off, expanded, or on."));
             sbConfig.showEmblems = ScoreboardConfig.parseOption(config.getString("showEmblems", "scoreboard", "on", "Whether to show player emblems: off, expanded, or on."));
+            sbConfig.defaultExplicitlyShowBuilders = config.getBoolean("defaultExplicitlyShowBuilders", "scoreboard", false,
+                    "Whether the Default custom scoreboard shows an explicit Builder row.");
+            sbConfig.hypixelShowRounds = ScoreboardConfig.parseOption(config.getString("hypixelShowRounds", "scoreboard", "off",
+                    "Whether the Hypixel custom scoreboard shows round progress beside its Builder label: off, expanded, or on."));
             sbConfig.textShadow = config.getBoolean("textShadow", "scoreboard", true, "Whether custom scoreboard text is drawn with a shadow.");
             sbConfig.leftPlayersAtBottom = config.getBoolean("leftPlayersAtBottom", "scoreboard", true,
                     "Whether confirmed leavers are grouped at the bottom of custom scoreboards.");
@@ -396,9 +453,15 @@ public class GtbStructures {
             config.get(Configuration.CATEGORY_GENERAL, "enabled", enabled).set(enabled);
             config.get(Configuration.CATEGORY_GENERAL, "trackingEnabled", trackingEnabled).set(trackingEnabled);
             config.get(Configuration.CATEGORY_GENERAL, "autoRequeue", autoRequeue).set(autoRequeue);
+            autoRequeueDelaySeconds = normalizeAutoRequeueDelaySeconds(autoRequeueDelaySeconds);
+            config.get(Configuration.CATEGORY_GENERAL, "autoRequeueDelaySeconds",
+                    DEFAULT_AUTO_REQUEUE_DELAY_SECONDS).set(autoRequeueDelaySeconds);
+            config.get(Configuration.CATEGORY_GENERAL, "lrjBypassLobbyProtection", true)
+                    .set(lrjBypassLobbyProtection);
             config.get(Configuration.CATEGORY_GENERAL, "updateNoticeEnabled", true).set(updateNoticeEnabled);
             config.get(Configuration.CATEGORY_GENERAL, "showAllMatching", showAllMatching).set(showAllMatching);
             config.get(Configuration.CATEGORY_GENERAL, "showAllMatchingShowEnglish", showAllMatchingShowEnglish).set(showAllMatchingShowEnglish);
+            config.get(Configuration.CATEGORY_GENERAL, "showAllMatchingShowCount", true).set(showAllMatchingShowCount);
             config.get(Configuration.CATEGORY_GENERAL, "themePointReveal", false).set(themePointReveal);
             config.get(Configuration.CATEGORY_GENERAL, "themePointRevealShowAfterGuess", false).set(themePointRevealShowAfterGuess);
             config.get(Configuration.CATEGORY_GENERAL, "shortcutReminder", true).set(shortcutReminder);
@@ -411,6 +474,19 @@ public class GtbStructures {
             config.get(Configuration.CATEGORY_GENERAL, "shortcutReminderShowAllShortcuts", false).set(shortcutReminderShowAllShortcuts);
             config.get(Configuration.CATEGORY_GENERAL, "shortcutReminderShowMultiwords", true).set(shortcutReminderShowMultiwords);
             config.get(Configuration.CATEGORY_GENERAL, "shortcutReminderShowAllMultiwords", false).set(shortcutReminderShowAllMultiwords);
+            String serializedLanguageGroups = ShortcutLanguageGroups.serialize();
+            Property languageGroupsProperty = config.get(Configuration.CATEGORY_GENERAL,
+                    "shortcutReminderLanguageGroups",
+                    ShortcutLanguageGroups.DEFAULT_SERIALIZED);
+            String previousLanguageGroups = languageGroupsProperty.getString();
+            if (!serializedLanguageGroups.equals(previousLanguageGroups)
+                    && ShortcutLanguageGroups.isValidSerialized(previousLanguageGroups)) {
+                config.get(Configuration.CATEGORY_GENERAL,
+                        "shortcutReminderLanguageGroupsBackup",
+                        ShortcutLanguageGroups.DEFAULT_SERIALIZED)
+                        .set(previousLanguageGroups);
+            }
+            languageGroupsProperty.set(serializedLanguageGroups);
             config.get(Configuration.CATEGORY_GENERAL, "hintBackgroundOverlay", hintBackgroundOverlay).set(hintBackgroundOverlay);
             config.get(Configuration.CATEGORY_GENERAL, "hintStructureBackground", false).set(hintStructureBackground);
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemOverlay", handheldItemOverlay).set(handheldItemOverlay);
@@ -443,11 +519,18 @@ public class GtbStructures {
             config.get(Configuration.CATEGORY_GENERAL, "environmentPosY", environmentPosY).set(environmentPosY);
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownPosX", chatCooldownPosX).set(chatCooldownPosX);
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownPosY", chatCooldownPosY).set(chatCooldownPosY);
+            config.get(Configuration.CATEGORY_GENERAL, "hintStructureScale", HudPanelScale.DEFAULT).set(HudPanelScale.normalize(hintStructureScale));
+            config.get(Configuration.CATEGORY_GENERAL, "chatCooldownScale", HudPanelScale.DEFAULT).set(HudPanelScale.normalize(chatCooldownScale));
+            config.get(Configuration.CATEGORY_GENERAL, "handheldItemScale", HudPanelScale.DEFAULT).set(HudPanelScale.normalize(handheldItemScale));
+            config.get(Configuration.CATEGORY_GENERAL, "environmentScale", HudPanelScale.DEFAULT).set(HudPanelScale.normalize(environmentScale));
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemMaxVisible", 6).set(HandheldItemTracker.clampMaxVisible(handheldItemMaxVisible));
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemPanelWidthRatio", DEFAULT_HANDHELD_ITEM_PANEL_WIDTH_RATIO).set(HandheldItemTracker.clampPanelRatio(handheldItemPanelWidthRatio));
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemPanelHeightRatio", DEFAULT_HANDHELD_ITEM_PANEL_HEIGHT_RATIO).set(HandheldItemTracker.clampPanelRatio(handheldItemPanelHeightRatio));
             config.get(Configuration.CATEGORY_GENERAL, "gtwShowEnglish", gtwShowEnglish).set(gtwShowEnglish);
+            config.get(Configuration.CATEGORY_GENERAL, "gtwShowCount", true).set(gtwShowCount);
+            config.get(Configuration.CATEGORY_GENERAL, "gtwDifficulty", "all").set(GtwGame.normalizeDifficulty(gtwDifficulty));
             config.get(Configuration.CATEGORY_GENERAL, "copyTranslationPrefix", copyTranslationPrefix).set(copyTranslationPrefix);
+            config.get(Configuration.CATEGORY_GENERAL, "copyTranslationCaps", true).set(copyTranslationCaps);
             config.get(Configuration.CATEGORY_GENERAL, "guessPeek", true).set(guessPeek);
             config.get(Configuration.CATEGORY_GENERAL, "guessPeekShowLangCodes", true).set(guessPeekShowLangCodes);
             config.get(Configuration.CATEGORY_GENERAL, "guessPeekDisplay", "hover").set(normalizeGuessPeekDisplay(guessPeekDisplay));
@@ -455,6 +538,10 @@ public class GtbStructures {
             config.get(Configuration.CATEGORY_GENERAL, "scrambleGuessFancy", false).set(scrambleGuessFancy);
             config.get(Configuration.CATEGORY_GENERAL, "trollMode", false).set(trollMode);
             config.get(Configuration.CATEGORY_GENERAL, "trollModeAutoDisable", false).set(trollModeAutoDisable);
+            config.get(Configuration.CATEGORY_GENERAL, "guessSound1", GuessSounds.DEFAULT_SOUND).set(GuessSounds.getSound(1));
+            config.get(Configuration.CATEGORY_GENERAL, "guessSound2", GuessSounds.DEFAULT_SOUND).set(GuessSounds.getSound(2));
+            config.get(Configuration.CATEGORY_GENERAL, "guessSound3", GuessSounds.DEFAULT_SOUND).set(GuessSounds.getSound(3));
+            config.get(Configuration.CATEGORY_GENERAL, "guessSoundVolume", GuessSounds.DEFAULT_VOLUME).set(GuessSounds.getVolume());
             config.get(Configuration.CATEGORY_GENERAL, "chatHeader", ChatHeader.DEFAULT_RAW).set(ChatHeader.raw());
             config.get(Configuration.CATEGORY_GENERAL, "spawnEggSkin", "classic").set(normalizeSpawnEggSkin(spawnEggSkin));
             config.get(Configuration.CATEGORY_GENERAL, "gtwDefaultLang", gtwDefaultLang).set(gtwDefaultLang == null ? "en" : gtwDefaultLang);
@@ -477,12 +564,35 @@ public class GtbStructures {
             config.get("scoreboard", "showPlaces", "off").set(scoreboardOptionName(sbConfig.showPlaces));
             config.get("scoreboard", "showTitles", "expanded").set(scoreboardOptionName(sbConfig.showTitles));
             config.get("scoreboard", "showEmblems", "on").set(scoreboardOptionName(sbConfig.showEmblems));
+            config.get("scoreboard", "defaultExplicitlyShowBuilders", false).set(sbConfig.defaultExplicitlyShowBuilders);
+            config.get("scoreboard", "hypixelShowRounds", "off").set(scoreboardOptionName(sbConfig.hypixelShowRounds));
             config.get("scoreboard", "textShadow", true).set(sbConfig.textShadow);
             config.get("scoreboard", "leftPlayersAtBottom", true).set(sbConfig.leftPlayersAtBottom);
 
             config.save();
         } catch (Exception e) {
             LOGGER.warn("Failed to save config!", e);
+        }
+    }
+
+    private static void loadGuessSoundsConfig() {
+        String[] defaults = {GuessSounds.DEFAULT_SOUND, GuessSounds.DEFAULT_SOUND, GuessSounds.DEFAULT_SOUND};
+        for (int points = 1; points <= 3; points++) {
+            String raw = config.getString("guessSound" + points, Configuration.CATEGORY_GENERAL,
+                    defaults[points - 1], "Sound played for a correct guess worth " + points + " points.");
+            String normalized = GuessSounds.normalizeChoice(raw);
+            try {
+                GuessSounds.setSound(points, normalized == null ? defaults[points - 1] : normalized);
+            } catch (IllegalArgumentException ignored) {
+                GuessSounds.setSound(points, defaults[points - 1]);
+            }
+        }
+        String rawVolume = config.getString("guessSoundVolume", Configuration.CATEGORY_GENERAL,
+                Float.toString(GuessSounds.DEFAULT_VOLUME), "Global guess sound volume (0-30).");
+        try {
+            GuessSounds.setVolume(Float.parseFloat(rawVolume));
+        } catch (IllegalArgumentException ignored) {
+            GuessSounds.setVolume(GuessSounds.DEFAULT_VOLUME);
         }
     }
 
@@ -517,6 +627,33 @@ public class GtbStructures {
         if (option == ScoreboardConfig.DisplayOption.ON) return "on";
         if (option == ScoreboardConfig.DisplayOption.EXPANDED) return "expanded";
         return "off";
+    }
+
+    public static Float parseAutoRequeueDelaySeconds(String raw) {
+        if (raw == null) return null;
+        try {
+            float value = Float.parseFloat(raw.trim());
+            if (Float.isNaN(value) || Float.isInfinite(value)
+                    || value < 0F || value > MAX_AUTO_REQUEUE_DELAY_SECONDS) {
+                return null;
+            }
+            return Float.valueOf(normalizeAutoRequeueDelaySeconds(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    public static float normalizeAutoRequeueDelaySeconds(float value) {
+        if (Float.isNaN(value) || Float.isInfinite(value)
+                || value < 0F || value > MAX_AUTO_REQUEUE_DELAY_SECONDS) {
+            return DEFAULT_AUTO_REQUEUE_DELAY_SECONDS;
+        }
+        return Math.round(value * 10F) / 10F;
+    }
+
+    public static String formatAutoRequeueDelaySeconds(float value) {
+        return String.format(java.util.Locale.ROOT, "%.1f",
+                Float.valueOf(normalizeAutoRequeueDelaySeconds(value)));
     }
 
     public static void setShortcutReminderShowNonAscii(boolean enabled) {
@@ -665,17 +802,22 @@ public class GtbStructures {
 
         String display = colorBrackets + "[ " + colorNumbers + currentStructure.replace("-", colorHyphens + "-" + colorNumbers) + colorBrackets + " ]";
         int displayWidth = mc.fontRendererObj.getStringWidth(display);
-        int displayX = HudPosition.left(posX, sr.getScaledWidth(), displayWidth, 2);
-        int y = HudPosition.top(posY, sr.getScaledHeight(), mc.fontRendererObj.FONT_HEIGHT, 2);
-        if (drawHintStructureBg) {
-            drawTextBackground(mc, displayX, y, displayWidth);
+        float panelScale = HudPanelScale.normalize(hintStructureScale);
+        int scaledWidth = HudPanelScale.scaledPixels(displayWidth, panelScale);
+        int scaledHeight = HudPanelScale.scaledPixels(mc.fontRendererObj.FONT_HEIGHT, panelScale);
+        int displayX = HudPosition.left(posX, sr.getScaledWidth(), scaledWidth, 2);
+        int y = HudPosition.top(posY, sr.getScaledHeight(), scaledHeight, 2);
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(displayX, y, 0.0F);
+            GlStateManager.scale(panelScale, panelScale, 1.0F);
+            if (drawHintStructureBg) {
+                drawTextBackground(mc, 0, 0, displayWidth);
+            }
+            mc.fontRendererObj.drawStringWithShadow(display, 0, 0, color);
+        } finally {
+            GlStateManager.popMatrix();
         }
-        mc.fontRendererObj.drawStringWithShadow(
-            display,
-            displayX,
-            y,
-            color
-        );
     }
 
     private static void drawActionbarHintBackground(Minecraft mc, ScaledResolution sr) {
@@ -710,6 +852,7 @@ public class GtbStructures {
 
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.theWorld == null || mc.thePlayer == null) {
+            CommandGtb.onClientConnectionBoundary(false);
             WorldEnvironmentOverlay.INSTANCE.resetChangeNotices();
             GameStats.INSTANCE.onServerSessionReset();
             return;
@@ -777,6 +920,7 @@ public class GtbStructures {
 
     @SubscribeEvent
     public void onConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+        CommandGtb.onClientConnectionBoundary(true);
         if (event == null || event.isLocal || !updateNoticeEnabled) return;
         UpdateChecker.INSTANCE.checkOnceAsync(new UpdateChecker.Listener() {
             @Override
@@ -792,6 +936,11 @@ public class GtbStructures {
                 });
             }
         });
+    }
+
+    @SubscribeEvent
+    public void onDisconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
+        CommandGtb.onClientConnectionBoundary(false);
     }
 
     public static IChatComponent buildUpdateNoticeMessage(UpdateChecker.UpdateInfo update) {

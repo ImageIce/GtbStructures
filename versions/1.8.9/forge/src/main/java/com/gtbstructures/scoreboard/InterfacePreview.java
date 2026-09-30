@@ -2,6 +2,7 @@ package com.gtbstructures.scoreboard;
 
 import com.gtbstructures.GtbStructures;
 import com.gtbstructures.hints.HintOverlay;
+import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.overlay.HudPosition;
 import com.gtbstructures.stats.GameStats;
 import com.gtbstructures.stats.LangPatterns;
@@ -12,12 +13,14 @@ import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.world.World;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import net.minecraftforge.fml.common.network.FMLNetworkEvent;
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
 import java.io.IOException;
 
@@ -135,17 +138,30 @@ public final class InterfacePreview {
         if (mc == null || mc.theWorld == null || mc.fontRendererObj == null) return;
 
         if (!GtbStructures.modEnabled) {
-            renderMockActionbar(mc, true);
-            renderVanillaScoreboard(mc, 0);
+            renderMockActionbar(mc, true, false);
+            renderVanillaScoreboard(mc, 0, false);
             return;
         }
-        renderHintStructure(mc);
-        renderMockActionbar(mc, false);
-        renderCooldownCounter(mc);
-        renderScoreboard(mc);
+        renderHintStructure(mc, false);
+        renderMockActionbar(mc, false, false);
+        renderCooldownCounter(mc, false);
+        renderScoreboard(mc, false);
     }
 
-    private static void renderHintStructure(Minecraft mc) {
+    static void collectPreviewLabels(Minecraft mc) {
+        if (!isActive() || mc == null || mc.theWorld == null || mc.fontRendererObj == null) return;
+        if (!GtbStructures.modEnabled) {
+            renderMockActionbar(mc, true, true);
+            renderVanillaScoreboard(mc, 0, true);
+            return;
+        }
+        renderHintStructure(mc, true);
+        renderMockActionbar(mc, false, true);
+        renderCooldownCounter(mc, true);
+        renderScoreboard(mc, true);
+    }
+
+    private static void renderHintStructure(Minecraft mc, boolean layoutOnly) {
         if (!GtbStructures.enabled) return;
         ScaledResolution sr = new ScaledResolution(mc);
         FontRenderer fr = mc.fontRendererObj;
@@ -154,17 +170,31 @@ public final class InterfacePreview {
                 + GtbStructures.colorNumbers + structure.replace("-", GtbStructures.colorHyphens + "-" + GtbStructures.colorNumbers)
                 + GtbStructures.colorBrackets + " ]";
         int width = fr.getStringWidth(display);
-        int drawX = com.gtbstructures.overlay.HudPosition.left(GtbStructures.posX, sr.getScaledWidth(), width, 2);
-        int y = com.gtbstructures.overlay.HudPosition.top(GtbStructures.posY, sr.getScaledHeight(), fr.FONT_HEIGHT, 2);
-        if (GtbStructures.hintStructureBackground) {
-            drawTextBackground(mc, drawX, y, width);
+        float panelScale = HudPanelScale.normalize(GtbStructures.hintStructureScale);
+        int scaledWidth = HudPanelScale.scaledPixels(width, panelScale);
+        int scaledHeight = HudPanelScale.scaledPixels(fr.FONT_HEIGHT, panelScale);
+        int drawX = HudPosition.left(GtbStructures.posX, sr.getScaledWidth(), scaledWidth, 2);
+        int y = HudPosition.top(GtbStructures.posY, sr.getScaledHeight(), scaledHeight, 2);
+        if (layoutOnly) {
+            PreviewLayoutEditor.register("hintstructure", drawX, y, scaledWidth, scaledHeight,
+                    PreviewLayoutEditor.HINT_STRUCTURE);
+            return;
         }
-        PreviewLayoutEditor.register("hintstructure", drawX, y, width, fr.FONT_HEIGHT,
-                PreviewLayoutEditor.HINT_STRUCTURE);
-        fr.drawStringWithShadow(display, drawX, y, 0xFFFFFF);
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(drawX, y, 0.0F);
+            GlStateManager.scale(panelScale, panelScale, 1.0F);
+            if (GtbStructures.hintStructureBackground) {
+                drawTextBackground(mc, 0, 0, width);
+            }
+            fr.drawStringWithShadow(display, 0, 0, 0xFFFFFF);
+        } finally {
+            GlStateManager.popMatrix();
+        }
     }
 
-    private static void renderMockActionbar(Minecraft mc, boolean nativeOnly) {
+    private static void renderMockActionbar(Minecraft mc, boolean nativeOnly,
+                                            boolean layoutOnly) {
         if (!previewActionbarVisibleForMaster(GtbStructures.modEnabled,
                 INSTANCE.mockActionbarVisible)) return;
         ScaledResolution sr = new ScaledResolution(mc);
@@ -173,15 +203,18 @@ public final class InterfacePreview {
         int width = fr.getStringWidth(text);
         int x = sr.getScaledWidth() / 2 - width / 2;
         int y = sr.getScaledHeight() - 72;
+        if (layoutOnly) {
+            PreviewLayoutEditor.register("actionbar", x, y, width, fr.FONT_HEIGHT,
+                    PreviewLayoutEditor.ACTIONBAR);
+            return;
+        }
         if (!nativeOnly && GtbStructures.hintBackgroundOverlay) {
             drawTextBackground(mc, x, y, width);
         }
-        PreviewLayoutEditor.register("actionbar", x, y, width, fr.FONT_HEIGHT,
-                PreviewLayoutEditor.ACTIONBAR);
         fr.drawStringWithShadow(text, x, y, 0xFFFFFF);
     }
 
-    private static void renderCooldownCounter(Minecraft mc) {
+    private static void renderCooldownCounter(Minecraft mc, boolean layoutOnly) {
         if (!GtbStructures.chatCooldownCounter) return;
         boolean showTimer = GtbStructures.chatCooldownTimerEnabled;
         boolean showBar = GtbStructures.chatCooldownBarEnabled;
@@ -195,49 +228,61 @@ public final class InterfacePreview {
         int widgetHeight = (showTimer ? fr.FONT_HEIGHT : 0)
                 + (showTimer && showBar ? 3 : 0)
                 + (showBar ? COOLDOWN_BAR_HEIGHT : 0);
-        int widgetLeft = com.gtbstructures.overlay.HudPosition.left(GtbStructures.chatCooldownPosX,
-                sr.getScaledWidth(), widgetWidth, 2);
-        int widgetTop = com.gtbstructures.overlay.HudPosition.top(GtbStructures.chatCooldownPosY,
-                sr.getScaledHeight(), widgetHeight, 2);
-        PreviewLayoutEditor.register("cooldowncounter", widgetLeft, widgetTop, widgetWidth, widgetHeight,
-                PreviewLayoutEditor.COOLDOWN);
-        int centerX = widgetLeft + widgetWidth / 2;
+        float panelScale = HudPanelScale.normalize(GtbStructures.chatCooldownScale);
+        int scaledWidth = HudPanelScale.scaledPixels(widgetWidth, panelScale);
+        int scaledHeight = HudPanelScale.scaledPixels(widgetHeight, panelScale);
+        int widgetLeft = HudPosition.left(GtbStructures.chatCooldownPosX,
+                sr.getScaledWidth(), scaledWidth, 2);
+        int widgetTop = HudPosition.top(GtbStructures.chatCooldownPosY,
+                sr.getScaledHeight(), scaledHeight, 2);
+        if (layoutOnly) {
+            PreviewLayoutEditor.register("cooldowncounter", widgetLeft, widgetTop,
+                    scaledWidth, scaledHeight, PreviewLayoutEditor.COOLDOWN);
+            return;
+        }
+        int centerX = widgetWidth / 2;
         int x = centerX - COOLDOWN_BAR_WIDTH / 2;
-        int y = widgetTop + (showTimer ? fr.FONT_HEIGHT + 3 : 0);
+        int y = showTimer ? fr.FONT_HEIGHT + 3 : 0;
         int labelX = centerX - labelWidth / 2;
-        int labelY = widgetTop;
-        if (showTimer && GtbStructures.chatCooldownBackground) {
-            Gui.drawRect(
-                    labelX - COOLDOWN_TIMER_BG_PAD_X,
-                    labelY - COOLDOWN_TIMER_BG_PAD_Y,
-                    labelX + labelWidth + COOLDOWN_TIMER_BG_PAD_X,
-                    labelY + fr.FONT_HEIGHT + COOLDOWN_TIMER_BG_PAD_Y,
-                    ScoreboardLayout.BACKGROUND_COLOR
-            );
-        }
-        if (showBar) {
-            if (GtbStructures.chatCooldownBarBackground) {
-                Gui.drawRect(x - 1, y - 1, x + COOLDOWN_BAR_WIDTH + 1, y + COOLDOWN_BAR_HEIGHT + 1, ScoreboardLayout.BACKGROUND_COLOR);
-                Gui.drawRect(x, y, x + COOLDOWN_BAR_WIDTH, y + COOLDOWN_BAR_HEIGHT, 0x66000000);
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(widgetLeft, widgetTop, 0.0F);
+            GlStateManager.scale(panelScale, panelScale, 1.0F);
+            if (showTimer && GtbStructures.chatCooldownBackground) {
+                Gui.drawRect(
+                        labelX - COOLDOWN_TIMER_BG_PAD_X,
+                        -COOLDOWN_TIMER_BG_PAD_Y,
+                        labelX + labelWidth + COOLDOWN_TIMER_BG_PAD_X,
+                        fr.FONT_HEIGHT + COOLDOWN_TIMER_BG_PAD_Y,
+                        ScoreboardLayout.BACKGROUND_COLOR
+                );
             }
-            Gui.drawRect(x, y, x + COOLDOWN_BAR_WIDTH, y + COOLDOWN_BAR_HEIGHT, fillColor);
-        }
-        if (showTimer) {
-            fr.drawStringWithShadow(label, labelX, labelY, 0xFFFFFF);
+            if (showBar) {
+                if (GtbStructures.chatCooldownBarBackground) {
+                    Gui.drawRect(x - 1, y - 1, x + COOLDOWN_BAR_WIDTH + 1, y + COOLDOWN_BAR_HEIGHT + 1, ScoreboardLayout.BACKGROUND_COLOR);
+                    Gui.drawRect(x, y, x + COOLDOWN_BAR_WIDTH, y + COOLDOWN_BAR_HEIGHT, 0x66000000);
+                }
+                Gui.drawRect(x, y, x + COOLDOWN_BAR_WIDTH, y + COOLDOWN_BAR_HEIGHT, fillColor);
+            }
+            if (showTimer) {
+                fr.drawStringWithShadow(label, labelX, 0, 0xFFFFFF);
+            }
+        } finally {
+            GlStateManager.popMatrix();
         }
     }
 
-    private static void renderScoreboard(Minecraft mc) {
+    private static void renderScoreboard(Minecraft mc, boolean layoutOnly) {
         if (!GtbStructures.sbConfig.isCustomEnabled() || GtbStructures.sbConfig.isSkin("vanilla")) {
-            renderVanillaScoreboard(mc);
+            renderVanillaScoreboard(mc, layoutOnly);
         } else if (GtbStructures.sbConfig.isSkin("hypixel")) {
-            renderHypixelScoreboard(mc);
+            renderHypixelScoreboard(mc, layoutOnly);
         } else {
-            renderDefaultScoreboard(mc);
+            renderDefaultScoreboard(mc, layoutOnly);
         }
     }
 
-    private static void renderDefaultScoreboard(Minecraft mc) {
+    private static void renderDefaultScoreboard(Minecraft mc, boolean layoutOnly) {
         FontRenderer fr = mc.fontRendererObj;
         ScaledResolution sr = new ScaledResolution(mc);
         PreviewPlayer[] players = previewPlayers();
@@ -247,6 +292,7 @@ public final class InterfacePreview {
         boolean showTitles = GtbStructures.sbConfig.showTitles(expanded);
         boolean showEmblems = GtbStructures.sbConfig.showEmblems(expanded);
         boolean textShadow = GtbStructures.sbConfig.textShadow;
+        PreviewRow[] metadataRows = defaultMetadataRows(players);
         String[] left = new String[players.length];
         String[] right = new String[players.length];
         int[] places = previewDensePlaces(players);
@@ -255,17 +301,14 @@ public final class InterfacePreview {
             right[i] = playerRight(players[i], showPointsGained);
         }
 
-        String headerLeft = "\u00a77Round";
-        String headerRight = "\u00a7a10\u00a77/\u00a7a10";
-        String timerLeft = "\u00a77Time Left";
-        String timerRight = "\u00a7a0:13";
         String theme = localizedPreviewTheme();
         String themeLabel = "\u00a77Theme [\u00a7a" + lengthBucket(theme) + "\u00a77]:";
         String themeValue = "\u00a7a" + theme;
 
         int contentWidth = 80;
-        contentWidth = Math.max(contentWidth, measurePair(fr, headerLeft, headerRight));
-        contentWidth = Math.max(contentWidth, measurePair(fr, timerLeft, timerRight));
+        for (PreviewRow row : metadataRows) {
+            contentWidth = Math.max(contentWidth, measurePair(fr, row.left, row.right));
+        }
         contentWidth = Math.max(contentWidth, fr.getStringWidth(themeLabel));
         contentWidth = Math.max(contentWidth, fr.getStringWidth(themeValue));
         for (int i = 0; i < players.length; i++) {
@@ -275,19 +318,22 @@ public final class InterfacePreview {
         }
         contentWidth += 6;
 
-        int lineCount = 2 + 1 + players.length + 1 + 2;
+        int lineCount = metadataRows.length + 1 + players.length + 1 + 2;
         ScoreboardLayout.Placement p = ScoreboardLayout.place(sr, fr, contentWidth, lineCount,
                 GtbStructures.sbConfig.heightOffset);
         int editorLeft = p.bgX1 - SCOREBOARD_ICON_OUTSIDE_GAP - SCOREBOARD_ICON_SIZE;
+        if (layoutOnly) {
+            PreviewLayoutEditor.register("scoreboard", editorLeft, p.bgY1,
+                    p.bgX2 - editorLeft, p.bgY2 - p.bgY1, PreviewLayoutEditor.SCOREBOARD);
+            return;
+        }
         Gui.drawRect(p.bgX1, p.bgY1, p.bgX2, p.bgY2, GtbStructures.sbConfig.backgroundColor());
-        PreviewLayoutEditor.register("scoreboard", editorLeft, p.bgY1, p.bgX2 - editorLeft, p.bgY2 - p.bgY1,
-                PreviewLayoutEditor.SCOREBOARD);
 
         int y = p.y;
-        drawPair(fr, headerLeft, headerRight, p.x, y, contentWidth, textShadow);
-        y += ScoreboardLayout.LINE_HEIGHT;
-        drawPair(fr, timerLeft, timerRight, p.x, y, contentWidth, textShadow);
-        y += ScoreboardLayout.LINE_HEIGHT;
+        for (PreviewRow row : metadataRows) {
+            drawPair(fr, row.left, row.right, p.x, y, contentWidth, textShadow);
+            y += ScoreboardLayout.LINE_HEIGHT;
+        }
         Gui.drawRect(p.x - 1, y + 3, p.x + contentWidth + 1, y + 4, 0x60AAAAAA);
         y += ScoreboardLayout.LINE_HEIGHT;
 
@@ -304,25 +350,32 @@ public final class InterfacePreview {
         drawString(fr, themeValue, p.x + fr.getStringWidth(" "), y, textShadow);
     }
 
-    private static void renderHypixelScoreboard(Minecraft mc) {
-        renderSidebarScoreboard(mc, hypixelRows(previewLangCode(), CustomScoreboard.isPlayerListKeyDown(mc)), true);
+    private static void renderHypixelScoreboard(Minecraft mc, boolean layoutOnly) {
+        renderSidebarScoreboard(mc,
+                hypixelRows(previewLangCode(), CustomScoreboard.isPlayerListKeyDown(mc)),
+                true, layoutOnly);
     }
 
-    private static void renderVanillaScoreboard(Minecraft mc) {
-        renderVanillaScoreboard(mc, GtbStructures.sbConfig.heightOffset);
+    private static void renderVanillaScoreboard(Minecraft mc, boolean layoutOnly) {
+        renderVanillaScoreboard(mc, GtbStructures.sbConfig.heightOffset, layoutOnly);
     }
 
-    private static void renderVanillaScoreboard(Minecraft mc, int heightOffset) {
-        renderSidebarScoreboard(mc, vanillaRows(previewLangCode()), false, heightOffset);
+    private static void renderVanillaScoreboard(Minecraft mc, int heightOffset,
+                                                boolean layoutOnly) {
+        renderSidebarScoreboard(mc, vanillaRows(previewLangCode()), false,
+                heightOffset, layoutOnly);
     }
 
     private static void renderSidebarScoreboard(Minecraft mc, PreviewRow[] rows,
-                                                boolean customPlayerRows) {
-        renderSidebarScoreboard(mc, rows, customPlayerRows, GtbStructures.sbConfig.heightOffset);
+                                                boolean customPlayerRows,
+                                                boolean layoutOnly) {
+        renderSidebarScoreboard(mc, rows, customPlayerRows,
+                GtbStructures.sbConfig.heightOffset, layoutOnly);
     }
 
     private static void renderSidebarScoreboard(Minecraft mc, PreviewRow[] rows,
-                                                boolean customPlayerRows, int heightOffset) {
+                                                boolean customPlayerRows, int heightOffset,
+                                                boolean layoutOnly) {
         FontRenderer fr = mc.fontRendererObj;
         ScaledResolution sr = new ScaledResolution(mc);
         String title = animatedHypixelTitle();
@@ -344,6 +397,12 @@ public final class InterfacePreview {
         int leftX = rightX - contentWidth;
         int rightCellRight = rightX + 2;
         int editorLeft = leftX - 2 - SCOREBOARD_ICON_OUTSIDE_GAP - SCOREBOARD_ICON_SIZE;
+        if (layoutOnly) {
+            PreviewLayoutEditor.register("scoreboard", editorLeft, topY,
+                    rightCellRight - editorLeft, totalPanelHeight + 1,
+                    PreviewLayoutEditor.SCOREBOARD);
+            return;
+        }
         boolean textShadow = customPlayerRows && GtbStructures.sbConfig.textShadow;
         int backgroundColor = customPlayerRows
                 ? GtbStructures.sbConfig.backgroundColor()
@@ -360,8 +419,6 @@ public final class InterfacePreview {
             y += lineH;
         }
 
-        PreviewLayoutEditor.register("scoreboard", editorLeft, topY,
-                rightCellRight - editorLeft, totalPanelHeight + 1, PreviewLayoutEditor.SCOREBOARD);
         drawString(fr, title, leftX + contentWidth / 2 - fr.getStringWidth(title) / 2, topY, textShadow);
 
         y = topY + lineH + 1;
@@ -424,7 +481,10 @@ public final class InterfacePreview {
         PreviewRow[] rows = new PreviewRow[players.length + 10];
         int i = 0;
         rows[i++] = new PreviewRow(PREVIEW_DATE, "");
-        rows[i++] = new PreviewRow("\u00a7f" + LangPatterns.scoreboardBuilderLabel(lang), "");
+        String roundProgress = GtbStructures.sbConfig.showHypixelRounds(expanded)
+                ? CustomScoreboard.roundProgressForScoreboard(10, 10, false, false)
+                : "";
+        rows[i++] = new PreviewRow("\u00a7f" + LangPatterns.scoreboardBuilderLabel(lang), roundProgress);
         rows[i++] = new PreviewRow(" \u00a77" + builderName(players), "");
         rows[i++] = new PreviewRow("", "");
         for (int p = 0; p < players.length; p++) {
@@ -439,6 +499,19 @@ public final class InterfacePreview {
         rows[i++] = new PreviewRow("\u00a7f" + LangPatterns.scoreboardThemeLabel(lang), "");
         rows[i++] = new PreviewRow(" \u00a7a" + localizedPreviewTheme(), "");
         rows[i++] = new PreviewRow(PREVIEW_FOOTER, "");
+        return rows;
+    }
+
+    private static PreviewRow[] defaultMetadataRows(PreviewPlayer[] players) {
+        boolean showBuilders = GtbStructures.sbConfig.defaultExplicitlyShowBuilders;
+        PreviewRow[] rows = new PreviewRow[showBuilders ? 3 : 2];
+        int i = 0;
+        rows[i++] = new PreviewRow("\u00a77Round",
+                CustomScoreboard.roundProgressForScoreboard(10, 10, false, false));
+        if (showBuilders) {
+            rows[i++] = new PreviewRow("\u00a77Builder", builderNameWithColor(players));
+        }
+        rows[i] = new PreviewRow("\u00a77Time Left", "\u00a7a0:13");
         return rows;
     }
 
@@ -562,6 +635,13 @@ public final class InterfacePreview {
         return "Player143";
     }
 
+    private static String builderNameWithColor(PreviewPlayer[] players) {
+        for (PreviewPlayer player : players) {
+            if (player.currentBuilder) return player.nameColor + player.name;
+        }
+        return "\u00a77Player143";
+    }
+
     static String previewLangCodeForTest(String current, String fallback) {
         if (current != null && !current.trim().isEmpty()) return current.trim();
         if (fallback != null && !fallback.trim().isEmpty()) return fallback.trim();
@@ -594,7 +674,29 @@ public final class InterfacePreview {
     }
 
     static String hypixelPreviewRightForTest(String langCode, int index) {
-        PreviewRow[] rows = hypixelRows(langCode, false);
+        return hypixelPreviewRightForTest(langCode, index, false);
+    }
+
+    static String hypixelPreviewRightForTest(String langCode, int index, boolean expanded) {
+        PreviewRow[] rows = hypixelRows(langCode, expanded);
+        return index >= 0 && index < rows.length ? rows[index].right : "";
+    }
+
+    static int hypixelPreviewRowCountForTest(String langCode, boolean expanded) {
+        return hypixelRows(langCode, expanded).length;
+    }
+
+    static int defaultPreviewMetadataRowCountForTest() {
+        return defaultMetadataRows(previewPlayers()).length;
+    }
+
+    static String defaultPreviewMetadataLeftForTest(int index) {
+        PreviewRow[] rows = defaultMetadataRows(previewPlayers());
+        return index >= 0 && index < rows.length ? rows[index].left : "";
+    }
+
+    static String defaultPreviewMetadataRightForTest(int index) {
+        PreviewRow[] rows = defaultMetadataRows(previewPlayers());
         return index >= 0 && index < rows.length ? rows[index].right : "";
     }
 
@@ -744,7 +846,17 @@ public final class InterfacePreview {
 
         @Override
         public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-            // The preview editor is drawn by the HUD overlay after preview labels register.
+            PreviewLayoutEditor.INSTANCE.drawScreen(Minecraft.getMinecraft(), mouseX, mouseY);
+        }
+
+        @Override
+        public void handleMouseInput() throws IOException {
+            super.handleMouseInput();
+            int wheel = Mouse.getEventDWheel();
+            if (wheel == 0) return;
+            int mouseX = Mouse.getEventX() * width / mc.displayWidth;
+            int mouseY = height - Mouse.getEventY() * height / mc.displayHeight - 1;
+            PreviewLayoutEditor.INSTANCE.onMouseWheel(new ScaledResolution(mc), wheel, mouseX, mouseY);
         }
 
         @Override

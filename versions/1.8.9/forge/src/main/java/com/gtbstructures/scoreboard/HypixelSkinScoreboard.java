@@ -118,6 +118,10 @@ public final class HypixelSkinScoreboard {
         boolean textShadow = GtbStructures.sbConfig.textShadow;
         int backgroundColor = GtbStructures.sbConfig.backgroundColor();
         int titleBackgroundColor = GtbStructures.sbConfig.titleBackgroundColor();
+        boolean expanded = CustomScoreboard.isPlayerListKeyDown(mc);
+        boolean showRounds = GtbStructures.sbConfig.showHypixelRounds(expanded);
+        String roundProgress = CustomScoreboard.roundProgressForScoreboard(
+                g, isPrePhase);
 
         // ── Pull the same score list vanilla would render (1.8.9 GuiIngame) ──
         Collection<Score> rawScores = sb.getSortedScores(obj);
@@ -178,7 +182,8 @@ public final class HypixelSkinScoreboard {
             // looks like garbage next to localized labels. Our injected
             // leaderboard rows use the right column for delta+total, so the
             // panel reads consistently with right=empty everywhere else.
-            String right = "";
+            String right = builderLabelRightForScoreboard(
+                    classifierText, showRounds, roundProgress);
             Row row = new Row(left, right, -1, -1, null);
             if (seenLb) lowerVanilla.add(row);
             else upperVanilla.add(row);
@@ -362,6 +367,17 @@ public final class HypixelSkinScoreboard {
         String nextText = visibleScoreText(filtered, scoreIndex + 1, sb);
         String clean = StringUtils.stripControlCodes(nextText);
         return LangPatterns.isScoreboardBuilderLabel(clean == null ? "" : clean.trim());
+    }
+
+    static String builderLabelRightForScoreboard(String classifierText,
+                                                  boolean showRounds,
+                                                  String roundProgress) {
+        if (!showRounds) return "";
+        String clean = StringUtils.stripControlCodes(classifierText);
+        if (!LangPatterns.isScoreboardBuilderLabel(clean == null ? "" : clean.trim())) {
+            return "";
+        }
+        return roundProgress == null ? "" : roundProgress;
     }
 
     /** Vanilla inserts a row of dots ("...") between the visible top-N

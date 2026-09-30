@@ -30,7 +30,7 @@ public class CommandGtw extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/gtw <start|stop|showenglish> ...";
+        return "/gtw <start|stop|showenglish|showcount|difficulty> ...";
     }
 
     @Override

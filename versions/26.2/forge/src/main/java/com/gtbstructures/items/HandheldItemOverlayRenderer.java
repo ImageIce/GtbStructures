@@ -3,6 +3,7 @@ package com.gtbstructures.items;
 import com.gtbstructures.GtbStructuresSettings;
 import com.gtbstructures.ModernRuntimeBridge;
 import com.gtbstructures.overlay.ForgeHudLayerBridge;
+import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.overlay.HudPosition;
 import com.gtbstructures.scoreboard.InterfacePreview;
 import com.gtbstructures.scoreboard.PreviewLayoutEditor;
@@ -142,24 +143,34 @@ public final class HandheldItemOverlayRenderer {
         }
         int height = Math.max(GtbStructuresSettings.handheldPanelHeightPixels(settings.handheldItemPanelHeightRatio, screenHeight),
                 contentHeight);
-        int x = HudPosition.left(settings.handheldItemPosX, screenWidth, width, MARGIN);
-        int bottom = HudPosition.bottom(settings.handheldItemPosY, screenHeight, height, MARGIN);
-        int top = bottom - height;
-        drawPanel(graphics, settings, preview, x, top, width, height);
-
-        if (settings.handheldItemVerticalNewestAtBottom) {
-            reverseEntryLines(rendered);
-            int y = top;
-            for (EntryLines entry : rendered) {
-                renderVerticalEntry(graphics, font, entry, x, y, width);
-                y += entry.height;
+        float scale = HudPanelScale.normalize(settings.handheldItemScale);
+        int scaledWidth = HudPanelScale.scaledPixels(width, scale);
+        int scaledHeight = HudPanelScale.scaledPixels(height, scale);
+        int x = HudPosition.left(settings.handheldItemPosX, screenWidth, scaledWidth, MARGIN);
+        int bottom = HudPosition.bottom(settings.handheldItemPosY, screenHeight, scaledHeight, MARGIN);
+        int top = bottom - scaledHeight;
+        registerPanelForPreview(graphics, preview, x, top, scaledWidth, scaledHeight);
+        graphics.pose().pushMatrix();
+        try {
+            graphics.pose().translate(x, top);
+            graphics.pose().scale(scale, scale);
+            drawPanel(graphics, settings, width, height);
+            if (settings.handheldItemVerticalNewestAtBottom) {
+                reverseEntryLines(rendered);
+                int y = 0;
+                for (EntryLines entry : rendered) {
+                    renderVerticalEntry(graphics, font, entry, 0, y, width);
+                    y += entry.height;
+                }
+            } else {
+                int y = height - contentHeight;
+                for (EntryLines entry : rendered) {
+                    renderVerticalEntry(graphics, font, entry, 0, y, width);
+                    y += entry.height;
+                }
             }
-        } else {
-            int y = top + height - contentHeight;
-            for (EntryLines entry : rendered) {
-                renderVerticalEntry(graphics, font, entry, x, y, width);
-                y += entry.height;
-            }
+        } finally {
+            graphics.pose().popMatrix();
         }
     }
 
@@ -174,34 +185,47 @@ public final class HandheldItemOverlayRenderer {
         int contentHeight = rows * ICON_CELL_SIZE;
         int height = Math.max(GtbStructuresSettings.handheldPanelHeightPixels(settings.handheldItemPanelHeightRatio, screenHeight),
                 contentHeight);
-        int x = HudPosition.left(settings.handheldItemPosX, screenWidth, width, MARGIN);
-        int bottom = HudPosition.bottom(settings.handheldItemPosY, screenHeight, height, MARGIN);
-        int top = bottom - height;
-        drawPanel(graphics, settings, preview, x, top, width, height);
-
-        int gridX = settings.handheldItemHorizontalNewestAtRight ? x : x + width - contentWidth;
-        int gridY = settings.handheldItemHorizontalNewestAtBottom ? top : top + height - contentHeight;
-        for (int i = 0; i < entries.size(); i++) {
-            int column = i % columns;
-            int row = i / columns;
-            if (settings.handheldItemHorizontalNewestAtRight) column = columns - 1 - column;
-            if (settings.handheldItemHorizontalNewestAtBottom) row = rows - 1 - row;
-            int cellX = gridX + column * ICON_CELL_SIZE;
-            int cellY = gridY + row * ICON_CELL_SIZE;
-            renderIcon(graphics, font, entries.get(i), cellX + 1, cellY + 1);
+        float scale = HudPanelScale.normalize(settings.handheldItemScale);
+        int scaledWidth = HudPanelScale.scaledPixels(width, scale);
+        int scaledHeight = HudPanelScale.scaledPixels(height, scale);
+        int x = HudPosition.left(settings.handheldItemPosX, screenWidth, scaledWidth, MARGIN);
+        int bottom = HudPosition.bottom(settings.handheldItemPosY, screenHeight, scaledHeight, MARGIN);
+        int top = bottom - scaledHeight;
+        registerPanelForPreview(graphics, preview, x, top, scaledWidth, scaledHeight);
+        graphics.pose().pushMatrix();
+        try {
+            graphics.pose().translate(x, top);
+            graphics.pose().scale(scale, scale);
+            drawPanel(graphics, settings, width, height);
+            int gridX = settings.handheldItemHorizontalNewestAtRight ? 0 : width - contentWidth;
+            int gridY = settings.handheldItemHorizontalNewestAtBottom ? 0 : height - contentHeight;
+            for (int i = 0; i < entries.size(); i++) {
+                int column = i % columns;
+                int row = i / columns;
+                if (settings.handheldItemHorizontalNewestAtRight) column = columns - 1 - column;
+                if (settings.handheldItemHorizontalNewestAtBottom) row = rows - 1 - row;
+                int cellX = gridX + column * ICON_CELL_SIZE;
+                int cellY = gridY + row * ICON_CELL_SIZE;
+                renderIcon(graphics, font, entries.get(i), cellX + 1, cellY + 1);
+            }
+        } finally {
+            graphics.pose().popMatrix();
         }
     }
 
-    private static void drawPanel(GuiGraphicsExtractor graphics, GtbStructuresSettings settings, boolean preview,
-                                  int x, int top, int width, int height) {
-        if (settings.handheldItemBackground) {
-            graphics.fill(x - 1, top - 1, x + width + 1, top + height + 1,
-                    ScoreboardLayout.BACKGROUND_COLOR);
-        }
+    private static void registerPanelForPreview(GuiGraphicsExtractor graphics, boolean preview,
+                                                int x, int top, int width, int height) {
         if (preview) {
             PreviewLayoutEditor.registerWithBackground("handhelditem", x, top, width, height,
                     PreviewLayoutEditor.HANDHELD,
                     (left, panelTop, right, bottom, color) -> graphics.fill(left, panelTop, right, bottom, color));
+        }
+    }
+
+    private static void drawPanel(GuiGraphicsExtractor graphics, GtbStructuresSettings settings, int width, int height) {
+        if (settings.handheldItemBackground) {
+            graphics.fill(-1, -1, width + 1, height + 1,
+                    ScoreboardLayout.BACKGROUND_COLOR);
         }
     }
 

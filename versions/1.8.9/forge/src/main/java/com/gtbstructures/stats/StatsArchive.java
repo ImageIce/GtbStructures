@@ -41,6 +41,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.Date;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -62,9 +63,11 @@ public final class StatsArchive {
     private static final long DAY_MS = 24L * 60L * 60L * 1000L;
     private static final long RAW_LOG_OVERLAP_TOLERANCE_MS = 2L * 60L * 1000L;
     private static final long STATS_PROGRESS_INTERVAL_MS = 15000L;
+    private static final long THEME_EXPORT_PREHEAT_TTL_MS = 10L * 60L * 1000L;
     private static final String INTERRUPTED_PREFIX = "interrupted_";
     private static final int DEFAULT_THEME_ENTRIES = 10;
     private static final int MAX_THEME_ENTRIES = 20;
+    private static final int MAX_THEME_EXPORT_PREHEATS = 8;
     private static final DecimalFormat TWO_DECIMAL =
             new DecimalFormat("0.00", DecimalFormatSymbols.getInstance(Locale.US));
     private static final DecimalFormat UP_TO_TWO =
@@ -90,6 +93,8 @@ public final class StatsArchive {
             });
     private static final Map<String, CachedSessionFile> SESSION_CACHE =
             new LinkedHashMap<String, CachedSessionFile>();
+    private static final Map<String, CachedThemeSummary> THEME_EXPORT_PREHEAT =
+            new LinkedHashMap<String, CachedThemeSummary>();
 
     private StatsArchive() {}
 
@@ -180,19 +185,23 @@ public final class StatsArchive {
                     + "The current player is unavailable."));
             return;
         }
-        final File statsDir = GameExporter.getStatsDir(mc.mcDataDir);
+        final File minecraftDataDir = mc.mcDataDir;
+        final File statsDir = GameExporter.getStatsDir(minecraftDataDir);
         final File logCacheDir = statsDir == null
                 ? null
                 : new File(statsDir, "minecraft_log_theme_cache");
         final List<File> minecraftLogDirs = themeAll
-                ? discoverMinecraftLogDirs(mc.mcDataDir)
-                : Collections.singletonList(new File(mc.mcDataDir, "logs"));
+                ? null
+                : Collections.singletonList(new File(minecraftDataDir, "logs"));
         final PlayerIdentity identity = themeAll ? null : currentIdentity(mc);
         if (!themeAll && (identity == null || identity.displayIgn() == null)) {
             sender.addChatMessage(new ChatComponentText(CommandGtb.head
                     + "The current player identity is unavailable."));
             return;
         }
+        final String themeExportKey = theme
+                ? themeExportPreheatKey(minecraftDataDir, themeAll, identity)
+                : null;
         final String currentLanguage = mappedLanguage(GtbStructures.lastLangCode);
         String notice = exportTheme
                 ? "Exporting theme occurrence list..."
@@ -211,25 +220,36 @@ public final class StatsArchive {
                 try {
                     final List<IChatComponent> messages;
                     if (theme) {
-                        StatsProgressNotifier progressNotifier =
-                                new StatsProgressNotifier();
-                        ThemeSummary summary;
-                        try {
-                             summary = summarizeThemes(
-                                     statsDir, minecraftLogDirs, identity,
-                                     System.currentTimeMillis(), logCacheDir,
-                                     progressNotifier);
-                            progressNotifier.finish();
-                        } catch (Throwable throwable) {
-                            progressNotifier.cancel();
-                            throw throwable;
+                        ThemeSummary summary = exportTheme
+                                ? preheatedThemeExport(themeExportKey,
+                                        System.currentTimeMillis())
+                                : null;
+                        if (summary == null) {
+                            StatsProgressNotifier progressNotifier =
+                                    new StatsProgressNotifier();
+                            try {
+                                List<File> resolvedMinecraftLogDirs = themeAll
+                                        ? discoverMinecraftLogDirs(minecraftDataDir)
+                                        : minecraftLogDirs;
+                                summary = summarizeThemes(
+                                        statsDir, resolvedMinecraftLogDirs, identity,
+                                        System.currentTimeMillis(), logCacheDir,
+                                        progressNotifier);
+                                preheatThemeExport(themeExportKey, summary,
+                                        System.currentTimeMillis());
+                                progressNotifier.finish();
+                            } catch (Throwable throwable) {
+                                progressNotifier.cancel();
+                                throw throwable;
+                            }
                         }
                         if (exportTheme) {
                             File file = exportThemeList(statsDir, summary);
                             messages = Collections.<IChatComponent>singletonList(
-                                    new ChatComponentText(CommandGtb.head
-                                            + "Theme occurrence list exported as "
-                                            + file.getName()));
+                                    GameExporter.localFileNotice(
+                                            CommandGtb.head
+                                                    + "Theme occurrence list exported as ",
+                                            mc.mcDataDir, file));
                         } else {
                             messages = renderTheme(summary, themeEntries,
                                     System.currentTimeMillis(), themeAll);
@@ -429,6 +449,61 @@ public final class StatsArchive {
         return UP_TO_TWO.format(bytes / 1048576.0D);
     }
 
+    static String themeExportPreheatKey(File minecraftDataDir, boolean allLogs,
+                                         PlayerIdentity identity) {
+        if (minecraftDataDir == null || (!allLogs && identity == null)) return null;
+        StringBuilder key = new StringBuilder(sessionCacheKey(minecraftDataDir));
+        key.append('|').append(allLogs ? "all" : "player");
+        if (!allLogs) {
+            key.append('|').append(identityKeyPart(identity.playerUuid));
+            key.append('|').append(identityKeyPart(identity.trueIgn));
+            key.append('|').append(identityKeyPart(identity.activeIgn));
+        }
+        return key.toString();
+    }
+
+    static void preheatThemeExport(String key, ThemeSummary summary, long now) {
+        if (key == null || summary == null) return;
+        synchronized (THEME_EXPORT_PREHEAT) {
+            pruneThemeExportPreheat(now);
+            THEME_EXPORT_PREHEAT.remove(key);
+            while (THEME_EXPORT_PREHEAT.size() >= MAX_THEME_EXPORT_PREHEATS) {
+                String oldest = THEME_EXPORT_PREHEAT.keySet().iterator().next();
+                THEME_EXPORT_PREHEAT.remove(oldest);
+            }
+            THEME_EXPORT_PREHEAT.put(key, new CachedThemeSummary(now, summary));
+        }
+    }
+
+    static ThemeSummary preheatedThemeExport(String key, long now) {
+        if (key == null) return null;
+        synchronized (THEME_EXPORT_PREHEAT) {
+            pruneThemeExportPreheat(now);
+            CachedThemeSummary cached = THEME_EXPORT_PREHEAT.get(key);
+            return cached == null ? null : cached.summary;
+        }
+    }
+
+    static void clearThemeExportPreheat() {
+        synchronized (THEME_EXPORT_PREHEAT) {
+            THEME_EXPORT_PREHEAT.clear();
+        }
+    }
+
+    private static void pruneThemeExportPreheat(long now) {
+        for (String key : new ArrayList<String>(THEME_EXPORT_PREHEAT.keySet())) {
+            CachedThemeSummary cached = THEME_EXPORT_PREHEAT.get(key);
+            if (cached == null || now < cached.createdAt
+                    || now - cached.createdAt > THEME_EXPORT_PREHEAT_TTL_MS) {
+                THEME_EXPORT_PREHEAT.remove(key);
+            }
+        }
+    }
+
+    private static String identityKeyPart(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
     private static void scheduleMessages(final List<IChatComponent> messages) {
         final Minecraft mc = Minecraft.getMinecraft();
         if (mc == null) return;
@@ -594,13 +669,15 @@ public final class StatsArchive {
             for (JsonElement roundElement : getArray(session, "rounds")) {
                 if (!roundElement.isJsonObject()) continue;
                 JsonObject round = roundElement.getAsJsonObject();
-                String rawTheme = getString(round, "theme");
-                if (rawTheme == null || rawTheme.trim().isEmpty()) continue;
-
                 long seenAt = getLong(round, "roundEnd", 0L);
                 if (seenAt <= 0L) seenAt = getLong(round, "roundStart", 0L);
                 if (seenAt <= 0L) seenAt = gameEnd;
                 if (seenAt <= 0L) seenAt = gameStart;
+                addBuilderOptionSightings(out, seen, round, sessionLanguage,
+                        translationDataHash, seenAt);
+
+                String rawTheme = getString(round, "theme");
+                if (rawTheme == null || rawTheme.trim().isEmpty()) continue;
                 List<String> englishThemes = resolveArchiveEnglishThemes(
                         round, rawTheme, sessionLanguage, translationDataHash, seenAt);
                 addThemeRound(out, seen, englishThemes, seenAt);
@@ -608,12 +685,24 @@ public final class StatsArchive {
         }
 
         if (minecraftLogsDirs != null) {
-            for (File minecraftLogsDir : minecraftLogsDirs) {
+            Set<String> rawGameKeys = new HashSet<String>();
+            AggregateMinecraftLogProgress aggregateProgress = progressListener == null
+                    ? null
+                    : new AggregateMinecraftLogProgress(
+                            minecraftLogsDirs, progressListener);
+            for (int directoryIndex = 0;
+                 directoryIndex < minecraftLogsDirs.size(); directoryIndex++) {
+                File minecraftLogsDir = minecraftLogsDirs.get(directoryIndex);
+                if (aggregateProgress != null) {
+                    aggregateProgress.startDirectory(
+                            directoryIndex == minecraftLogsDirs.size() - 1);
+                }
                 for (MinecraftLogThemeExtractor.ExtractedThemeGame game :
                         MinecraftLogThemeExtractor.extractForIdentities(
                                 minecraftLogsDir, null,
-                                logCacheDir, progressListener)) {
+                                logCacheDir, aggregateProgress)) {
                     if (overlapsCanonical(game.start, game.end, canonicalWindows)) continue;
+                    if (!rawGameKeys.add(rawGameKey(game))) continue;
                     int roundsBefore = out.totalRounds;
                     for (MinecraftLogThemeExtractor.ExtractedThemeRound round : game.rounds) {
                         if (round.theme == null || round.theme.trim().isEmpty()) continue;
@@ -654,22 +743,58 @@ public final class StatsArchive {
                 scoreDelta(round, getString(round, "builder")));
     }
 
-    private static void addThemeRound(ThemeSummary summary, Set<String> seen,
-                                      List<String> englishThemes, long seenAt) {
-        summary.totalRounds++;
+    private static void addBuilderOptionSightings(
+            ThemeSummary summary, Set<String> seen, JsonObject round,
+            String sessionLanguage, String translationDataHash, long seenAt) {
+        List<String> options = strings(getArray(round, "builderThemeOptions"));
+        if (options.isEmpty()) return;
+        String selectedTheme = getString(round, "theme");
+        String languageCode = getString(round, "languageCode");
+        if (languageCode == null) {
+            String roundLanguage = getString(round, "language");
+            languageCode = LangPatterns.codeFromDisplayName(
+                    roundLanguage == null ? sessionLanguage : roundLanguage);
+        }
+        for (String option : options) {
+            if (option == null || option.trim().isEmpty()) continue;
+            List<String> englishThemes = TranslationData.resolveEnglishThemesAt(
+                    translationDataHash, seenAt, languageCode, option, null);
+            boolean selected = selectedTheme != null
+                    && option.trim().equalsIgnoreCase(selectedTheme.trim());
+            addThemeSighting(summary, seen, englishThemes, seenAt,
+                    true, !selected);
+        }
+    }
+
+    private static void addThemeSighting(
+            ThemeSummary summary, Set<String> seen,
+            List<String> englishThemes, long seenAt, boolean builderOption,
+            boolean countOccurrence) {
         if (englishThemes == null || englishThemes.isEmpty()) return;
-        summary.themeDifficulty.addEnglishThemes(englishThemes);
-        double weight = 1.0D / englishThemes.size();
+        double weight = countOccurrence ? 1.0D / englishThemes.size() : 0.0D;
         for (String englishTheme : englishThemes) {
             ThemeOccurrence occurrence = summary.byTheme.get(englishTheme);
             if (occurrence == null) {
                 occurrence = new ThemeOccurrence(englishTheme);
                 summary.byTheme.put(englishTheme, occurrence);
             }
+            if (builderOption) {
+                occurrence.lastBuilderOptionSeen =
+                        Math.max(occurrence.lastBuilderOptionSeen, seenAt);
+            } else {
+                occurrence.lastSeen = Math.max(occurrence.lastSeen, seenAt);
+            }
             occurrence.weight += weight;
-            occurrence.lastSeen = Math.max(occurrence.lastSeen, seenAt);
             seen.add(englishTheme);
         }
+    }
+
+    private static void addThemeRound(ThemeSummary summary, Set<String> seen,
+                                      List<String> englishThemes, long seenAt) {
+        summary.totalRounds++;
+        if (englishThemes == null || englishThemes.isEmpty()) return;
+        summary.themeDifficulty.addEnglishThemes(englishThemes);
+        addThemeSighting(summary, seen, englishThemes, seenAt, false, true);
     }
 
     private static boolean overlapsCanonical(long start, long end,
@@ -684,41 +809,32 @@ public final class StatsArchive {
         return false;
     }
 
-    static List<File> discoverMinecraftLogDirs(File mcDataDir) {
-        List<File> out = new ArrayList<File>();
-        Set<String> seen = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
-        if (mcDataDir == null) return out;
-        addMinecraftLogDir(out, seen, new File(mcDataDir, "logs"));
-        File versionsDir = new File(mcDataDir, "versions");
-        File[] versions = versionsDir.listFiles();
-        if (versions != null) {
-            List<File> sorted = new ArrayList<File>();
-            for (File version : versions) {
-                if (version != null && version.isDirectory()) sorted.add(version);
-            }
-            Collections.sort(sorted, new Comparator<File>() {
-                @Override
-                public int compare(File left, File right) {
-                    return left.getName().compareToIgnoreCase(right.getName());
-                }
-            });
-            for (File version : sorted) {
-                addMinecraftLogDir(out, seen, new File(version, "logs"));
+    private static String rawGameKey(
+            MinecraftLogThemeExtractor.ExtractedThemeGame game) {
+        StringBuilder key = new StringBuilder();
+        key.append(game.start).append('|').append(game.end);
+        for (MinecraftLogThemeExtractor.ExtractedThemeRound round : game.rounds) {
+            key.append('\n').append(round.roundNumber).append('/')
+                    .append(round.totalRounds).append('|')
+                    .append(round.seenAt).append('|')
+                    .append(round.langCode == null ? "" : round.langCode).append('|')
+                    .append(round.theme == null ? "" : round.theme);
+            for (String englishTheme : round.englishThemes) {
+                key.append('|').append(englishTheme == null ? "" : englishTheme);
             }
         }
-        return out;
+        return key.toString();
     }
 
-    private static void addMinecraftLogDir(List<File> out, Set<String> seen,
-                                           File logsDir) {
-        if (logsDir == null || !logsDir.isDirectory()) return;
-        String key;
-        try {
-            key = logsDir.getCanonicalPath();
-        } catch (Exception e) {
-            key = logsDir.getAbsolutePath();
-        }
-        if (seen.add(key)) out.add(logsDir);
+    static List<File> discoverMinecraftLogDirs(File mcDataDir) {
+        return MinecraftLogDirectoryFinder.discover(mcDataDir);
+    }
+
+    static List<File> discoverMinecraftLogDirs(File mcDataDir, File launcherRoot) {
+        List<File> roots = new ArrayList<File>();
+        if (mcDataDir != null) roots.add(mcDataDir);
+        if (launcherRoot != null) roots.add(launcherRoot);
+        return MinecraftLogDirectoryFinder.discoverFromRoots(roots);
     }
 
     private static PlayerIdentity currentIdentity(Minecraft mc) {
@@ -1256,7 +1372,7 @@ public final class StatsArchive {
             previous = occurrence.weight;
             lines.add(text("\u00a77" + rank + ". \u00a7f" + occurrence.theme
                     + "\u00a77 - \u00a7f" + UP_TO_TWO.format(occurrence.weight)
-                    + "\u00a77 (" + lastSeenText(occurrence.lastSeen, now) + "\u00a77)"));
+                    + "\u00a77 (" + occurrenceSeenText(occurrence, now) + "\u00a77)"));
         }
         return lines;
     }
@@ -1291,7 +1407,7 @@ public final class StatsArchive {
                 previous = occurrence.weight;
                 writer.write(rank + ". " + occurrence.theme + " - "
                         + UP_TO_TWO.format(occurrence.weight) + " ("
-                        + stripColors(lastSeenText(occurrence.lastSeen, now)) + ")");
+                        + stripColors(occurrenceSeenText(occurrence, now)) + ")");
                 writer.newLine();
                 index++;
             }
@@ -1313,6 +1429,11 @@ public final class StatsArchive {
         int days = calendarDaysBetween(timestamp, now);
         if (days <= 0) return "Last seen \u00a7ftoday";
         return "Last seen \u00a7f" + days + "\u00a77 day" + (days == 1 ? "" : "s") + " ago";
+    }
+
+    private static String occurrenceSeenText(ThemeOccurrence occurrence, long now) {
+        return lastSeenText(Math.max(occurrence.lastSeen,
+                occurrence.lastBuilderOptionSeen), now);
     }
 
     private static int calendarDaysBetween(long earlier, long later) {
@@ -1581,9 +1702,20 @@ public final class StatsArchive {
         final String theme;
         double weight;
         long lastSeen;
+        long lastBuilderOptionSeen;
 
         ThemeOccurrence(String theme) {
             this.theme = theme;
+        }
+    }
+
+    private static final class CachedThemeSummary {
+        final long createdAt;
+        final ThemeSummary summary;
+
+        CachedThemeSummary(long createdAt, ThemeSummary summary) {
+            this.createdAt = createdAt;
+            this.summary = summary;
         }
     }
 

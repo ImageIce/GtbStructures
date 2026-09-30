@@ -1,6 +1,8 @@
 package com.gtbstructures.scoreboard;
 
+import com.gtbstructures.items.SpawnEggItemModelSelector;
 import com.gtbstructures.overlay.ForgeHudLayerBridge;
+import com.gtbstructures.sound.SoundIconMapping;
 import com.mojang.blaze3d.platform.Window;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
@@ -8,6 +10,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
@@ -16,9 +19,11 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class PreviewEditorOverlayRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger(PreviewEditorOverlayRenderer.class);
+    private static final AtomicBoolean SOUND_ICON_FAILURE_LOGGED = new AtomicBoolean();
 
     private PreviewEditorOverlayRenderer() {
     }
@@ -192,6 +197,35 @@ public final class PreviewEditorOverlayRenderer {
         return type.equals(Float.TYPE) || type.equals(Float.class);
     }
 
+    private static boolean renderItem(GuiGraphicsExtractor graphics, String soundId, int x, int y) {
+        try {
+            ItemStack stack = soundIconStack(soundId);
+            if (stack == null || stack.isEmpty()) {
+                warnSoundIconFailure(soundId, null);
+                return false;
+            }
+            graphics.item(stack, x, y);
+            return true;
+        } catch (RuntimeException error) {
+            warnSoundIconFailure(soundId, error);
+            return false;
+        }
+    }
+
+    private static ItemStack soundIconStack(String soundId) {
+        return SpawnEggItemModelSelector.stackForRegistryName(
+                "minecraft:" + SoundIconMapping.itemIdFor(soundId));
+    }
+
+    private static void warnSoundIconFailure(String soundId, Throwable error) {
+        if (!SOUND_ICON_FAILURE_LOGGED.compareAndSet(false, true)) return;
+        if (error == null) {
+            LOGGER.warn("Unable to resolve GtbStructures preview sound icon {}", soundId);
+        } else {
+            LOGGER.warn("Unable to render GtbStructures preview sound icon {}", soundId, error);
+        }
+    }
+
     private static int opaqueColor(int color) {
         return (color & 0xFF000000) == 0 ? 0xFF000000 | color : color;
     }
@@ -235,6 +269,11 @@ public final class PreviewEditorOverlayRenderer {
                 LOGGER.warn("Unable to render native GtbStructures preview button", e);
                 return false;
             }
+        }
+
+        @Override
+        public void drawSoundIcon(String soundId, int x, int y) {
+            renderItem(graphics, soundId, x, y);
         }
 
         @Override

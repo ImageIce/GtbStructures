@@ -1,6 +1,7 @@
 package com.gtbstructures.hints;
 
 import com.gtbstructures.chat.ChatHeader;
+import com.gtbstructures.GtbStructuresSettings;
 import com.gtbstructures.translation.TranslationData;
 
 import java.util.Map;
@@ -46,11 +47,18 @@ public final class ShowAllMatching {
 
         round.showAllMatchingSent = true;
         return buildMessage(round.langCode, round.effectiveInitialHint,
-                round.themeCharCount, showEnglishConfig);
+                round.themeCharCount, showEnglishConfig,
+                GtbStructuresSettings.INSTANCE.showAllMatchingShowCount);
     }
 
     public static String buildMessage(String langCode, String hint, int themeCharCount,
                                       boolean showEnglishConfig) {
+        return buildMessage(langCode, hint, themeCharCount, showEnglishConfig,
+                GtbStructuresSettings.INSTANCE.showAllMatchingShowCount);
+    }
+
+    public static String buildMessage(String langCode, String hint, int themeCharCount,
+                                      boolean showEnglishConfig, boolean showCountConfig) {
         Map<String, Set<String>> matches;
         String displayedHint;
         if (hint != null && !hint.isEmpty()) {
@@ -91,6 +99,7 @@ public final class ShowAllMatching {
                 sb.append(")");
             }
         }
+        if (showCountConfig) sb.append(" \u00a77(\u00a7e").append(matches.size()).append("\u00a77)");
         return sb.toString();
     }
 

@@ -159,15 +159,17 @@ public final class ModernHudOverlayRenderer {
         int width = textWidth(font, text);
         int x = (screenWidth - width) / 2;
         int y = screenHeight - ACTIONBAR_Y_OFFSET;
+        if (preview) {
+            PreviewLayoutEditor.registerWithBackground("actionbar", x, y, width, fontHeight,
+                    PreviewLayoutEditor.ACTIONBAR,
+                    (left, top, right, bottom, color) -> fill(graphics, left, top, right, bottom, color));
+        }
         if (background) {
             fill(graphics, x - TIMER_BG_PAD_X, y - TIMER_BG_PAD_Y,
                     x + width + TIMER_BG_PAD_X, y + fontHeight + TIMER_BG_PAD_Y,
                     ScoreboardLayout.BACKGROUND_COLOR);
         }
         if (preview) {
-            PreviewLayoutEditor.registerWithBackground("actionbar", x, y, width, fontHeight,
-                    PreviewLayoutEditor.ACTIONBAR,
-                    (left, top, right, bottom, color) -> fill(graphics, left, top, right, bottom, color));
             drawText(graphics, font, text, x, y, 0xFFFFFF);
         }
     }
@@ -181,19 +183,27 @@ public final class ModernHudOverlayRenderer {
         String display = ModernRuntimeBridge.formatHintStructure(structure,
                 settings.colorBrackets, settings.colorNumbers, settings.colorHyphens);
         int width = textWidth(font, display);
-        int x = HudPosition.left(settings.posX, screenWidth, width, MARGIN);
-        int y = HudPosition.top(settings.posY, screenHeight, fontHeight, MARGIN);
-        if ((preview || isActiveRound(currentState())) && settings.hintStructureBackground) {
-            fill(graphics, x - TIMER_BG_PAD_X, y - TIMER_BG_PAD_Y,
-                    x + width + TIMER_BG_PAD_X, y + fontHeight + TIMER_BG_PAD_Y,
-                    alphaColor(ScoreboardLayout.BACKGROUND_COLOR, alpha));
-        }
+        float scale = HudPanelScale.normalize(settings.hintStructureScale);
+        int scaledWidth = HudPanelScale.scaledPixels(width, scale);
+        int scaledHeight = HudPanelScale.scaledPixels(fontHeight, scale);
+        int x = HudPosition.left(settings.posX, screenWidth, scaledWidth, MARGIN);
+        int y = HudPosition.top(settings.posY, screenHeight, scaledHeight, MARGIN);
         if (preview) {
-            PreviewLayoutEditor.registerWithBackground("hint", x, y, width, fontHeight,
+            PreviewLayoutEditor.registerWithBackground("hint", x, y, scaledWidth, scaledHeight,
                     PreviewLayoutEditor.HINT_STRUCTURE,
                     (left, top, right, bottom, color) -> fill(graphics, left, top, right, bottom, color));
         }
-        drawText(graphics, font, display, x, y, alphaColor(0xFFFFFF, alpha));
+        FabricHudPose.Scope pose = FabricHudPose.push(graphics, x, y, scale);
+        try {
+            if ((preview || isActiveRound(currentState())) && settings.hintStructureBackground) {
+                fill(graphics, -TIMER_BG_PAD_X, -TIMER_BG_PAD_Y,
+                        width + TIMER_BG_PAD_X, fontHeight + TIMER_BG_PAD_Y,
+                        alphaColor(ScoreboardLayout.BACKGROUND_COLOR, alpha));
+            }
+            drawText(graphics, font, display, 0, 0, alphaColor(0xFFFFFF, alpha));
+        } finally {
+            pose.pop();
+        }
     }
 
     private static void renderCooldown(Object graphics, Object font, int screenWidth, int screenHeight,
@@ -213,39 +223,45 @@ public final class ModernHudOverlayRenderer {
         int widgetHeight = (showTimer ? fontHeight : 0)
                 + (showTimer && showBar ? TIMER_BAR_GAP : 0)
                 + (showBar ? BAR_HEIGHT : 0);
-        int widgetLeft = HudPosition.left(settings.chatCooldownPosX, screenWidth, widgetWidth, MARGIN);
-        int widgetTop = HudPosition.top(settings.chatCooldownPosY, screenHeight, widgetHeight, MARGIN);
-        int centerX = widgetLeft + widgetWidth / 2;
+        float scale = HudPanelScale.normalize(settings.chatCooldownScale);
+        int scaledWidgetWidth = HudPanelScale.scaledPixels(widgetWidth, scale);
+        int scaledWidgetHeight = HudPanelScale.scaledPixels(widgetHeight, scale);
+        int widgetLeft = HudPosition.left(settings.chatCooldownPosX, screenWidth, scaledWidgetWidth, MARGIN);
+        int widgetTop = HudPosition.top(settings.chatCooldownPosY, screenHeight, scaledWidgetHeight, MARGIN);
+        int centerX = widgetWidth / 2;
         int labelX = centerX - labelWidth / 2;
-        int labelY = widgetTop;
+        int labelY = 0;
         int barX = centerX - barWidth / 2;
-        int barY = widgetTop + (showTimer ? fontHeight + TIMER_BAR_GAP : 0);
-
-        if (showTimer && settings.chatCooldownBackground) {
-            fill(graphics, labelX - TIMER_BG_PAD_X, labelY - TIMER_BG_PAD_Y,
-                    labelX + labelWidth + TIMER_BG_PAD_X,
-                    labelY + fontHeight + TIMER_BG_PAD_Y,
-                    ScoreboardLayout.BACKGROUND_COLOR);
+        int barY = showTimer ? fontHeight + TIMER_BAR_GAP : 0;
+        if (preview) {
+            PreviewLayoutEditor.registerWithBackground("cooldown", widgetLeft, widgetTop,
+                    scaledWidgetWidth, scaledWidgetHeight,
+                    PreviewLayoutEditor.COOLDOWN,
+                    (left, top, right, bottom, color) -> fill(graphics, left, top, right, bottom, color));
         }
-        if (showBar) {
-            if (settings.chatCooldownBarBackground) {
+        FabricHudPose.Scope pose = FabricHudPose.push(graphics, widgetLeft, widgetTop, scale);
+        try {
+            if (showTimer && settings.chatCooldownBackground) {
+                fill(graphics, labelX - TIMER_BG_PAD_X, labelY - TIMER_BG_PAD_Y,
+                        labelX + labelWidth + TIMER_BG_PAD_X,
+                        labelY + fontHeight + TIMER_BG_PAD_Y,
+                        ScoreboardLayout.BACKGROUND_COLOR);
+            }
+            if (showBar && settings.chatCooldownBarBackground) {
                 fill(graphics, barX - 1, barY - 1, barX + barWidth + 1, barY + BAR_HEIGHT + 1,
                         ScoreboardLayout.BACKGROUND_COLOR);
                 fill(graphics, barX, barY, barX + barWidth, barY + BAR_HEIGHT, 0x66000000);
             }
-        }
-        if (preview) {
-            PreviewLayoutEditor.registerWithBackground("cooldown", widgetLeft, widgetTop, widgetWidth, widgetHeight,
-                    PreviewLayoutEditor.COOLDOWN,
-                    (left, top, right, bottom, color) -> fill(graphics, left, top, right, bottom, color));
-        }
-        if (showBar) {
-            int fill = ChatCooldownLogic.fillWidth(barWidth, remaining);
-            fill(graphics, barX, barY, barX + fill, barY + BAR_HEIGHT,
-                    MinecraftFormatting.minecraftColorArgb(settings.chatCooldownBarColor, 0xCC));
-        }
-        if (showTimer) {
-            drawText(graphics, font, label, labelX, labelY, 0xFFFFFF);
+            if (showBar) {
+                int fill = ChatCooldownLogic.fillWidth(barWidth, remaining);
+                fill(graphics, barX, barY, barX + fill, barY + BAR_HEIGHT,
+                        MinecraftFormatting.minecraftColorArgb(settings.chatCooldownBarColor, 0xCC));
+            }
+            if (showTimer) {
+                drawText(graphics, font, label, labelX, labelY, 0xFFFFFF);
+            }
+        } finally {
+            pose.pop();
         }
     }
 

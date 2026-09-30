@@ -82,8 +82,6 @@ public final class GtbStructuresForge {
     public static final String MOD_ID = "gtbstructures";
     private static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private static final String PLAY_GTB_COMMAND = "/play build_battle_guess_the_build";
-    private static final long LOBBY_REJOIN_MIN_WAIT_MS = 750L;
-    private static final long LOBBY_REJOIN_MAX_WAIT_MS = 3500L;
     private static final int CLASSIC_FONT_REFRESH_INTERVAL_TICKS = 20;
     private static final int PLAYER_LIST_POLL_INTERVAL_TICKS = 20;
     private final ForgeServices services;
@@ -101,8 +99,6 @@ public final class GtbStructuresForge {
     private GameStats.TrackingState lastPlayerListState;
     private int ticksSincePlayerListPoll;
     private boolean playerListPollingActive;
-    private String pendingLobbyRejoinCommand;
-    private long pendingLobbyRejoinAtMs;
     private ClientPacketListener updateNoticeConnection;
     private boolean updateNoticeRemoteJoinObserved;
 
@@ -249,10 +245,25 @@ public final class GtbStructuresForge {
             // notices as Hypixel chat (and create bogus roster entries).
             StatsArchive.ThemeExportPrompt prompt =
                     StatsArchive.parseThemeExportPrompt(message);
-            ClientChatBridge.addLocalSystemMessage(prompt == null
-                    ? Component.literal(message)
-                    : buildThemeExportPrompt(prompt));
+            StatsArchive.LocalFileNotice localFileNotice =
+                    StatsArchive.parseLocalFileNotice(message);
+            ClientChatBridge.addLocalSystemMessage(prompt != null
+                    ? buildThemeExportPrompt(prompt)
+                    : localFileNotice != null
+                    ? buildLocalFileNotice(localFileNotice)
+                    : Component.literal(message));
         }
+    }
+
+    static Component buildLocalFileNotice(StatsArchive.LocalFileNotice notice) {
+        MutableComponent link = Component.literal(notice.link())
+                .withStyle(ChatFormatting.WHITE, ChatFormatting.UNDERLINE);
+        link.setStyle(link.getStyle()
+                .withHoverEvent(new HoverEvent.ShowText(Component.literal(notice.hover())))
+                .withClickEvent(new ClickEvent.RunCommand(notice.command())));
+        return Component.literal(notice.prefix())
+                .append(link)
+                .append(Component.literal(notice.suffix()));
     }
 
     static Component buildThemeExportPrompt(
@@ -288,8 +299,8 @@ public final class GtbStructuresForge {
     }
 
     private void onClientChatReceived(ClientChatReceivedEvent event) {
-        if (!GtbStructuresSettings.INSTANCE.modEnabled) return;
         Component message = event.getMessage();
+        if (!GtbStructuresSettings.INSTANCE.modEnabled) return;
         Component decorated = guessPeekDecoratedMessage(message);
         if (decorated != null) event.setMessage(decorated);
         ModernRuntimeBridge.onChat(formattedComponentString(message),
@@ -310,17 +321,111 @@ public final class GtbStructuresForge {
                 parsed.guess, settings.guessPeekShowLangCodes);
         if (annotation == null) return null;
 
+        String display = GtbStructuresSettings.normalizeGuessPeekDisplay(settings.guessPeekDisplay);
+        Component suffix = "suffix".equals(display)
+                ? Component.literal(GuessChatAnnotator.suffixText(annotation.tooltip)) : null;
+        HoverEvent hover = "suffix".equals(display)
+                ? null : new HoverEvent.ShowText(Component.literal(annotation.tooltip));
+        ClickEvent click = "suffix".equals(display)
+                ? null : new ClickEvent.RunCommand(
+                        GuessChatAnnotator.copyCommandForGuess(parsed.guess));
+        return assembleGuessPeekMessage(original, suffix, hover, click, display,
+                parsed.visibleGuessStart, parsed.visibleGuessEnd);
+    }
+
+    private static Component assembleGuessPeekMessage(Component original, Component suffix,
+                                                       HoverEvent hover, ClickEvent click,
+                                                       String display,
+                                                       int visibleGuessStart, int visibleGuessEnd) {
         GuessPeekComponentParts parts = detachTrailingCopyButton(original);
-        if ("suffix".equals(GtbStructuresSettings.normalizeGuessPeekDisplay(settings.guessPeekDisplay))) {
-            parts.base.append(Component.literal(GuessChatAnnotator.suffixText(annotation.tooltip)));
+        MutableComponent root = parts.base;
+        if ("suffix".equals(display)) {
+            if (suffix == null) return null;
+            root.append(suffix);
         } else {
-            parts.base.setStyle(parts.base.getStyle()
-                    .withHoverEvent(new HoverEvent.ShowText(Component.literal(annotation.tooltip)))
-                    .withClickEvent(new ClickEvent.RunCommand(
-                            GuessChatAnnotator.copyCommandForGuess(parsed.guess))));
+            root = rebuildGuessPeekStyleRange(root, hover, click,
+                    visibleGuessStart, visibleGuessEnd);
+            if (root == null) return null;
         }
-        if (parts.trailing != null) parts.base.append(parts.trailing);
-        return parts.base;
+        if (parts.trailing != null) root.append(parts.trailing);
+        return root;
+    }
+
+    static Component assembleGuessPeekMessageForTest(Component original, Component suffix,
+                                                     HoverEvent hover, ClickEvent click,
+                                                     String display,
+                                                     int visibleGuessStart, int visibleGuessEnd) {
+        return assembleGuessPeekMessage(original, suffix, hover, click, display,
+                visibleGuessStart, visibleGuessEnd);
+    }
+
+    private static MutableComponent rebuildGuessPeekStyleRange(Component text,
+                                                               HoverEvent hover, ClickEvent click,
+                                                               int visibleStart, int visibleEnd) {
+        if (text == null || hover == null || visibleStart < 0 || visibleEnd <= visibleStart) {
+            return null;
+        }
+        int[] cursor = new int[] {0};
+        boolean[] applied = new boolean[] {false};
+        MutableComponent rebuilt = rebuildGuessPeekComponent(text, hover, click,
+                visibleStart, visibleEnd, cursor, applied);
+        return applied[0] ? rebuilt : null;
+    }
+
+    private static MutableComponent rebuildGuessPeekComponent(Component text,
+                                                               HoverEvent hover, ClickEvent click,
+                                                               int visibleStart, int visibleEnd,
+                                                               int[] cursor, boolean[] applied) {
+        String fullText = text.getString();
+        int componentStart = cursor[0];
+        int componentEnd = componentStart + GuessChatAnnotator.visibleTextLength(fullText);
+        if (visibleEnd <= componentStart || visibleStart >= componentEnd) {
+            cursor[0] = componentEnd;
+            return text.copy();
+        }
+
+        MutableComponent rebuilt = Component.literal("").setStyle(text.getStyle());
+        List<Component> siblings = text.getSiblings();
+        int siblingLength = 0;
+        for (Component sibling : siblings) siblingLength += sibling.getString().length();
+        int ownLength = Math.max(0, fullText.length() - siblingLength);
+        String ownText = fullText.substring(0, Math.min(ownLength, fullText.length()));
+        appendGuessPeekSegments(rebuilt, ownText, hover, click,
+                visibleStart, visibleEnd, cursor, applied);
+        for (Component sibling : siblings) {
+            rebuilt.append(rebuildGuessPeekComponent(sibling, hover, click,
+                    visibleStart, visibleEnd, cursor, applied));
+        }
+        return rebuilt;
+    }
+
+    private static void appendGuessPeekSegments(MutableComponent root, String text,
+                                                HoverEvent hover, ClickEvent click,
+                                                int visibleStart, int visibleEnd,
+                                                int[] cursor, boolean[] applied) {
+        int start = cursor[0];
+        int end = start + GuessChatAnnotator.visibleTextLength(text);
+        int activeStart = Math.max(start, visibleStart);
+        int activeEnd = Math.min(end, visibleEnd);
+        if (activeStart >= activeEnd) {
+            if (!text.isEmpty()) root.append(Component.literal(text));
+            cursor[0] = end;
+            return;
+        }
+
+        GuessChatAnnotator.Split split = GuessChatAnnotator.splitFormattedGuess(
+                text, activeStart - start, activeEnd - start);
+        if (!split.prefix.isEmpty()) root.append(Component.literal(split.prefix));
+        if (!split.guess.isEmpty()) {
+            MutableComponent guess = Component.literal(split.guess);
+            guess.setStyle(click == null
+                    ? guess.getStyle().withHoverEvent(hover)
+                    : guess.getStyle().withHoverEvent(hover).withClickEvent(click));
+            root.append(guess);
+            applied[0] = true;
+        }
+        if (!split.suffix.isEmpty()) root.append(Component.literal(split.suffix));
+        cursor[0] = end;
     }
 
     private static boolean isGuessPeekAnnotationState(GameStats.TrackingState state) {
@@ -352,9 +457,9 @@ public final class GtbStructuresForge {
     }
 
     private void onSystemMessageReceived(SystemMessageReceivedEvent event) {
-        if (!GtbStructuresSettings.INSTANCE.modEnabled) return;
         Component message = event.getMessage();
         String text = message == null ? "" : message.getString();
+        if (!GtbStructuresSettings.INSTANCE.modEnabled) return;
         if (event.isOverlay()) {
             ModernRuntimeBridge.onActionbar(text);
         } else {
@@ -449,7 +554,9 @@ public final class GtbStructuresForge {
         Minecraft mc = Minecraft.getInstance();
         applyClassicFontMode(mc);
         InterfacePreview.tick();
+        CommandGtbRuntime.onLeaveRejoinClientTick();
         if (mc.level == null || mc.player == null) {
+            CommandGtbRuntime.onClientConnectionBoundary(false);
             updateNoticeConnection = null;
             ModernRuntimeBridge.onClientUnavailable();
             ModernPlayerListLogic.applySnapshot(new ModernPlayerListLogic.Snapshot(), playerListRoster);
@@ -466,9 +573,9 @@ public final class GtbStructuresForge {
             CommandGtbRuntime.discardPendingAutonomousActions();
             ModernChatCooldownCounter.onTick(false, currentState(),
                     System.currentTimeMillis());
-            sendQueuedLobbyRejoinIfReady();
             return;
         }
+        GameStats.INSTANCE.setAccountPlayerName(services.accountPlayerName());
         GameStats.INSTANCE.setLocalPlayerName(services.localPlayerName());
         captureThemeSelectionScreen(mc.gui.screen());
         ModernRuntimeBridge.onClientTick();
@@ -483,7 +590,6 @@ public final class GtbStructuresForge {
         if (GameStats.INSTANCE.consumeAutoRequeueIfReady(System.currentTimeMillis())) {
             services.sendServerCommand(PLAY_GTB_COMMAND);
         }
-        sendQueuedLobbyRejoinIfReady();
         scoreboardTickCounter++;
         if (scoreboardTickCounter < 10) return;
         scoreboardTickCounter = 0;
@@ -494,6 +600,7 @@ public final class GtbStructuresForge {
         ClientPacketListener connection = mc.getConnection();
         if (connection == null || connection == updateNoticeConnection) return;
         updateNoticeConnection = connection;
+        CommandGtbRuntime.onClientConnectionBoundary(true);
         if (updateNoticeRemoteJoinObserved || mc.hasSingleplayerServer()) return;
         updateNoticeRemoteJoinObserved = true;
         if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
@@ -501,26 +608,6 @@ public final class GtbStructuresForge {
             if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
             sendUpdateNotice(info.version(), info.githubUrl(), info.modrinthUrl());
         }));
-    }
-
-    private void queueLobbyRejoin(String command) {
-        pendingLobbyRejoinCommand = command;
-        pendingLobbyRejoinAtMs = System.currentTimeMillis();
-    }
-
-    private void sendQueuedLobbyRejoinIfReady() {
-        if (pendingLobbyRejoinCommand == null) return;
-        long elapsed = System.currentTimeMillis() - pendingLobbyRejoinAtMs;
-        if (!shouldSendQueuedLobbyRejoin(GameStats.INSTANCE.getState(), elapsed)) return;
-        String command = pendingLobbyRejoinCommand;
-        pendingLobbyRejoinCommand = null;
-        pendingLobbyRejoinAtMs = 0L;
-        services.sendServerCommand(command);
-    }
-
-    static boolean shouldSendQueuedLobbyRejoin(GameStats.TrackingState state, long elapsedMs) {
-        if (elapsedMs < LOBBY_REJOIN_MIN_WAIT_MS) return false;
-        return state == GameStats.TrackingState.LOBBY || elapsedMs >= LOBBY_REJOIN_MAX_WAIT_MS;
     }
 
     private void applyClassicFontMode(Minecraft mc) {
@@ -649,9 +736,14 @@ public final class GtbStructuresForge {
         ModernPlayerListLogic.Snapshot snapshot = new ModernPlayerListLogic.Snapshot();
         Set<String> observedTeams = new LinkedHashSet<String>();
         Collection<PlayerInfo> entries = connection.getListedOnlinePlayers();
+        String accountUuid = services.accountPlayerUuid();
         for (PlayerInfo info : entries) {
             if (info == null || info.getProfile() == null) continue;
             String name = info.getProfile().name();
+            String entryUuid = PlayerUuid.normalize(info.getProfile().id());
+            if (accountUuid != null && accountUuid.equals(entryUuid)) {
+                GameStats.INSTANCE.confirmServerLocalPlayerName(name);
+            }
             listedPlayerNames.add(name);
             Component display = info.getTabListDisplayName();
             snapshot.addPlayer(name, formattedComponentString(display));
@@ -1010,8 +1102,8 @@ public final class GtbStructuresForge {
         }
 
         @Override
-        public void sendServerCommandAfterLobby(String command) {
-            queueLobbyRejoin(command);
+        public boolean playerAvailable() {
+            return Minecraft.getInstance().player != null;
         }
 
         @Override

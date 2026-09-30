@@ -1,6 +1,7 @@
 package com.gtbstructures.scoreboard;
 
 import com.gtbstructures.overlay.ForgeHudLayerBridge;
+import com.gtbstructures.items.SpawnEggItemModelSelector;
 import com.mojang.blaze3d.platform.Window;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
@@ -19,6 +20,7 @@ import java.lang.reflect.Proxy;
 
 public final class PreviewEditorOverlayRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger(PreviewEditorOverlayRenderer.class);
+    private static boolean itemRenderWarningLogged;
 
     private PreviewEditorOverlayRenderer() {
     }
@@ -192,6 +194,42 @@ public final class PreviewEditorOverlayRenderer {
         return type.equals(Float.TYPE) || type.equals(Float.class);
     }
 
+    private static boolean renderItem(GuiGraphics graphics, String soundId, int x, int y) {
+        try {
+            Object stack = SpawnEggItemModelSelector.stackForRegistryName(
+                    "minecraft:" + com.gtbstructures.sound.SoundIconMapping.itemIdFor(soundId));
+            for (Method method : graphics.getClass().getMethods()) {
+                if (!method.getName().equals("renderItem")
+                        && !method.getName().equals("drawItem")
+                        && !method.getName().equals("method_51427")) continue;
+                Class<?>[] types = method.getParameterTypes();
+                if (types.length == 3 && types[0].isInstance(stack)
+                        && intParameter(types[1]) && intParameter(types[2])) {
+                    method.invoke(graphics, stack, x, y); return true;
+                }
+                if (types.length == 4 && types[0].isInstance(stack)
+                        && intParameter(types[1]) && intParameter(types[2]) && intParameter(types[3])) {
+                    method.invoke(graphics, stack, x, y, 0); return true;
+                }
+            }
+            warnItemRenderFailure(soundId, null);
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            warnItemRenderFailure(soundId, failure);
+        }
+        return false;
+    }
+
+    private static void warnItemRenderFailure(String soundId, Throwable failure) {
+        if (itemRenderWarningLogged) return;
+        itemRenderWarningLogged = true;
+        if (failure == null) {
+            LOGGER.warn("Unable to find a compatible Forge item renderer for Guess Sounds icons (example: {})",
+                    soundId);
+        } else {
+            LOGGER.warn("Unable to render Guess Sounds item icons (example: " + soundId + ")", failure);
+        }
+    }
+
     private static int opaqueColor(int color) {
         return (color & 0xFF000000) == 0 ? 0xFF000000 | color : color;
     }
@@ -235,6 +273,11 @@ public final class PreviewEditorOverlayRenderer {
                 LOGGER.warn("Unable to render native GtbStructures preview button", e);
                 return false;
             }
+        }
+
+        @Override
+        public void drawSoundIcon(String soundId, int x, int y) {
+            renderItem(graphics, soundId, x, y);
         }
 
         @Override

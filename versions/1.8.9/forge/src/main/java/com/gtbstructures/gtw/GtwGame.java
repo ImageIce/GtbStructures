@@ -3,6 +3,7 @@ package com.gtbstructures.gtw;
 import com.gtbstructures.commands.CommandGtb;
 import com.gtbstructures.GtbStructures;
 import com.gtbstructures.hints.ShowAllMatching;
+import com.gtbstructures.stats.LangPatterns;
 import com.gtbstructures.translation.TranslationData;
 
 import net.minecraft.client.Minecraft;
@@ -11,9 +12,7 @@ import net.minecraft.util.ChatComponentText;
 
 import java.text.Normalizer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -21,6 +20,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * /gtbs gtw "Guess The Wordhint" mini-game.
@@ -37,6 +37,10 @@ public final class GtwGame {
 
     private static final int TICKS_PER_HINT = 240; // 12 s @ 20 TPS
     private static final int ACCENT_NORM_CACHE_LIMIT = 512;
+    private static final String DIFFICULTY_EASY = "easy";
+    private static final String DIFFICULTY_MEDIUM = "medium";
+    private static final String DIFFICULTY_HARD = "hard";
+    private static final String DIFFICULTY_ALL = "all";
     private static final Map<String, String> ACCENT_NORM_CACHE =
             new LinkedHashMap<String, String>(ACCENT_NORM_CACHE_LIMIT, 0.75f, true) {
                 private static final long serialVersionUID = 1L;
@@ -50,6 +54,7 @@ public final class GtwGame {
     // ── Session state (only meaningful when active == true) ──
     private boolean active;
     private String langCode;
+    private String activeDifficulty = DIFFICULTY_ALL;
     private String englishTheme;
     private String displayedTheme;
     private String[] hints;     // hints[0..2] with 1, 2, 3 letters revealed
@@ -81,12 +86,12 @@ public final class GtwGame {
     }
 
     /**
-     * /gtbs gtw <start|stop|showenglish ...>. The first arg has already been
+     * /gtbs gtw <start|stop|showenglish|showcount|difficulty ...>. The first arg has already been
      * consumed by the caller; `args` here starts at the gtw subcommand.
      */
     public static void processGtw(ICommandSender sender, String[] args) {
         if (args.length == 0) {
-            send(sender, "Usage: /gtbs gtw <start|stop|showenglish> ...");
+            send(sender, "Usage: /gtbs gtw <start|stop|showenglish|showcount|difficulty> ...");
             return;
         }
         String sub = args[0].toLowerCase();
@@ -124,8 +129,39 @@ public final class GtwGame {
             GtbStructures.saveConfig();
             send(sender, "Show English (in /gtbs gtw) is currently " +
                     (GtbStructures.gtwShowEnglish ? "§aON" : "§cOFF"));
+        } else if (sub.equals("showcount")) {
+            if (args.length == 1) {
+                send(sender, showCountStatus(GtbStructures.gtwShowCount));
+                return;
+            }
+            if (args.length != 2) {
+                send(sender, "Usage: /gtw showcount [on|off]");
+                return;
+            }
+            Boolean enabled = parseBooleanSetting(args[1]);
+            if (enabled == null) {
+                send(sender, "Usage: /gtw showcount [on|off]");
+                return;
+            }
+            GtbStructures.gtwShowCount = enabled.booleanValue();
+            GtbStructures.saveConfig();
+            send(sender, showCountStatus(GtbStructures.gtwShowCount));
+        } else if (sub.equals("difficulty")) {
+            if (args.length < 2) {
+                send(sender, "GTW difficulty is currently: §f"
+                        + normalizeDifficulty(GtbStructures.gtwDifficulty));
+                return;
+            }
+            String difficulty = parseDifficulty(args[1]);
+            if (args.length != 2 || difficulty == null) {
+                send(sender, "Usage: /gtw difficulty <easy|medium|hard|all>");
+                return;
+            }
+            GtbStructures.gtwDifficulty = difficulty;
+            GtbStructures.saveConfig();
+            send(sender, "GTW difficulty is currently: §f" + difficulty);
         } else {
-            send(sender, "Usage: /gtbs gtw <start|stop|showenglish> ...");
+            send(sender, "Usage: /gtbs gtw <start|stop|showenglish|showcount|difficulty> ...");
         }
     }
 
@@ -141,7 +177,8 @@ public final class GtwGame {
 
     /** Tab completion for /gtbs gtw. `args` starts at the gtw subcommand. */
     public static List<String> tabGtw(String[] args) {
-        if (args.length == 1) return matching(args[0], "start", "stop", "showenglish");
+        if (args.length == 1) return matching(args[0],
+                "start", "stop", "showenglish", "showcount", "difficulty");
         String sub = args[0].toLowerCase();
         if (args.length == 2 && sub.equals("start")) {
             // Suggest 2-letter codes plus full names.
@@ -151,6 +188,13 @@ public final class GtwGame {
         }
         if (args.length == 2 && sub.equals("showenglish")) {
             return matching(args[1], "true", "false");
+        }
+        if (args.length == 2 && sub.equals("showcount")) {
+            return matching(args[1], "on", "off");
+        }
+        if (args.length == 2 && sub.equals("difficulty")) {
+            return matching(args[1], DIFFICULTY_EASY, DIFFICULTY_MEDIUM,
+                    DIFFICULTY_HARD, DIFFICULTY_ALL);
         }
         return null;
     }
@@ -171,7 +215,8 @@ public final class GtwGame {
             send("Translation data isn't loaded yet — try again in a moment.");
             return;
         }
-        String pickedEnglish = TranslationData.pickRandomEnglishTheme(rng);
+        String selectedDifficulty = normalizeDifficulty(GtbStructures.gtwDifficulty);
+        String pickedEnglish = pickEnglishTheme(rng, selectedDifficulty);
         if (pickedEnglish == null) {
             send("No themes available.");
             return;
@@ -183,6 +228,7 @@ public final class GtwGame {
         }
 
         this.langCode = langCode;
+        this.activeDifficulty = selectedDifficulty;
         this.englishTheme = pickedEnglish;
         this.displayedTheme = displayed;
         this.guessCount = 0;
@@ -199,6 +245,7 @@ public final class GtwGame {
         }
 
         send("Starting a Guess The Wordhint game...");
+        send(buildSelectedSettingsMessage(this.langCode, this.activeDifficulty));
         send("Hint 1: §f" + hints[0] + " §7( " + structureNotation(displayed) + " )");
     }
 
@@ -250,12 +297,28 @@ public final class GtwGame {
     }
 
     private void sendAllMatching() {
-        Map<String, Set<String>> matches =
-                TranslationData.findMatchingDisplayedThemes(langCode, hints[0]);
-        if (matches == null || matches.isEmpty()) return;
+        String message = buildAllMatchingMessage(
+                langCode, hints[0], activeDifficulty, showEnglishForLang(),
+                GtbStructures.gtwShowCount);
+        if (message != null) send(message);
+    }
+
+    static String buildAllMatchingMessageForTest(String langCode, String initialHint,
+                                                  String difficulty, boolean showEnglish,
+                                                  boolean showCount) {
+        boolean withEnglish = showEnglish && !"en".equalsIgnoreCase(langCode);
+        return buildAllMatchingMessage(langCode, initialHint, difficulty,
+                withEnglish, showCount);
+    }
+
+    private static String buildAllMatchingMessage(String langCode, String initialHint,
+                                                  String difficulty, boolean withEnglish,
+                                                  boolean showCount) {
+        Map<String, Set<String>> matches = filterMatchesForDifficulty(
+                TranslationData.findMatchingDisplayedThemes(langCode, initialHint), difficulty);
+        if (matches.isEmpty()) return null;
 
         boolean isPirate = "pirate".equalsIgnoreCase(langCode);
-
         StringBuilder sb = new StringBuilder();
         sb.append("All themes matching the initial hint: ");
         boolean first = true;
@@ -263,7 +326,7 @@ public final class GtwGame {
             if (!first) sb.append("§7, ");
             first = false;
             sb.append("§f").append(e.getKey());
-            if (showEnglishForLang() && shouldShowEnglish(isPirate, e.getKey(), e.getValue())) {
+            if (withEnglish && shouldShowEnglish(isPirate, e.getKey(), e.getValue())) {
                 sb.append("§7 (");
                 boolean firstEn = true;
                 for (String en : e.getValue()) {
@@ -274,7 +337,29 @@ public final class GtwGame {
                 sb.append(")");
             }
         }
-        send(sb.toString());
+        if (showCount) sb.append(" §7(§e").append(matches.size()).append("§7)");
+        return sb.toString();
+    }
+
+    static Map<String, Set<String>> filterMatchesForDifficultyForTest(
+            Map<String, Set<String>> matches, String difficulty) {
+        return filterMatchesForDifficulty(matches, difficulty);
+    }
+
+    private static Map<String, Set<String>> filterMatchesForDifficulty(
+            Map<String, Set<String>> matches, String difficulty) {
+        Map<String, Set<String>> filtered = new TreeMap<String, Set<String>>();
+        if (matches == null || matches.isEmpty()) return filtered;
+        for (Map.Entry<String, Set<String>> entry : matches.entrySet()) {
+            Set<String> origins = new TreeSet<String>();
+            if (entry.getValue() != null) {
+                for (String englishOrigin : entry.getValue()) {
+                    if (matchesDifficulty(englishOrigin, difficulty)) origins.add(englishOrigin);
+                }
+            }
+            if (!origins.isEmpty()) filtered.put(entry.getKey(), origins);
+        }
+        return filtered;
     }
 
     /**
@@ -286,6 +371,81 @@ public final class GtwGame {
         if (englishOrigins == null || englishOrigins.isEmpty()) return false;
         if (englishOrigins.size() == 1 && englishOrigins.contains(displayed)) return false;
         return true;
+    }
+
+    public static String normalizeDifficulty(String difficulty) {
+        String parsed = parseDifficulty(difficulty);
+        return parsed == null ? DIFFICULTY_ALL : parsed;
+    }
+
+    private static String parseDifficulty(String difficulty) {
+        if (difficulty == null) return null;
+        String normalized = difficulty.trim().toLowerCase(Locale.ROOT);
+        if (DIFFICULTY_EASY.equals(normalized)
+                || DIFFICULTY_MEDIUM.equals(normalized)
+                || DIFFICULTY_HARD.equals(normalized)
+                || DIFFICULTY_ALL.equals(normalized)) {
+            return normalized;
+        }
+        return null;
+    }
+
+    static boolean isDifficultyForTest(String difficulty) {
+        return parseDifficulty(difficulty) != null;
+    }
+
+    static String buildSelectedSettingsMessageForTest(String langCode, String difficulty) {
+        return buildSelectedSettingsMessage(langCode, difficulty);
+    }
+
+    private static String buildSelectedSettingsMessage(String langCode, String difficulty) {
+        String languageLookup = "ptbr".equalsIgnoreCase(langCode) ? "pt_br" : langCode;
+        String languageName = LangPatterns.mapLanguageName(languageLookup);
+        if (languageName == null || languageName.trim().isEmpty()) {
+            languageName = langCode == null ? "" : langCode;
+        }
+
+        String normalizedDifficulty = normalizeDifficulty(difficulty);
+        String difficultyColor = "§f";
+        if (DIFFICULTY_EASY.equals(normalizedDifficulty)) {
+            difficultyColor = "§a";
+        } else if (DIFFICULTY_MEDIUM.equals(normalizedDifficulty)) {
+            difficultyColor = "§e";
+        } else if (DIFFICULTY_HARD.equals(normalizedDifficulty)) {
+            difficultyColor = "§c";
+        }
+        return "Selected language: §f" + languageName + "§7; difficulty: "
+                + difficultyColor + normalizedDifficulty.toUpperCase(Locale.ROOT);
+    }
+
+    static boolean matchesDifficultyForTest(String englishTheme, String difficulty) {
+        return matchesDifficulty(englishTheme, difficulty);
+    }
+
+    private static boolean matchesDifficulty(String englishTheme, String difficulty) {
+        int point = difficultyPoint(difficulty);
+        return point == 0 || TranslationData.lengthBucket(englishTheme) == point;
+    }
+
+    private static int difficultyPoint(String difficulty) {
+        String normalized = normalizeDifficulty(difficulty);
+        if (DIFFICULTY_EASY.equals(normalized)) return 1;
+        if (DIFFICULTY_MEDIUM.equals(normalized)) return 2;
+        if (DIFFICULTY_HARD.equals(normalized)) return 3;
+        return 0;
+    }
+
+    static String pickEnglishThemeForTest(Random rng, String difficulty) {
+        return pickEnglishTheme(rng, difficulty);
+    }
+
+    private static String pickEnglishTheme(Random rng, String difficulty) {
+        List<String> eligible = new ArrayList<String>();
+        for (String theme : TranslationData.getEnglishThemes()) {
+            if (matchesDifficulty(theme, difficulty)) eligible.add(theme);
+        }
+        if (eligible.isEmpty()) return null;
+        return eligible.get(rng.nextInt(eligible.size()));
     }
 
     // ─────────────────────── Hint / structure builders ──────────────────
@@ -354,17 +514,13 @@ public final class GtwGame {
 
     // ─────────────────── Answer matching (port of gtb_gui) ──────────────
 
-    /**
-     * Mirror of gtb_gui core/practice.check_answer (minus chatreplacer):
-     * accept the guess if it gtb-matches ANY of the theme's translations
-     * (across every language), or the theme's English name.
-     */
+    /** Accept English, approved translations, and exact complements for the theme. */
     private static boolean matchesAnyTranslation(String guess, String englishTheme) {
-        Map<String, String> all = TranslationData.getAllTranslations(englishTheme);
-        for (Map.Entry<String, String> e : all.entrySet()) {
-            if (gtbMatches(guess, e.getValue(), e.getKey())) return true;
-        }
-        return gtbMatches(guess, englishTheme, "en");
+        return TranslationData.findActiveGuessThemes(guess).contains(englishTheme);
+    }
+
+    public static boolean matchesAnyTranslationForTest(String guess, String englishTheme) {
+        return matchesAnyTranslation(guess, englishTheme);
     }
 
     /** Port of gtb_gui core/practice.gtb_matches. */
@@ -633,6 +789,28 @@ public final class GtwGame {
             sb.append(args[i]);
         }
         return sb.toString();
+    }
+
+    private static Boolean parseBooleanSetting(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.equals("true") || normalized.equals("on")
+                || normalized.equals("1") || normalized.equals("yes")) {
+            return Boolean.TRUE;
+        }
+        if (normalized.equals("false") || normalized.equals("off")
+                || normalized.equals("0") || normalized.equals("no")) {
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    static String buildShowCountStatusForTest(boolean enabled) {
+        return showCountStatus(enabled);
+    }
+
+    private static String showCountStatus(boolean enabled) {
+        return "GTW total theme count is currently " + (enabled ? "§aON" : "§cOFF");
     }
 
     private static List<String> matching(String prefix, String... options) {

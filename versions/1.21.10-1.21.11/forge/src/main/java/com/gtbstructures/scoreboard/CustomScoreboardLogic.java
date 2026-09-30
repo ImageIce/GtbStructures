@@ -24,27 +24,34 @@ public final class CustomScoreboardLogic {
     }
 
     public static final class PanelRows {
-        public final String headerLeft;
-        public final String headerRight;
-        public final String timerLeft;
-        public final String timerRight;
+        public final List<MetadataRow> metadataRows;
         public final String themeLabel;
         public final String themeValueLine;
         public final List<Row> rows;
 
-        private PanelRows(String headerLeft, String headerRight, String timerLeft, String timerRight,
-                          String themeLabel, String themeValueLine, List<Row> rows) {
-            this.headerLeft = headerLeft;
-            this.headerRight = headerRight;
-            this.timerLeft = timerLeft;
-            this.timerRight = timerRight;
+        private PanelRows(List<MetadataRow> metadataRows, String themeLabel,
+                          String themeValueLine, List<Row> rows) {
+            this.metadataRows = Collections.unmodifiableList(
+                    new ArrayList<MetadataRow>(metadataRows));
             this.themeLabel = themeLabel;
             this.themeValueLine = themeValueLine;
             this.rows = rows;
         }
 
         public int lineCount() {
-            return 2 + 1 + rows.size() + 1 + 2;
+            return metadataRows.size() + 1 + rows.size() + 1 + 2;
+        }
+    }
+
+    public static final class MetadataRow {
+        public final String kind;
+        public final String left;
+        public final String right;
+
+        public MetadataRow(String kind, String left, String right) {
+            this.kind = kind == null ? "" : kind;
+            this.left = left == null ? "" : left;
+            this.right = right == null ? "" : right;
         }
     }
 
@@ -95,14 +102,10 @@ public final class CustomScoreboardLogic {
         boolean showPlaces = config != null && config.showPlaces(expanded);
         boolean showTitles = config == null ? expanded : config.showTitles(expanded);
         boolean showEmblems = config == null || config.showEmblems(expanded);
+        GtbPlayer displayedBuilder = displayedBuilder(game);
 
-        int displayRound = game.currentRound;
-        if (isPrePhase) displayRound = Math.max(1, game.currentRound + 1);
-        String roundDigits = game.roundCountUnknown ? "?"
-                : (displayRound > 0 ? String.valueOf(displayRound) : "?");
-        String totalDigits = game.totalRounds > 0 ? String.valueOf(game.totalRounds) : "?";
         String headerLeft = "\u00a77Round";
-        String headerRight = "\u00a7a" + roundDigits + "\u00a77/\u00a7a" + totalDigits;
+        String headerRight = formatRoundProgress(game);
 
         String timerLabel;
         if (game.state == GtbGame.State.ROUND_PRE) timerLabel = "Starts In";
@@ -113,6 +116,14 @@ public final class CustomScoreboardLogic {
         String timerValue = (game.currentTimer == null || game.currentTimer.isEmpty())
                 ? "0:00" : trimLeadingChar(game.currentTimer);
         String timerRight = "\u00a7a" + timerValue;
+
+        List<MetadataRow> metadataRows = new ArrayList<MetadataRow>(3);
+        metadataRows.add(new MetadataRow("header", headerLeft, headerRight));
+        if (config != null && config.defaultExplicitlyShowBuilders) {
+            metadataRows.add(new MetadataRow("builder", "\u00a77Builder",
+                    formatBuilderValue(game)));
+        }
+        metadataRows.add(new MetadataRow("timer", timerLeft, timerRight));
 
         String themeLabel;
         String themeValueLine;
@@ -129,7 +140,7 @@ public final class CustomScoreboardLogic {
         int[] densePlaces = densePlaces(players, game);
         for (int i = 0; i < players.size(); i++) {
             GtbPlayer player = players.get(i);
-            boolean isBuilder = player == game.currentBuilder;
+            boolean isBuilder = player == displayedBuilder;
             int buildIcon = buildSlotIcon(player, game, isBuildPhase, isPrePhase, tick);
             int statusIcon = statusIcon(player);
             String name = player.name == null ? "?" : player.name;
@@ -148,15 +159,15 @@ public final class CustomScoreboardLogic {
             String right = (chip.isEmpty() ? "" : chip + " ") + total + severe;
             rows.add(new Row(player, left, right, buildIcon, statusIcon, isBuilder));
         }
-        return new PanelRows(headerLeft, headerRight, timerLeft, timerRight,
-                themeLabel, themeValueLine, rows);
+        return new PanelRows(metadataRows, themeLabel, themeValueLine, rows);
     }
 
     public static int measureContentWidth(PanelRows panel, ScoreboardLayout.StringMeasurer measurer) {
         if (panel == null || measurer == null) return 80;
         int contentWidth = 0;
-        contentWidth = Math.max(contentWidth, measurePair(measurer, panel.headerLeft, panel.headerRight));
-        contentWidth = Math.max(contentWidth, measurePair(measurer, panel.timerLeft, panel.timerRight));
+        for (MetadataRow row : panel.metadataRows) {
+            contentWidth = Math.max(contentWidth, measurePair(measurer, row.left, row.right));
+        }
         contentWidth = Math.max(contentWidth, measurer.width(panel.themeLabel));
         contentWidth = Math.max(contentWidth, measurer.width(panel.themeValueLine));
         for (Row row : panel.rows) {
@@ -167,6 +178,33 @@ public final class CustomScoreboardLogic {
         }
         contentWidth += 6;
         return Math.max(80, contentWidth);
+    }
+
+    public static String formatRoundProgress(GtbGame game) {
+        if (game == null) return formatRoundProgress(0, 0, true, false);
+        return formatRoundProgress(game.currentRound, game.totalRounds,
+                game.roundCountUnknown, game.state == GtbGame.State.ROUND_PRE);
+    }
+
+    static String formatRoundProgress(int currentRound, int totalRounds,
+                                      boolean currentUnknown, boolean preRound) {
+        int displayedRound = preRound ? Math.max(1, currentRound + 1) : currentRound;
+        String current = currentUnknown || displayedRound <= 0
+                ? "?" : String.valueOf(displayedRound);
+        String total = totalRounds > 0 ? String.valueOf(totalRounds) : "?";
+        return "\u00a7a" + current + "\u00a77/\u00a7a" + total;
+    }
+
+    private static String formatBuilderValue(GtbGame game) {
+        GtbPlayer builder = displayedBuilder(game);
+        if (builder == null || builder.name == null || builder.name.isEmpty()) return "\u00a7c???";
+        return rankColor(builder.name) + builder.name;
+    }
+
+    static GtbPlayer displayedBuilder(GtbGame game) {
+        if (game == null) return null;
+        return game.state == GtbGame.State.ROUND_END && game.roundEndBuilder != null
+                ? game.roundEndBuilder : game.currentBuilder;
     }
 
     public static String rankColor(String ign) {
@@ -319,7 +357,7 @@ public final class CustomScoreboardLogic {
     public static int buildSlotIcon(GtbPlayer player, GtbGame game,
                                     boolean isBuildPhase, boolean isPrePhase,
                                     int tick) {
-        boolean isBuilder = game != null && player == game.currentBuilder;
+        boolean isBuilder = player == displayedBuilder(game);
         boolean wasBuilder = player != null && player.buildRound > 0 && !isBuilder;
         return BuilderIconLogic.buildProgressIconFor(isBuilder, wasBuilder,
                 isBuildPhase, isPrePhase, tick);
@@ -385,12 +423,12 @@ public final class CustomScoreboardLogic {
         if (player == null || game == null || observed == null) return null;
         if (game.roundCountUnknown) return null;
 
+        Integer builderTotal = GameTracker.authoritativeBuilderTotal(player, game);
+        if (builderTotal != null) return builderTotal;
+
         int lo = player.totalMin();
         int hi = player.totalMax();
         if (lo != hi) return null;
-        if (game.currentRound > 0 && player.authoritativeBuilderScoreRound == game.currentRound) {
-            return Integer.valueOf(hi);
-        }
         if (hi <= observed.intValue()) return null;
         return Integer.valueOf(hi);
     }

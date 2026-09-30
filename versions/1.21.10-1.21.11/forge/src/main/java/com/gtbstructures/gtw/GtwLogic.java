@@ -1,5 +1,7 @@
 package com.gtbstructures.gtw;
 
+import com.gtbstructures.translation.TranslationData;
+
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -15,6 +17,7 @@ import java.util.Random;
 public final class GtwLogic {
 
     private static final Map<String, String> LANG_LOOKUP;
+    private static final Map<String, String> LANG_DISPLAY_NAMES;
     private static final List<String> ALL_CODES;
     private static final int ACCENT_NORM_CACHE_LIMIT = 512;
     private static final Map<String, String> ACCENT_NORM_CACHE =
@@ -30,42 +33,46 @@ public final class GtwLogic {
 
     static {
         Map<String, String> lookup = new LinkedHashMap<String, String>();
+        Map<String, String> displayNames = new LinkedHashMap<String, String>();
         Object[][] table = {
-                {"en",    "english",                "en"},
-                {"fr",    "french",                 "fr"},
-                {"de",    "german",                 "de"},
-                {"it",    "italian",                "it"},
-                {"nl",    "dutch",                  "nl"},
-                {"es",    "spanish",                "es"},
-                {"pt",    "portuguese",             "pt"},
-                {"ptbr",  "portuguese (brazil)",    "ptbr"},
-                {"ru",    "russian",                "ru"},
-                {"ko",    "korean",                 "ko"},
-                {"pl",    "polish",                 "pl"},
-                {"ja",    "japanese",               "ja"},
-                {"ir",    "pirate",                 "pirate"},
-                {"no",    "norwegian",              "no"},
-                {"sv",    "swedish",                "sv"},
-                {"tr",    "turkish",                "tr"},
-                {"da",    "danish",                 "da"},
-                {"cs",    "czech",                  "cs"},
-                {"fi",    "finnish",                "fi"},
-                {"zh_cn", "chinese (simplified)",   "zh_cn"},
-                {"zh_tw", "chinese (traditional)",  "zh_tw"},
-                {"ro",    "romanian",               "ro"},
-                {"hu",    "hungarian",              "hu"},
-                {"uk",    "ukrainian",              "uk"},
+                {"en",    "english",                "en",    "English"},
+                {"fr",    "french",                 "fr",    "French"},
+                {"de",    "german",                 "de",    "German"},
+                {"it",    "italian",                "it",    "Italian"},
+                {"nl",    "dutch",                  "nl",    "Dutch"},
+                {"es",    "spanish",                "es",    "Spanish"},
+                {"pt",    "portuguese",             "pt",    "Portuguese"},
+                {"ptbr",  "portuguese (brazil)",    "ptbr",  "Portuguese (BR)"},
+                {"ru",    "russian",                "ru",    "Russian"},
+                {"ko",    "korean",                 "ko",    "Korean"},
+                {"pl",    "polish",                 "pl",    "Polish"},
+                {"ja",    "japanese",               "ja",    "Japanese"},
+                {"ir",    "pirate",                 "pirate", "Pirate Speak"},
+                {"no",    "norwegian",              "no",    "Norwegian"},
+                {"sv",    "swedish",                "sv",    "Swedish"},
+                {"tr",    "turkish",                "tr",    "Turkish"},
+                {"da",    "danish",                 "da",    "Danish"},
+                {"cs",    "czech",                  "cs",    "Czech"},
+                {"fi",    "finnish",                "fi",    "Finnish"},
+                {"zh_cn", "chinese (simplified)",   "zh_cn", "Chinese (Simplified)"},
+                {"zh_tw", "chinese (traditional)",  "zh_tw", "Chinese (Traditional)"},
+                {"ro",    "romanian",               "ro",    "Romanian"},
+                {"hu",    "hungarian",              "hu",    "Hungarian"},
+                {"uk",    "ukrainian",              "uk",    "Ukrainian"},
         };
         List<String> codes = new ArrayList<String>();
         for (Object[] row : table) {
             String code = (String) row[0];
             String name = (String) row[1];
             String mod = (String) row[2];
+            String displayName = (String) row[3];
             lookup.put(code, mod);
             lookup.put(name, mod);
+            displayNames.put(mod, displayName);
             if ("ptbr".equals(code)) {
                 lookup.put("pt_br", mod);
                 lookup.put("pt-br", mod);
+                lookup.put("portuguese (br)", mod);
             }
             if ("zh_cn".equals(code)) {
                 lookup.put("zhcn", mod);
@@ -81,10 +88,69 @@ public final class GtwLogic {
             codes.add(code);
         }
         LANG_LOOKUP = Collections.unmodifiableMap(lookup);
+        LANG_DISPLAY_NAMES = Collections.unmodifiableMap(displayNames);
         ALL_CODES = Collections.unmodifiableList(codes);
     }
 
     private GtwLogic() {
+    }
+
+    public enum Difficulty {
+        EASY("easy", "EASY", "\u00a7a"),
+        MEDIUM("medium", "MEDIUM", "\u00a7e"),
+        HARD("hard", "HARD", "\u00a7c"),
+        ALL("all", "ALL", "\u00a7f");
+
+        public final String id;
+        public final String displayName;
+        public final String color;
+
+        Difficulty(String id, String displayName, String color) {
+            this.id = id;
+            this.displayName = displayName;
+            this.color = color;
+        }
+    }
+
+    public static Difficulty parseDifficulty(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        for (Difficulty difficulty : Difficulty.values()) {
+            if (difficulty.id.equals(normalized)) return difficulty;
+        }
+        return null;
+    }
+
+    public static String normalizeDifficulty(String raw) {
+        Difficulty parsed = parseDifficulty(raw);
+        return parsed == null ? Difficulty.ALL.id : parsed.id;
+    }
+
+    public static boolean matchesDifficulty(String englishTheme, Difficulty difficulty) {
+        Difficulty effective = difficulty == null ? Difficulty.ALL : difficulty;
+        if (effective == Difficulty.ALL) return true;
+        int bucket = TranslationData.lengthBucket(englishTheme);
+        return (effective == Difficulty.EASY && bucket == 1)
+                || (effective == Difficulty.MEDIUM && bucket == 2)
+                || (effective == Difficulty.HARD && bucket == 3);
+    }
+
+    /** Picks uniformly from the requested English-origin difficulty pool. */
+    public static String pickRandomEnglishTheme(Random rng, Difficulty difficulty) {
+        if (rng == null) rng = new Random();
+        Difficulty effective = difficulty == null ? Difficulty.ALL : difficulty;
+        List<String> candidates = new ArrayList<String>();
+        for (String englishTheme : TranslationData.getEnglishThemes()) {
+            if (matchesDifficulty(englishTheme, effective)) candidates.add(englishTheme);
+        }
+        return candidates.isEmpty() ? null : candidates.get(rng.nextInt(candidates.size()));
+    }
+
+    public static String languageDisplayName(String langCode) {
+        if (langCode == null) return "English";
+        String canonical = resolveLanguage(langCode);
+        String display = canonical == null ? null : LANG_DISPLAY_NAMES.get(canonical);
+        return display == null ? langCode : display;
     }
 
     public static String[] buildProgressiveHints(String text, int maxReveals, Random rng) {

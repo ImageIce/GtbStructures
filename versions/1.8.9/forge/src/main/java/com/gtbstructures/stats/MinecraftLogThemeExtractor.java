@@ -42,7 +42,7 @@ import java.util.zip.GZIPInputStream;
 /** Extracts GTB theme occurrence data from vanilla Minecraft chat logs. */
 final class MinecraftLogThemeExtractor {
     private static final Charset LOG_CHARSET = Charset.forName("GB18030");
-    private static final Pattern LOG_FILE =
+    private static final Pattern DATED_LOG_FILE =
             Pattern.compile("^(\\d{4})-(\\d{2})-(\\d{2})-.*\\.log(?:\\.gz)?$");
     private static final Pattern CHAT_LINE =
             Pattern.compile("^\\[(\\d{2}):(\\d{2}):(\\d{2})\\] \\[[^\\]]+\\]: "
@@ -55,11 +55,13 @@ final class MinecraftLogThemeExtractor {
             Pattern.compile("^.{1,32} Message copied to clipboard: (.+)$");
     private static final Pattern GTBS_MATCHING = Pattern.compile(
             "^.{1,32} All themes matching the initial hint \\((.*?)\\): (.+)$");
+    private static final Pattern GTBS_MATCHING_COUNT_SUFFIX =
+            Pattern.compile("\\s+\\(\\d+\\)\\s*$");
     private static final long DAY_MS = 24L * 60L * 60L * 1000L;
     private static final long COPY_ATTACH_MS = 30000L;
     private static final int FINAL_HEADER_LOOKAHEAD_LINES = 10;
     private static final int LOG_BUFFER_SIZE = 64 * 1024;
-    private static final int CACHE_VERSION = 2;
+    private static final int CACHE_VERSION = 3;
     private static final String CACHE_MODE = "theme-raw";
     private static final Pattern IGN_TOKEN =
             Pattern.compile("(?i)\\b[A-Za-z0-9_]{3,16}\\b");
@@ -78,6 +80,13 @@ final class MinecraftLogThemeExtractor {
                                        ProgressListener progressListener) {
         this.cacheDir = cacheDir;
         this.progressListener = progressListener;
+    }
+
+    static boolean isSupportedLogFileName(String fileName) {
+        return fileName != null
+                && (DATED_LOG_FILE.matcher(fileName).matches()
+                || "latest.log".equalsIgnoreCase(fileName)
+                || "latest.txt".equalsIgnoreCase(fileName));
     }
 
     static List<ExtractedThemeGame> extract(File logsDir, String localIgn) {
@@ -109,7 +118,8 @@ final class MinecraftLogThemeExtractor {
         if (listed == null || listed.length == 0) return;
         List<File> files = new ArrayList<File>();
         for (File file : listed) {
-            if (file != null && file.isFile() && LOG_FILE.matcher(file.getName()).matches()) {
+            if (file != null && file.isFile()
+                    && isSupportedLogFileName(file.getName())) {
                 files.add(file);
             }
         }
@@ -289,12 +299,19 @@ final class MinecraftLogThemeExtractor {
     }
 
     private void readLog(File file) {
-        Matcher fileMatcher = LOG_FILE.matcher(file.getName());
-        if (!fileMatcher.matches()) return;
-        long base = localMidnight(
-                Integer.parseInt(fileMatcher.group(1)),
-                Integer.parseInt(fileMatcher.group(2)),
-                Integer.parseInt(fileMatcher.group(3)));
+        Matcher fileMatcher = DATED_LOG_FILE.matcher(file.getName());
+        final long base;
+        if (fileMatcher.matches()) {
+            base = localMidnight(
+                    Integer.parseInt(fileMatcher.group(1)),
+                    Integer.parseInt(fileMatcher.group(2)),
+                    Integer.parseInt(fileMatcher.group(3)));
+        } else if ("latest.log".equalsIgnoreCase(file.getName())
+                || "latest.txt".equalsIgnoreCase(file.getName())) {
+            base = localMidnight(file.lastModified());
+        } else {
+            return;
+        }
         BufferedReader reader = null;
         long lastTimestamp = 0L;
         int lastSecondOfDay = -1;
@@ -351,6 +368,14 @@ final class MinecraftLogThemeExtractor {
         calendar.set(Calendar.MONTH, month - 1);
         calendar.set(Calendar.DAY_OF_MONTH, day);
         return calendar.getTimeInMillis();
+    }
+
+    private static long localMidnight(long timestamp) {
+        Calendar source = Calendar.getInstance();
+        source.setTimeInMillis(timestamp > 0L ? timestamp : System.currentTimeMillis());
+        return localMidnight(source.get(Calendar.YEAR),
+                source.get(Calendar.MONTH) + 1,
+                source.get(Calendar.DAY_OF_MONTH));
     }
 
     private static String clean(String raw) {
@@ -542,7 +567,9 @@ final class MinecraftLogThemeExtractor {
         if (!matcher.matches()) return false;
         ExtractedThemeRound round = ensureRound(timestamp);
         if (round.theme == null || round.theme.trim().isEmpty()) {
-            List<String> candidates = csvValues(matcher.group(2));
+            String payload = GTBS_MATCHING_COUNT_SUFFIX.matcher(matcher.group(2))
+                    .replaceFirst("").trim();
+            List<String> candidates = csvValues(payload);
             if (candidates.size() == 1) {
                 round.theme = candidates.get(0);
                 round.langCode = currentLangCode;

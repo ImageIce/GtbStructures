@@ -19,6 +19,8 @@ public final class GtbGame {
     public final Map<String, GtbPlayer> players = new LinkedHashMap<String, GtbPlayer>();
 
     public int currentRound = 0;
+    /** Highest round whose end boundary has been observed in this game. */
+    public int lastCompletedRound = 0;
     public int totalRounds = 0;
     public boolean initialRoundHeaderConfirmed;
     public String currentTheme = "";
@@ -26,6 +28,8 @@ public final class GtbGame {
     public String currentTimer = "";
     public String currentLangCode = "en";
     public GtbPlayer currentBuilder;
+    /** Builder retained only for Default-scoreboard presentation during ROUND_END. */
+    public GtbPlayer roundEndBuilder;
     public int correctGuessesThisRound = 0;
     public boolean oneSecondAlertReached;
     public boolean userRoundSkipped;

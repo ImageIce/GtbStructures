@@ -128,12 +128,21 @@ public final class WorldEnvironmentOverlay {
     }
 
     public static void renderPreview(Minecraft mc) {
+        renderPreview(mc, false);
+    }
+
+    public static void collectPreviewLabel(Minecraft mc) {
+        renderPreview(mc, true);
+    }
+
+    private static void renderPreview(Minecraft mc, boolean layoutOnly) {
         if (!runtimeEnabledForMaster(GtbStructures.modEnabled)) return;
+        if (!InterfacePreview.isActive()) return;
         if (!GtbStructures.environmentOverlay) return;
         if (mc != null && mc.theWorld != null && mc.thePlayer != null) {
-            renderRows(mc, environmentRows(mc.theWorld, mc.thePlayer.getPosition()));
+            renderRows(mc, environmentRows(mc.theWorld, mc.thePlayer.getPosition()), layoutOnly);
         } else {
-            renderRows(mc, fallbackPreviewRows());
+            renderRows(mc, fallbackPreviewRows(), layoutOnly);
         }
     }
 
@@ -159,7 +168,7 @@ public final class WorldEnvironmentOverlay {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc == null || mc.theWorld == null || mc.thePlayer == null || mc.fontRendererObj == null) return;
 
-        renderRows(mc, environmentRows(mc.theWorld, mc.thePlayer.getPosition()));
+        renderRows(mc, environmentRows(mc.theWorld, mc.thePlayer.getPosition()), false);
     }
 
     static boolean shouldRenderLiveForState(GameStats.TrackingState state) {
@@ -188,23 +197,37 @@ public final class WorldEnvironmentOverlay {
         return rows;
     }
 
-    private static void renderRows(Minecraft mc, List<Row> rows) {
+    private static void renderRows(Minecraft mc, List<Row> rows, boolean layoutOnly) {
         if (mc == null || mc.fontRendererObj == null || rows == null || rows.isEmpty()) return;
         ScaledResolution sr = new ScaledResolution(mc);
         FontRenderer fr = mc.fontRendererObj;
 
         int panelHeight = rows.size() * ROW_HEIGHT;
-        int x = HudPosition.left(GtbStructures.environmentPosX, sr.getScaledWidth(), PANEL_WIDTH, 2);
-        int bottom = HudPosition.bottom(GtbStructures.environmentPosY, sr.getScaledHeight(), panelHeight, 2);
-        drawBackgroundIfEnabled(x, bottom - panelHeight, PANEL_WIDTH, panelHeight);
-        if (InterfacePreview.isActive()) {
+        float panelScale = HudPanelScale.normalize(GtbStructures.environmentScale);
+        int scaledWidth = HudPanelScale.scaledPixels(PANEL_WIDTH, panelScale);
+        int scaledHeight = HudPanelScale.scaledPixels(panelHeight, panelScale);
+        int x = HudPosition.left(GtbStructures.environmentPosX,
+                sr.getScaledWidth(), scaledWidth, 2);
+        int bottom = HudPosition.bottom(GtbStructures.environmentPosY,
+                sr.getScaledHeight(), scaledHeight, 2);
+        int top = bottom - scaledHeight;
+        if (layoutOnly) {
             PreviewLayoutEditor.register(previewRegistrationIdForRows(rows),
-                    x, bottom - panelHeight, PANEL_WIDTH, panelHeight, previewTargetForRows(rows));
+                    x, top, scaledWidth, scaledHeight, previewTargetForRows(rows));
+            return;
         }
-        int y = bottom - panelHeight;
-        for (Row row : rows) {
-            renderRow(mc, fr, x, y, row);
-            y += ROW_HEIGHT;
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(x, top, 0.0F);
+            GlStateManager.scale(panelScale, panelScale, 1.0F);
+            drawBackgroundIfEnabled(0, 0, PANEL_WIDTH, panelHeight);
+            int y = 0;
+            for (Row row : rows) {
+                renderRow(mc, fr, 0, y, row);
+                y += ROW_HEIGHT;
+            }
+        } finally {
+            GlStateManager.popMatrix();
         }
     }
 

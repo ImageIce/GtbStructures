@@ -5,6 +5,8 @@
   "client": [
     "ClassicBitmapGlyphMixin",
     "ClientPlayerTeamPacketMixin",
+    "ClientSoundPacketMixin",
+    "SoundManagerGuessSoundMixin",
     "SpawnEggItemModelMixin"
   ],
   "injectors": {

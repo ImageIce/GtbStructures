@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.text.Normalizer;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -52,18 +53,25 @@ import java.util.zip.GZIPOutputStream;
 final class TranslationHistory {
     private static final Logger LOGGER = Logger.getLogger("GtbStructures");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final int INDEX_SCHEMA = 1;
-    private static final int SEED_SCHEMA = 3;
+    private static final int INDEX_SCHEMA = 2;
+    private static final int LEGACY_INDEX_SCHEMA = 1;
+    private static final int SEED_SCHEMA = 4;
+    private static final int LEGACY_SEED_SCHEMA_V3 = 3;
     private static final int LEGACY_SEED_SCHEMA = 2;
     private static final int DATASET_CACHE_LIMIT = 2;
     private static final String SEED_RESOURCE = "/translation-history-seed.json";
     private static final String SNAPSHOT_BUNDLE_RESOURCE =
             "/translation-history-snapshots.bin";
+    private static final String APPROVAL_HISTORY_RESOURCE =
+            "/translation-approval-history.json.gz";
+    private static final int APPROVAL_HISTORY_SCHEMA = 1;
     private static final String SNAPSHOT_BUNDLE_V2_MAGIC = "GTBHIST2";
     private static final String SNAPSHOT_BUNDLE_V3_MAGIC = "GTBHIST3";
     private static final int MAX_BUNDLE_ENTRIES = 1000;
     private static final int MAX_COMPRESSED_SNAPSHOT_BYTES = 16 * 1024 * 1024;
     private static final int MAX_RAW_SNAPSHOT_BYTES = 32 * 1024 * 1024;
+    private static final int MAX_APPROVAL_HISTORY_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_APPROVAL_HISTORY_JSON_BYTES = 16 * 1024 * 1024;
     private static final int MAX_DELTA_OPERATIONS = 1000000;
     private static final int BUNDLE_ENTRY_FULL = 0;
     private static final int BUNDLE_ENTRY_DELTA = 1;
@@ -75,6 +83,10 @@ final class TranslationHistory {
     private static SeedFile seed = new SeedFile();
     private static byte[] seedBytes;
     private static boolean configured;
+    private static ApprovalTimeline approvalTimeline = new ApprovalTimeline();
+    /** Stable theme IDs from the active translation snapshot, keyed to canonical English text. */
+    private static final Map<Long, String> currentThemeUniverse =
+            new HashMap<Long, String>();
 
     private static final Map<String, HistoricalDataset> DATASET_CACHE =
             new LinkedHashMap<String, HistoricalDataset>(4, 0.75F, true) {
@@ -102,12 +114,15 @@ final class TranslationHistory {
         configured = true;
         DATASET_CACHE.clear();
         loadBundledSeed();
+        loadBundledApprovalTimeline();
         if (!historyDir.exists() && !historyDir.mkdirs()) {
             LOGGER.warning("Could not create translation history directory " + historyDir);
             return;
         }
         materializeBundledSeed();
         index = readIndex();
+        approvalTimeline.addAll(index.approvalEvents);
+        persistMigratedIndex();
         importLegacyCaches(gameDir);
     }
 
@@ -155,7 +170,10 @@ final class TranslationHistory {
             }
             String hash = sha256Utf8(json);
             storeSnapshot(hash, json);
-            DATASET_CACHE.put(hash, checked);
+            int ordinal = ensureSnapshotOrdinal(hash);
+            List<ApprovalEvent> events = extractApprovedEvents(json, ordinal);
+            addRuntimeApprovalEvents(events);
+            DATASET_CACHE.put(hash, HistoricalDataset.parse(json, ordinal));
             activate(hash, observedAt, "remote");
             Interval active = openInterval();
             long validFrom = active == null ? observedAt : active.validFrom;
@@ -174,20 +192,33 @@ final class TranslationHistory {
         }
 
         String hash = normalizeHash(requestedHash);
+        boolean approvalOnly = seenAt > 0L && requiresApprovalTime(langCode);
+        if (hash != null && seenAt > 0L) {
+            int ordinal = snapshotOrdinal(hash);
+            if (ordinal != Integer.MAX_VALUE) {
+                ApprovalResolution approved = approvalTimeline.resolveAt(
+                        seenAt, langCode, displayedTheme, builderDelta, ordinal);
+                if (approved.found) return HistoricalResolution.found(approved.englishThemes);
+            }
+        }
         if (hash != null) {
             HistoricalResolution exact = resolveHash(
-                    hash, langCode, displayedTheme, builderDelta);
+                    hash, langCode, displayedTheme, builderDelta, approvalOnly);
             if (exact.found) return exact;
         }
 
         if (seenAt > 0L) {
+            ApprovalResolution approved = approvalTimeline.resolveAt(
+                    seenAt, langCode, displayedTheme, builderDelta, Integer.MAX_VALUE);
+            if (approved.found) return HistoricalResolution.found(approved.englishThemes);
             HistoricalChoice choice = selectAt(seenAt);
             if (choice != null) {
                 if (choice.seedVersion != null) {
-                    return resolveSeed(choice.seedVersion, langCode, displayedTheme, builderDelta);
+                    return resolveSeed(choice.seedVersion, langCode, displayedTheme, builderDelta,
+                            approvalOnly);
                 }
                 return resolveStoredHash(
-                        choice.hash, langCode, displayedTheme, builderDelta);
+                        choice.hash, langCode, displayedTheme, builderDelta, approvalOnly);
             }
         }
         return HistoricalResolution.notFound();
@@ -218,6 +249,10 @@ final class TranslationHistory {
 
     static synchronized long earliestBundledValidFromForTest() {
         return seed.versions.isEmpty() ? -1L : seed.versions.get(0).validFrom;
+    }
+
+    static synchronized int approvalEventCountForTest() {
+        return approvalTimeline.eventCount();
     }
 
     static synchronized List<String> verifyBundledArchiveForTest() throws IOException {
@@ -259,7 +294,10 @@ final class TranslationHistory {
         if (!isConfigured()) throw new IOException("Translation history is not configured");
         String hash = sha256Utf8(json);
         storeSnapshot(hash, json);
-        DATASET_CACHE.put(hash, HistoricalDataset.parse(json));
+        int ordinal = ensureSnapshotOrdinal(hash);
+        List<ApprovalEvent> events = extractApprovedEvents(json, ordinal);
+        addRuntimeApprovalEvents(events);
+        DATASET_CACHE.put(hash, HistoricalDataset.parse(json, ordinal));
         activate(hash, observedAt, source == null ? "test" : source);
         Interval active = openInterval();
         return new StoredData(json, hash, active == null ? observedAt : active.validFrom);
@@ -272,45 +310,52 @@ final class TranslationHistory {
         seed = new SeedFile();
         seedBytes = null;
         DATASET_CACHE.clear();
+        approvalTimeline = new ApprovalTimeline();
         if (!historyDir.isDirectory() && !historyDir.mkdirs() && !historyDir.isDirectory()) {
             throw new IllegalStateException("Could not create translation history test directory: "
                     + historyDir);
         }
         configured = true;
         loadBundledSeed();
+        loadBundledApprovalTimeline();
         materializeBundledSeed();
         index = readIndex();
+        approvalTimeline.addAll(index.approvalEvents);
+        persistMigratedIndex();
     }
 
     private static HistoricalResolution resolveHash(String hash, String langCode,
                                                      String displayedTheme,
-                                                     ScoreDelta builderDelta) {
+                                                     ScoreDelta builderDelta,
+                                                     boolean englishOnly) {
         SeedVersion version = seed.versionByHash(hash);
         if (version != null && (!isConfigured() || !snapshotFile(hash).isFile())) {
-            return resolveSeed(version, langCode, displayedTheme, builderDelta);
+            return resolveSeed(version, langCode, displayedTheme, builderDelta, englishOnly);
         }
         HistoricalResolution stored = resolveStoredHash(
-                hash, langCode, displayedTheme, builderDelta);
+                hash, langCode, displayedTheme, builderDelta, englishOnly);
         if (stored.found) return stored;
         return version == null
                 ? HistoricalResolution.notFound()
-                : resolveSeed(version, langCode, displayedTheme, builderDelta);
+                : resolveSeed(version, langCode, displayedTheme, builderDelta, englishOnly);
     }
 
     private static HistoricalResolution resolveStoredHash(String hash, String langCode,
                                                            String displayedTheme,
-                                                           ScoreDelta builderDelta) {
+                                                           ScoreDelta builderDelta,
+                                                           boolean englishOnly) {
         if (!isConfigured()) return HistoricalResolution.notFound();
         try {
             HistoricalDataset data = DATASET_CACHE.get(hash);
             if (data == null) {
                 String json = readSnapshot(hash);
                 if (json == null) return HistoricalResolution.notFound();
-                data = HistoricalDataset.parse(json);
+                data = HistoricalDataset.parse(json, snapshotOrdinal(hash));
                 DATASET_CACHE.put(hash, data);
             }
-            return HistoricalResolution.found(
-                    data.resolve(langCode, displayedTheme, builderDelta));
+            return HistoricalResolution.found(englishOnly
+                    ? data.resolveEnglishOnly(displayedTheme, builderDelta)
+                    : data.resolve(langCode, displayedTheme, builderDelta));
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Could not read historical translation snapshot " + hash, e);
             return HistoricalResolution.notFound();
@@ -319,13 +364,15 @@ final class TranslationHistory {
 
     private static HistoricalResolution resolveSeed(SeedVersion version, String langCode,
                                                      String displayedTheme,
-                                                     ScoreDelta builderDelta) {
+                                                     ScoreDelta builderDelta,
+                                                     boolean englishOnly) {
         if (version.bundledSnapshot) {
             HistoricalDataset data = readBundledDataset(version.hash);
             return data == null
                     ? HistoricalResolution.notFound()
-                    : HistoricalResolution.found(
-                            data.resolve(langCode, displayedTheme, builderDelta));
+                    : HistoricalResolution.found(englishOnly
+                            ? data.resolveEnglishOnly(displayedTheme, builderDelta)
+                            : data.resolve(langCode, displayedTheme, builderDelta));
         }
         SeedOverride override = version.findOverride(langCode, displayedTheme);
         if (override != null) {
@@ -334,6 +381,12 @@ final class TranslationHistory {
         }
         return HistoricalResolution.found(
                 TranslationData.resolveEnglishThemes(langCode, displayedTheme, builderDelta));
+    }
+
+    private static boolean requiresApprovalTime(String langCode) {
+        if (!approvalTimeline.complete) return false;
+        String language = TranslationData.normalizeLangCode(langCode);
+        return language != null && !"en".equals(language);
     }
 
     private static HistoricalChoice selectAt(long seenAt) {
@@ -375,7 +428,10 @@ final class TranslationHistory {
             return;
         }
         if (active != null) {
-            if (validFrom <= active.validFrom) return;
+            if (validFrom <= active.validFrom) {
+                writeIndex();
+                return;
+            }
             active.validUntil = validFrom;
         }
         Interval next = new Interval();
@@ -402,6 +458,37 @@ final class TranslationHistory {
             if (selected == null || interval.validFrom > selected.validFrom) selected = interval;
         }
         return selected;
+    }
+
+    private static int nextSnapshotOrdinal() {
+        int next = seed.versions.size();
+        for (Integer ordinal : index.snapshotOrdinals.values()) {
+            if (ordinal != null && ordinal >= next) next = ordinal + 1;
+        }
+        return next;
+    }
+
+    private static int ensureSnapshotOrdinal(String hash) {
+        int existing = snapshotOrdinal(hash);
+        if (existing != Integer.MAX_VALUE) return existing;
+        int ordinal = nextSnapshotOrdinal();
+        index.snapshotOrdinals.put(hash, ordinal);
+        return ordinal;
+    }
+
+    private static void addRuntimeApprovalEvents(List<ApprovalEvent> events) {
+        if (events == null) return;
+        for (ApprovalEvent event : events) {
+            if (approvalTimeline.add(event)) index.approvalEvents.add(event);
+        }
+    }
+
+    private static int snapshotOrdinal(String hash) {
+        SeedVersion version = seed.versionByHash(hash);
+        if (version != null) return version.snapshotOrdinal;
+        Integer ordinal = hash == null ? null : index.snapshotOrdinals.get(hash.toLowerCase(Locale.ROOT));
+        if (ordinal != null) return ordinal;
+        return Integer.MAX_VALUE;
     }
 
     private static void importLegacyCaches(File gameDir) {
@@ -438,7 +525,9 @@ final class TranslationHistory {
                 if (parsed.englishThemeCount() < 100) continue;
                 String hash = sha256Utf8(json);
                 storeSnapshot(hash, json);
-                DATASET_CACHE.put(hash, parsed);
+                int ordinal = ensureSnapshotOrdinal(hash);
+                addRuntimeApprovalEvents(extractApprovedEvents(json, ordinal));
+                DATASET_CACHE.put(hash, HistoricalDataset.parse(json, ordinal));
                 if (bootstrapIntervals) {
                     long observedAt = candidate.lastModified();
                     activate(hash, observedAt > 0L ? observedAt : System.currentTimeMillis(),
@@ -470,6 +559,7 @@ final class TranslationHistory {
             seedBytes = readAll(in);
             SeedFile parsed = GSON.fromJson(new String(seedBytes, "UTF-8"), SeedFile.class);
             if (parsed != null && (parsed.schemaVersion == SEED_SCHEMA
+                    || parsed.schemaVersion == LEGACY_SEED_SCHEMA_V3
                     || parsed.schemaVersion == LEGACY_SEED_SCHEMA)) {
                 parsed.prepare();
                 seed = parsed;
@@ -481,6 +571,155 @@ final class TranslationHistory {
                 in.close();
             } catch (IOException ignored) {
             }
+        }
+    }
+
+    private static void loadBundledApprovalTimeline() {
+        approvalTimeline = new ApprovalTimeline();
+        ApprovalTimeline loaded = new ApprovalTimeline();
+        InputStream raw = TranslationHistory.class.getResourceAsStream(APPROVAL_HISTORY_RESOURCE);
+        if (raw == null) return;
+        GZIPInputStream gzip = null;
+        try {
+            ApprovalHistoryMetadata metadata = seed.approvalHistory;
+            byte[] compressed = readAllBounded(raw, MAX_APPROVAL_HISTORY_BYTES);
+            raw.close();
+            raw = null;
+            if (metadata == null || !"translation-approval-history.json.gz".equals(metadata.resource)
+                    || metadata.schemaVersion != APPROVAL_HISTORY_SCHEMA
+                    || metadata.sha256 == null || !metadata.sha256.equalsIgnoreCase(sha256(compressed))) {
+                throw new IOException("approval history manifest checksum mismatch");
+            }
+            gzip = new GZIPInputStream(new ByteArrayInputStream(compressed));
+            byte[] json = readAllBounded(gzip, MAX_APPROVAL_HISTORY_JSON_BYTES);
+            JsonElement parsed = new JsonParser().parse(new String(json, "UTF-8"));
+            if (parsed == null || !parsed.isJsonObject()) {
+                throw new IOException("invalid approval history root");
+            }
+            JsonObject file = parsed.getAsJsonObject();
+            JsonElement schema = file.get("schemaVersion");
+            if (schema == null || !schema.isJsonPrimitive()
+                    || schema.getAsInt() != APPROVAL_HISTORY_SCHEMA) {
+                throw new IOException("unsupported approval history schema");
+            }
+            if (!seed.currentHash.equalsIgnoreCase(string(file, "currentHash"))) {
+                throw new IOException("approval history current hash mismatch");
+            }
+            JsonObject themes = objectById(file.get("themes"));
+            int entryCount = 0;
+            int eventCount = 0;
+            JsonElement entriesElement = file.get("entries");
+            if (entriesElement != null && entriesElement.isJsonArray()) {
+                for (JsonElement entryElement : entriesElement.getAsJsonArray()) {
+                    if (!entryElement.isJsonArray()) continue;
+                    JsonArray entry = entryElement.getAsJsonArray();
+                    if (entry.size() != 3 || !entry.get(0).isJsonPrimitive()
+                            || !entry.get(1).isJsonPrimitive() || !entry.get(2).isJsonArray()) continue;
+                    String themeKey = entry.get(0).getAsString();
+                    String english = string(themes, themeKey);
+                    String language = entry.get(1).getAsString();
+                    if (english == null || language == null) continue;
+                    entryCount++;
+                    if ("en".equals(language)) language = "pirate";
+                    for (JsonElement versionElement : entry.get(2).getAsJsonArray()) {
+                        if (!versionElement.isJsonArray()) continue;
+                        JsonArray version = versionElement.getAsJsonArray();
+                        if (version.size() != 3 || !version.get(0).isJsonPrimitive()
+                                || !version.get(1).isJsonPrimitive()
+                                || !version.get(2).isJsonPrimitive()) continue;
+                        ApprovalEvent event = new ApprovalEvent();
+                        event.themeId = entry.get(0).getAsLong();
+                        event.languageCode = language;
+                        event.approvedAt = version.get(0).getAsLong();
+                        event.firstSnapshotOrdinal = version.get(1).getAsInt();
+                        event.translation = version.get(2).getAsString();
+                        event.englishTheme = english;
+                        if (!loaded.add(event)) {
+                            throw new IOException("invalid or duplicate approval history event");
+                        }
+                        eventCount++;
+                    }
+                }
+            }
+            if (themes.entrySet().size() != metadata.themeCount || entryCount != metadata.entryCount
+                    || eventCount != metadata.eventCount) {
+                throw new IOException("approval history count mismatch");
+            }
+            loaded.complete = true;
+            approvalTimeline = loaded;
+        } catch (Exception e) {
+            LOGGER.warning("Could not load bundled translation approval history: "
+                    + e.getMessage());
+        } finally {
+            if (gzip != null) {
+                try {
+                    gzip.close();
+                } catch (IOException ignored) {
+                }
+            } else if (raw != null) {
+                try {
+                    raw.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
+    private static JsonObject objectById(JsonElement element) {
+        JsonObject out = new JsonObject();
+        if (element == null || !element.isJsonArray()) return out;
+        for (JsonElement item : element.getAsJsonArray()) {
+            if (!item.isJsonArray()) continue;
+            JsonArray pair = item.getAsJsonArray();
+            if (pair.size() != 2 || !pair.get(0).isJsonPrimitive()
+                    || !pair.get(1).isJsonPrimitive()) continue;
+            out.addProperty(pair.get(0).getAsString(), pair.get(1).getAsString());
+        }
+        return out;
+    }
+
+    private static List<ApprovalEvent> extractApprovedEvents(String json, int ordinal) {
+        List<ApprovalEvent> out = new ArrayList<ApprovalEvent>();
+        JsonElement root = new JsonParser().parse(json);
+        if (!root.isJsonArray()) return out;
+        for (JsonElement element : root.getAsJsonArray()) {
+            if (!element.isJsonObject()) continue;
+            JsonObject entry = element.getAsJsonObject();
+            long themeId = number(entry, "id");
+            String english = string(entry, "theme");
+            JsonObject translations = object(entry, "translations");
+            if (themeId <= 0L || english == null || english.isEmpty() || translations == null) continue;
+            for (Map.Entry<String, JsonElement> item : translations.entrySet()) {
+                if (!item.getValue().isJsonObject()) continue;
+                String lang = "en".equals(item.getKey()) ? "pirate" : item.getKey();
+                if ("co".equals(lang)) continue;
+                JsonObject body = item.getValue().getAsJsonObject();
+                JsonElement approved = body.get("is_approved");
+                if (approved == null || !approved.isJsonPrimitive() || !approved.getAsBoolean()) {
+                    continue;
+                }
+                String translation = string(body, "translation");
+                long approvedAt = approvalTime(string(body, "approved_at"));
+                if (translation == null || translation.isEmpty() || approvedAt <= 0L) continue;
+                ApprovalEvent event = new ApprovalEvent();
+                event.themeId = themeId;
+                event.languageCode = lang;
+                event.translation = translation;
+                event.englishTheme = english;
+                event.approvedAt = approvedAt;
+                event.firstSnapshotOrdinal = ordinal;
+                out.add(event);
+            }
+        }
+        return out;
+    }
+
+    private static long approvalTime(String value) {
+        if (value == null || value.trim().isEmpty()) return 0L;
+        try {
+            return OffsetDateTime.parse(value).toInstant().toEpochMilli();
+        } catch (Exception ignored) {
+            return 0L;
         }
     }
 
@@ -505,8 +744,10 @@ final class TranslationHistory {
         try {
             reader = new InputStreamReader(new FileInputStream(file), "UTF-8");
             HistoryIndex parsed = GSON.fromJson(reader, HistoryIndex.class);
-            if (parsed == null || parsed.schemaVersion != INDEX_SCHEMA) return new HistoryIndex();
+            if (parsed == null || (parsed.schemaVersion != INDEX_SCHEMA
+                    && parsed.schemaVersion != LEGACY_INDEX_SCHEMA)) return new HistoryIndex();
             parsed.prepare();
+            if (parsed.schemaVersion == LEGACY_INDEX_SCHEMA) migrateLegacyIndex(parsed);
             return parsed;
         } catch (Exception e) {
             LOGGER.warning("Could not read translation history index: " + e.getMessage());
@@ -518,6 +759,46 @@ final class TranslationHistory {
                 } catch (IOException ignored) {
                 }
             }
+        }
+    }
+
+    private static void migrateLegacyIndex(HistoryIndex legacy) {
+        int ordinal = seed.versions.size();
+        Collections.sort(legacy.intervals, new Comparator<Interval>() {
+            @Override
+            public int compare(Interval left, Interval right) {
+                return left.validFrom < right.validFrom ? -1
+                        : left.validFrom == right.validFrom ? 0 : 1;
+            }
+        });
+        approvalTimeline.addAll(legacy.approvalEvents);
+        for (Interval interval : legacy.intervals) {
+            if (seed.versionByHash(interval.hash) != null) continue;
+            String normalizedHash = normalizeHash(interval.hash);
+            if (normalizedHash == null) continue;
+            Integer existingOrdinal = legacy.snapshotOrdinals.get(normalizedHash);
+            if (existingOrdinal == null) {
+                existingOrdinal = ordinal++;
+                legacy.snapshotOrdinals.put(normalizedHash, existingOrdinal);
+            }
+            String snapshot = readSnapshot(interval.hash);
+            if (snapshot == null) continue;
+            for (ApprovalEvent event : extractApprovedEvents(snapshot, existingOrdinal)) {
+                if (approvalTimeline.add(event)) legacy.approvalEvents.add(event);
+            }
+        }
+        legacy.schemaVersion = INDEX_SCHEMA;
+        legacy.needsWrite = true;
+    }
+
+    private static void persistMigratedIndex() {
+        if (!index.needsWrite) return;
+        try {
+            writeIndex();
+            index.needsWrite = false;
+        } catch (IOException e) {
+            LOGGER.warning("Could not persist migrated translation history index: "
+                    + e.getMessage());
         }
     }
 
@@ -620,7 +901,7 @@ final class TranslationHistory {
             byte[] jsonBytes = readGzipBytes(compressed, -1);
             verifySnapshotHash(requestedHash, jsonBytes);
             HistoricalDataset parsed = HistoricalDataset.parse(
-                    new String(jsonBytes, "UTF-8"));
+                    new String(jsonBytes, "UTF-8"), snapshotOrdinal(requestedHash));
             DATASET_CACHE.put(requestedHash, parsed);
             return parsed;
         }
@@ -679,7 +960,8 @@ final class TranslationHistory {
             verifySnapshotHash(hash, previous);
             if (requestedHash != null && requestedHash.equalsIgnoreCase(hash)
                     && requested == null) {
-                requested = HistoricalDataset.parse(new String(previous, "UTF-8"));
+                requested = HistoricalDataset.parse(
+                        new String(previous, "UTF-8"), expected.snapshotOrdinal);
                 DATASET_CACHE.put(requestedHash, requested);
                 if (!verifyAll) return requested;
             }
@@ -967,10 +1249,15 @@ final class TranslationHistory {
         int schemaVersion = INDEX_SCHEMA;
         List<Interval> intervals = new ArrayList<Interval>();
         List<String> importedSources = new ArrayList<String>();
+        List<ApprovalEvent> approvalEvents = new ArrayList<ApprovalEvent>();
+        Map<String, Integer> snapshotOrdinals = new HashMap<String, Integer>();
+        transient boolean needsWrite;
 
         void prepare() {
             if (intervals == null) intervals = new ArrayList<Interval>();
             if (importedSources == null) importedSources = new ArrayList<String>();
+            if (approvalEvents == null) approvalEvents = new ArrayList<ApprovalEvent>();
+            if (snapshotOrdinals == null) snapshotOrdinals = new HashMap<String, Integer>();
         }
     }
 
@@ -990,11 +1277,16 @@ final class TranslationHistory {
         int schemaVersion = SEED_SCHEMA;
         String currentHash = "";
         long currentValidFrom;
+        ApprovalHistoryMetadata approvalHistory;
         List<SeedVersion> versions = new ArrayList<SeedVersion>();
 
         void prepare() {
             if (versions == null) versions = new ArrayList<SeedVersion>();
-            for (SeedVersion version : versions) version.prepare();
+            for (int i = 0; i < versions.size(); i++) {
+                SeedVersion version = versions.get(i);
+                version.snapshotOrdinal = i;
+                version.prepare();
+            }
         }
 
         SeedVersion versionByHash(String hash) {
@@ -1005,6 +1297,15 @@ final class TranslationHistory {
         }
     }
 
+    private static final class ApprovalHistoryMetadata {
+        String resource;
+        int schemaVersion;
+        String sha256;
+        int themeCount;
+        int entryCount;
+        int eventCount;
+    }
+
     private static final class SeedVersion {
         String hash;
         long validFrom;
@@ -1012,6 +1313,7 @@ final class TranslationHistory {
         long sourceTimestamp;
         String sourceCommit;
         boolean bundledSnapshot;
+        transient int snapshotOrdinal;
         List<SeedOverride> overrides = new ArrayList<SeedOverride>();
         transient Map<String, SeedOverride> overrideIndex;
 
@@ -1044,6 +1346,188 @@ final class TranslationHistory {
         List<String> englishThemes = new ArrayList<String>();
     }
 
+    static synchronized String latestApproved(long themeId, String languageCode) {
+        return latestApproved(themeId, languageCode, Integer.MAX_VALUE);
+    }
+
+    static synchronized void setCurrentThemeUniverse(String json) {
+        Map<Long, String> parsed = new HashMap<Long, String>();
+        try {
+            JsonElement root = new JsonParser().parse(json);
+            if (root.isJsonArray()) {
+                for (JsonElement element : root.getAsJsonArray()) {
+                    if (!element.isJsonObject()) continue;
+                    JsonObject entry = element.getAsJsonObject();
+                    long themeId = number(entry, "id");
+                    String english = string(entry, "theme");
+                    if (themeId <= 0L || english == null || english.isEmpty()) continue;
+                    parsed.put(Long.valueOf(themeId),
+                            Normalizer.normalize(english, Normalizer.Form.NFC));
+                }
+            }
+        } catch (Exception ignored) {
+            // An invalid active snapshot has no trustworthy stable theme IDs.
+        }
+        currentThemeUniverse.clear();
+        currentThemeUniverse.putAll(parsed);
+        DATASET_CACHE.clear();
+    }
+
+    private static String canonicalEnglishTheme(long themeId) {
+        return currentThemeUniverse.get(Long.valueOf(themeId));
+    }
+
+    private static String latestApproved(long themeId, String languageCode, int maxSnapshotOrdinal) {
+        if (canonicalEnglishTheme(themeId) == null) return null;
+        ApprovalEvent event = approvalTimeline.latest(themeId, languageCode,
+                Long.MAX_VALUE, maxSnapshotOrdinal);
+        return event == null ? null : event.translation;
+    }
+
+    private static String timelineKey(long themeId, String languageCode) {
+        String language = TranslationData.normalizeLangCode(languageCode);
+        if (language == null) language = languageCode;
+        return themeId + "\u0000" + language;
+    }
+
+    private static String string(JsonObject object, String name) {
+        JsonElement value = object.get(name);
+        return value == null || value.isJsonNull() || !value.isJsonPrimitive()
+                ? null : value.getAsString();
+    }
+
+    private static long number(JsonObject object, String name) {
+        JsonElement value = object.get(name);
+        if (value == null || value.isJsonNull() || !value.isJsonPrimitive()) return 0L;
+        try {
+            return value.getAsLong();
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
+    private static JsonObject object(JsonObject object, String name) {
+        JsonElement value = object.get(name);
+        return value != null && value.isJsonObject() ? value.getAsJsonObject() : null;
+    }
+
+    private static final class ApprovalEvent {
+        long themeId;
+        String languageCode;
+        String translation;
+        String englishTheme;
+        long approvedAt;
+        int firstSnapshotOrdinal;
+    }
+
+    private static final class ApprovalTimeline {
+        final Map<String, List<ApprovalEvent>> byThemeLanguage =
+                new HashMap<String, List<ApprovalEvent>>();
+        final Map<String, List<ApprovalEvent>> byDisplayed =
+                new HashMap<String, List<ApprovalEvent>>();
+        boolean complete;
+
+        void addAll(List<ApprovalEvent> events) {
+            if (events == null) return;
+            for (ApprovalEvent event : events) add(event);
+        }
+
+        boolean add(ApprovalEvent event) {
+            if (event == null || event.themeId <= 0L || event.approvedAt <= 0L
+                    || event.languageCode == null || event.languageCode.isEmpty()
+                    || event.translation == null || event.translation.isEmpty()
+                    || event.englishTheme == null || event.englishTheme.isEmpty()) return false;
+            String language = TranslationData.normalizeLangCode(event.languageCode);
+            if (language == null || "en".equals(language) || "co".equals(language)) return false;
+            event.languageCode = language;
+            event.translation = Normalizer.normalize(event.translation, Normalizer.Form.NFC);
+            event.englishTheme = Normalizer.normalize(event.englishTheme, Normalizer.Form.NFC);
+            String key = timelineKey(event.themeId, language);
+            List<ApprovalEvent> themeEvents = byThemeLanguage.get(key);
+            if (themeEvents == null) {
+                themeEvents = new ArrayList<ApprovalEvent>();
+                byThemeLanguage.put(key, themeEvents);
+            }
+            for (ApprovalEvent existing : themeEvents) {
+                if (existing.approvedAt == event.approvedAt
+                        && existing.translation.equals(event.translation)) return false;
+            }
+            themeEvents.add(event);
+            Collections.sort(themeEvents, new Comparator<ApprovalEvent>() {
+                @Override
+                public int compare(ApprovalEvent left, ApprovalEvent right) {
+                    if (left.approvedAt != right.approvedAt) {
+                        return left.approvedAt < right.approvedAt ? -1 : 1;
+                    }
+                    return left.firstSnapshotOrdinal < right.firstSnapshotOrdinal ? -1
+                            : left.firstSnapshotOrdinal == right.firstSnapshotOrdinal ? 0 : 1;
+                }
+            });
+            String displayedKey = historyKey(language, event.translation);
+            List<ApprovalEvent> displayedEvents = byDisplayed.get(displayedKey);
+            if (displayedEvents == null) {
+                displayedEvents = new ArrayList<ApprovalEvent>();
+                byDisplayed.put(displayedKey, displayedEvents);
+            }
+            displayedEvents.add(event);
+            return true;
+        }
+
+        ApprovalEvent latest(long themeId, String languageCode, long cutoff,
+                             int maxSnapshotOrdinal) {
+            List<ApprovalEvent> events = byThemeLanguage.get(timelineKey(themeId, languageCode));
+            if (events == null) return null;
+            ApprovalEvent latest = null;
+            for (ApprovalEvent event : events) {
+                if (event.approvedAt > cutoff || event.firstSnapshotOrdinal > maxSnapshotOrdinal) {
+                    continue;
+                }
+                latest = event;
+            }
+            return latest;
+        }
+
+        int eventCount() {
+            int count = 0;
+            for (List<ApprovalEvent> events : byThemeLanguage.values()) count += events.size();
+            return count;
+        }
+
+        ApprovalResolution resolveAt(long cutoff, String languageCode, String displayedTheme,
+                                     ScoreDelta builderDelta, int maxSnapshotOrdinal) {
+            String language = TranslationData.normalizeLangCode(languageCode);
+            if (language == null || "en".equals(language)) return ApprovalResolution.notFound();
+            List<ApprovalEvent> candidates = byDisplayed.get(historyKey(language, displayedTheme));
+            if (candidates == null) return ApprovalResolution.notFound();
+            TreeSet<String> themes = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+            for (ApprovalEvent candidate : candidates) {
+                ApprovalEvent latest = latest(candidate.themeId, language, cutoff,
+                        maxSnapshotOrdinal);
+                String english = canonicalEnglishTheme(candidate.themeId);
+                if (latest == candidate && english != null) themes.add(english);
+            }
+            return ApprovalResolution.found(narrow(new ArrayList<String>(themes), builderDelta));
+        }
+    }
+
+    private static final class ApprovalResolution {
+        final boolean found;
+        final List<String> englishThemes;
+
+        private ApprovalResolution(boolean found, List<String> englishThemes) {
+            this.found = found;
+            this.englishThemes = englishThemes;
+        }
+
+        static ApprovalResolution found(List<String> themes) {
+            return new ApprovalResolution(true, themes);
+        }
+
+        static ApprovalResolution notFound() {
+            return new ApprovalResolution(false, Collections.<String>emptyList());
+        }
+    }
+
     private static String historyKey(String langCode, String displayedTheme) {
         String lang = TranslationData.normalizeLangCode(langCode);
         if (lang == null) lang = "en";
@@ -1059,17 +1543,37 @@ final class TranslationHistory {
         final Map<String, String> englishThemes = new HashMap<String, String>();
 
         static HistoricalDataset parse(String json) {
+            return parse(json, Integer.MAX_VALUE, false);
+        }
+
+        static HistoricalDataset parse(String json, int maxSnapshotOrdinal) {
+            return parse(json, maxSnapshotOrdinal, true);
+        }
+
+        private static HistoricalDataset parse(String json, int maxSnapshotOrdinal,
+                                               boolean currentThemeIdsOnly) {
             JsonElement root = new JsonParser().parse(json);
             if (!root.isJsonArray()) throw new IllegalArgumentException("translation root is not an array");
             HistoricalDataset out = new HistoricalDataset();
+            if (currentThemeIdsOnly) {
+                for (String currentEnglish : currentThemeUniverse.values()) {
+                    out.englishThemes.put(currentEnglish.toLowerCase(Locale.ROOT), currentEnglish);
+                }
+            }
             JsonArray array = root.getAsJsonArray();
             for (JsonElement element : array) {
                 if (!element.isJsonObject()) continue;
                 JsonObject entry = element.getAsJsonObject();
+                long themeId = number(entry, "id");
                 String english = string(entry, "theme");
                 if (english == null || english.isEmpty()) continue;
                 english = Normalizer.normalize(english, Normalizer.Form.NFC);
-                out.englishThemes.put(english.toLowerCase(Locale.ROOT), english);
+                if (currentThemeIdsOnly) {
+                    english = canonicalEnglishTheme(themeId);
+                    if (english == null) continue;
+                } else {
+                    out.englishThemes.put(english.toLowerCase(Locale.ROOT), english);
+                }
                 JsonObject translations = object(entry, "translations");
                 if (translations == null) continue;
                 for (Map.Entry<String, JsonElement> translation : translations.entrySet()) {
@@ -1078,9 +1582,11 @@ final class TranslationHistory {
                     if ("co".equals(lang) || !translation.getValue().isJsonObject()) continue;
                     JsonObject body = translation.getValue().getAsJsonObject();
                     JsonElement approved = body.get("is_approved");
-                    if (approved != null && approved.isJsonPrimitive()
-                            && !approved.getAsBoolean()) continue;
                     String displayed = string(body, "translation");
+                    if (approved != null && approved.isJsonPrimitive()
+                            && !approved.getAsBoolean()) {
+                        displayed = latestApproved(themeId, lang, maxSnapshotOrdinal);
+                    }
                     if (displayed == null || displayed.isEmpty()) continue;
                     displayed = Normalizer.normalize(displayed, Normalizer.Form.NFC);
                     Map<String, Set<String>> language = out.index.get(lang);
@@ -1123,6 +1629,15 @@ final class TranslationHistory {
                 }
             }
             return narrow(new ArrayList<String>(resolved), builderDelta);
+        }
+
+        List<String> resolveEnglishOnly(String displayedTheme, ScoreDelta builderDelta) {
+            String displayed = Normalizer.normalize(
+                    displayedTheme.trim(), Normalizer.Form.NFC);
+            String english = resolveEnglish(displayed);
+            return english == null
+                    ? Collections.<String>emptyList()
+                    : narrow(Collections.singletonList(english), builderDelta);
         }
 
         private String resolveEnglish(String displayed) {

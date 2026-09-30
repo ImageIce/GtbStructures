@@ -252,26 +252,37 @@ public final class WorldEnvironmentOverlayRenderer {
         int panelHeight = rows.size() * WorldEnvironmentLogic.ROW_HEIGHT;
         int screenWidth = mc.getWindow().getGuiScaledWidth();
         int screenHeight = mc.getWindow().getGuiScaledHeight();
+        float scale = HudPanelScale.normalize(settings.environmentScale);
+        int scaledPanelWidth = HudPanelScale.scaledPixels(WorldEnvironmentLogic.PANEL_WIDTH, scale);
+        int scaledPanelHeight = HudPanelScale.scaledPixels(panelHeight, scale);
         int x = HudPosition.left(settings.environmentPosX, screenWidth,
-                WorldEnvironmentLogic.PANEL_WIDTH, MARGIN);
-        int bottom = HudPosition.bottom(settings.environmentPosY, screenHeight, panelHeight, MARGIN);
-        int y = bottom - panelHeight;
-        if (settings.environmentBackground) {
-            graphics.fill(x - 1, y - 1,
-                    x + WorldEnvironmentLogic.PANEL_WIDTH + 1, y + panelHeight + 1,
-                    ScoreboardLayout.BACKGROUND_COLOR);
-        }
+                scaledPanelWidth, MARGIN);
+        int bottom = HudPosition.bottom(settings.environmentPosY, screenHeight, scaledPanelHeight, MARGIN);
+        int y = bottom - scaledPanelHeight;
         if (InterfacePreview.isActive()) {
             PreviewLayoutEditor.registerWithBackground(
                     WorldEnvironmentLogic.previewRegistrationId(rows.size(), rows.get(0).id),
-                    x, y, WorldEnvironmentLogic.PANEL_WIDTH, panelHeight,
+                    x, y, scaledPanelWidth, scaledPanelHeight,
                     previewTarget(rows),
                     (left, top, right, bottomEdge, color) ->
                             graphics.fill(left, top, right, bottomEdge, color));
         }
-        for (WorldEnvironmentLogic.Row row : rows) {
-            renderRow(graphics, font, x, y, row);
-            y += WorldEnvironmentLogic.ROW_HEIGHT;
+        graphics.pose().pushMatrix();
+        try {
+            graphics.pose().translate(x, y);
+            graphics.pose().scale(scale, scale);
+            if (settings.environmentBackground) {
+                graphics.fill(-1, -1,
+                        WorldEnvironmentLogic.PANEL_WIDTH + 1, panelHeight + 1,
+                        ScoreboardLayout.BACKGROUND_COLOR);
+            }
+            int rowY = 0;
+            for (WorldEnvironmentLogic.Row row : rows) {
+                renderRow(graphics, font, 0, rowY, row);
+                rowY += WorldEnvironmentLogic.ROW_HEIGHT;
+            }
+        } finally {
+            graphics.pose().popMatrix();
         }
     }
 

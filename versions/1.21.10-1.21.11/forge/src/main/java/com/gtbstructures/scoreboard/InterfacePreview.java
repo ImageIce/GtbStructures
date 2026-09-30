@@ -102,10 +102,12 @@ public final class InterfacePreview {
     }
 
     private void openPreviewScreen() {
+        PreviewLayoutEditor.INSTANCE.reset();
         if (screenController != null) screenController.openPreviewScreen();
     }
 
     private void closePreviewScreen() {
+        PreviewLayoutEditor.INSTANCE.reset();
         if (screenController != null) screenController.closePreviewScreen();
     }
 
@@ -204,7 +206,11 @@ public final class InterfacePreview {
     }
 
     static String hypixelPreviewRightForTest(String langCode, int index) {
-        PreviewRow[] rows = hypixelRows(langCode, false);
+        return hypixelPreviewRightForTest(langCode, index, false);
+    }
+
+    static String hypixelPreviewRightForTest(String langCode, int index, boolean expanded) {
+        PreviewRow[] rows = hypixelRows(langCode, expanded);
         return index >= 0 && index < rows.length ? rows[index].right : "";
     }
 
@@ -239,7 +245,10 @@ public final class InterfacePreview {
         int[] places = previewDensePlaces(players);
         int i = 0;
         rows[i++] = new PreviewRow(PREVIEW_DATE, "");
-        rows[i++] = new PreviewRow("\u00a7f" + LangPatterns.scoreboardBuilderLabel(lang), "");
+        String roundProgress = showsHypixelRounds(config, expanded)
+                ? CustomScoreboardLogic.formatRoundProgress(10, 10, false, false) : "";
+        rows[i++] = new PreviewRow("\u00a7f" + LangPatterns.scoreboardBuilderLabel(lang),
+                roundProgress);
         rows[i++] = new PreviewRow(" \u00a77" + builderName(players), "");
         rows[i++] = new PreviewRow("", "");
         for (int p = 0; p < players.length; p++) {
@@ -255,6 +264,14 @@ public final class InterfacePreview {
         rows[i++] = new PreviewRow(" \u00a7a" + localizedPreviewTheme(lang), "");
         rows[i++] = new PreviewRow(PREVIEW_FOOTER, "");
         return rows;
+    }
+
+    private static boolean showsHypixelRounds(ScoreboardConfig config, boolean expanded) {
+        ScoreboardConfig.DisplayOption option = config == null
+                ? ScoreboardConfig.DisplayOption.OFF
+                : ScoreboardConfig.normalizeOption(config.hypixelShowRounds);
+        return option == ScoreboardConfig.DisplayOption.ON
+                || (option == ScoreboardConfig.DisplayOption.EXPANDED && expanded);
     }
 
     private static PreviewPlayer[] previewPlayers() {

@@ -11,6 +11,18 @@ import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
 public final class PreviewScreenController implements InterfacePreview.ScreenController {
+    enum TextFieldPurpose {
+        HEADER(256),
+        GROUP_NAME(128),
+        GROUP_SEARCH(64);
+
+        final int maxLength;
+
+        TextFieldPurpose(int maxLength) {
+            this.maxLength = maxLength;
+        }
+    }
+
     private static double pendingScrollDelta;
 
     @Override
@@ -72,8 +84,13 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
     }
 
     static void beginHeaderEditing(String value) {
+        beginTextEditing(value, TextFieldPurpose.HEADER);
+    }
+
+    static void beginTextEditing(String value, TextFieldPurpose purpose) {
         PreviewScreen screen = previewScreen();
-        if (screen != null) screen.beginHeaderEditing(value);
+        if (screen != null) screen.beginTextEditing(value,
+                purpose == null ? TextFieldPurpose.HEADER : purpose);
     }
 
     static String finishHeaderEditing() {
@@ -154,14 +171,15 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
             return false;
         }
 
-        private void beginHeaderEditing(String value) {
+        private void beginTextEditing(String value, TextFieldPurpose purpose) {
             if (headerEditBox == null) {
                 headerEditBox = new EditBox(font, -1000, -1000, 1, 1, Component.empty());
-                headerEditBox.setMaxLength(256);
-                headerEditBox.setFilter(PreviewScreenController::validHeaderEditCandidate);
                 addRenderableWidget(headerEditBox);
                 setInitialFocus(headerEditBox);
             }
+            headerEditBox.setMaxLength(purpose.maxLength);
+            headerEditBox.setFilter(valueCandidate -> validTextEditCandidate(
+                    purpose, valueCandidate));
             headerEditBox.setValue(value == null ? "" : value);
             headerEditBox.setCursorPosition(headerEditBox.getValue().length());
             headerEditBox.setFocused(true);
@@ -201,6 +219,19 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
     }
 
     private static boolean validHeaderEditCandidate(String value) {
+        return validTextEditCandidate(TextFieldPurpose.HEADER, value);
+    }
+
+    static boolean validGroupNameEditCandidate(String value) {
+        return validTextEditCandidate(TextFieldPurpose.GROUP_NAME, value);
+    }
+
+    private static boolean validTextEditCandidate(TextFieldPurpose purpose, String value) {
+        if (purpose == TextFieldPurpose.GROUP_SEARCH) return true;
+        if (purpose == TextFieldPurpose.GROUP_NAME) {
+            return value != null && value.codePointCount(0, value.length())
+                    <= com.gtbstructures.translation.ShortcutLanguageGroups.MAX_NAME_CODE_POINTS;
+        }
         if (ChatHeader.visibleLength(value) <= ChatHeader.MAX_VISIBLE_LENGTH) return true;
         if (value == null || value.isEmpty()) return false;
         char last = value.charAt(value.length() - 1);

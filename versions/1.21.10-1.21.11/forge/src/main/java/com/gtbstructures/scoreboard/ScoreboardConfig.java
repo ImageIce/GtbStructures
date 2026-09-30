@@ -35,6 +35,8 @@ public class ScoreboardConfig {
     public DisplayOption showPlaces = DisplayOption.OFF;
     public DisplayOption showTitles = DisplayOption.EXPANDED;
     public DisplayOption showEmblems = DisplayOption.ON;
+    public boolean defaultExplicitlyShowBuilders = false;
+    public DisplayOption hypixelShowRounds = DisplayOption.OFF;
     public boolean leftPlayersAtBottom = true;
     public boolean textShadow = true;
 
@@ -122,6 +124,7 @@ public class ScoreboardConfig {
         showPlaces = normalizeOption(showPlaces);
         showTitles = normalizeOption(showTitles);
         showEmblems = normalizeOption(showEmblems);
+        hypixelShowRounds = normalizeOption(hypixelShowRounds);
     }
 
     public static DisplayOption parseOption(String raw, DisplayOption fallback) {

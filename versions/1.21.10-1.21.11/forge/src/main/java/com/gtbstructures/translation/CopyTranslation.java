@@ -21,6 +21,11 @@ public final class CopyTranslation {
 
     public static Result buildMessage(String themeInput, List<String> requestedLangCodes,
                                       boolean includePrefix) {
+        return buildMessage(themeInput, requestedLangCodes, includePrefix, true);
+    }
+
+    public static Result buildMessage(String themeInput, List<String> requestedLangCodes,
+                                      boolean includePrefix, boolean capitalizeTranslations) {
         if (!TranslationData.isLoaded()) {
             return Result.error("Translations are still loading; try again in a few seconds.");
         }
@@ -37,7 +42,9 @@ public final class CopyTranslation {
         for (String code : langCodes) {
             String displayed = TranslationData.getDisplayedTheme(code, english);
             if (displayed != null && !displayed.isEmpty()) {
-                uniqueTranslations.add(displayed);
+                uniqueTranslations.add(capitalizeTranslations
+                        ? capitalizeFirstTranslationLetter(displayed)
+                        : lowercaseTranslation(displayed));
             }
         }
         if (uniqueTranslations.isEmpty()) {
@@ -52,6 +59,27 @@ public final class CopyTranslation {
             sb.append(translation);
         }
         return Result.ok(sb.toString());
+    }
+
+    static String capitalizeFirstTranslationLetter(String value) {
+        if (value == null || value.isEmpty()) return value;
+        for (int offset = 0; offset < value.length();) {
+            int codePoint = value.codePointAt(offset);
+            int codePointLength = Character.charCount(codePoint);
+            if (Character.isLetter(codePoint)) {
+                String original = value.substring(offset, offset + codePointLength);
+                String replacement = original.toUpperCase(Locale.ROOT);
+                if (original.equals(replacement)) return value;
+                return value.substring(0, offset) + replacement
+                        + value.substring(offset + codePointLength);
+            }
+            offset += codePointLength;
+        }
+        return value;
+    }
+
+    static String lowercaseTranslation(String value) {
+        return value == null ? null : value.toLowerCase(Locale.ROOT);
     }
 
     public static Request parseRequest(String[] args) {

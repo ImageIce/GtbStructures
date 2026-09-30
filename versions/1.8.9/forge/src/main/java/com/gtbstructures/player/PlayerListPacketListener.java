@@ -4,6 +4,7 @@ import com.gtbstructures.GtbStructures;
 import com.gtbstructures.diagnostics.RawPacketRecorder;
 import com.gtbstructures.overlay.WorldEnvironmentOverlay;
 import com.gtbstructures.stats.GameStats;
+import com.gtbstructures.sound.GuessSoundController;
 
 import com.mojang.authlib.GameProfile;
 import io.netty.channel.Channel;
@@ -21,6 +22,8 @@ import net.minecraft.network.play.server.S3EPacketTeams;
 import net.minecraft.util.IChatComponent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
+import net.minecraftforge.client.event.sound.PlaySoundEvent;
+import net.minecraftforge.event.world.WorldEvent;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -48,7 +51,12 @@ public final class PlayerListPacketListener {
         if (event.phase != TickEvent.Phase.END) return;
         if (!captureEnabledForMaster(GtbStructures.modEnabled)) {
             pending.clear();
+            GuessSoundController.INSTANCE.reset();
             return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc == null || mc.theWorld == null || mc.thePlayer == null) {
+            GuessSoundController.INSTANCE.onWorldUnload();
         }
         registerIfNeeded();
         drainPending();
@@ -60,6 +68,9 @@ public final class PlayerListPacketListener {
             if (mc == null || mc.thePlayer == null || mc.getNetHandler() == null) return;
             Channel ch = mc.getNetHandler().getNetworkManager().channel();
             if (ch == null || !ch.isOpen()) return;
+            if (ch != channel) {
+                GuessSoundController.INSTANCE.onDisconnect();
+            }
             if (ch == channel && ch.pipeline().get(HANDLER) != null) return;
             if (ch.pipeline().get(HANDLER) != null) {
                 channel = ch;
@@ -158,6 +169,26 @@ public final class PlayerListPacketListener {
 
     public static boolean captureEnabledForMaster(boolean modEnabled) {
         return modEnabled;
+    }
+
+    /**
+     * Runs on the client thread after a sound packet has been decoded.  Raw
+     * capture has already happened in the Netty handler; this event is the
+     * safe main-thread interception point for the local guess replacement.
+     */
+    @SubscribeEvent
+    public void onPlaySound(PlaySoundEvent event) {
+        if (event == null || event.sound == null) return;
+        if (GuessSoundController.INSTANCE.consumeOriginal(
+                event.name, event.sound.getVolume(), event.sound.getPitch(),
+                System.currentTimeMillis())) {
+            event.result = null;
+        }
+    }
+
+    @SubscribeEvent
+    public void onWorldUnload(WorldEvent.Unload event) {
+        if (event.world.isRemote) GuessSoundController.INSTANCE.onWorldUnload();
     }
 
     private void captureTabPacket(S38PacketPlayerListItem packet) {

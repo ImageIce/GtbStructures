@@ -1,6 +1,78 @@
 # GtbStructures Changelog
 
-## 1.1
+## 1.1.1
+
+GTBS 1.1.1 brings the legacy and modern builds back into feature parity,
+expands the Preview editor, and hardens game tracking around nick changes,
+disconnects, localized scoreboards, and skipped builders.
+
+### Added
+
+- **Configurable correct-guess sounds.** Choose separate sounds for 1-, 2-,
+  and 3-point guesses, including None and Random choices, and set their volume
+  from `/gtbs preview`.
+- **Independent HUD scaling.** The hint, handheld-item, environment, and chat
+  cooldown panels can be scaled independently from commands or Preview.
+- **More scoreboard controls.** Preview can independently show or hide current
+  builder details and round progress for the Default and Hypixel skins.
+- **More language-tool controls.** GTW supports difficulty-filtered theme
+  pools; matching-theme output can include a result count; copied translations
+  can preserve or remove capitalization; and shortcut reminder languages can
+  be organized into editable groups.
+- **Safer automation.** Auto-requeue has a configurable delay, while
+  leave/rejoin can optionally bypass lobby protection for an intentional
+  reconnect.
+- **Export links.** Export and stats notices can open their local folders
+  without blocking the client.
+
+
+### Changed
+
+- Translation history now resolves themes against approval-time snapshots,
+  restricts history work to current themes, and refreshes bundled translation
+  data more defensively.
+- Theme statistics count every offered builder choice as an occurrence, even
+  when that choice was not selected.
+- On 1.8.9, theme export can discover logs from common launcher layouts,
+  accept recent logs outside conventionally named log folders, and report
+  aggregate progress.
+- Command help and tab completion are synchronized across legacy Forge and all
+  modern Fabric/Forge targets.
+- Preview menus have clearer layout, scrolling, selection, and field behavior
+  across the supported Minecraft versions.
+
+### Fixed
+
+- Improved local and nicked player identity handling and builder-score
+  preservation across rejoin, nick changes, late roster updates, and final
+  score awards.
+- Corrected localized lobby and round-end transitions, pre-round and consecutive
+  builder skips, first-round countdowns, and unknown mid-game round totals.
+- Prevented unrelated chat channels from being recorded as GTB guesses and kept
+  paused lobby chat from leaking into the active game.
+- Restored GuessPeek detection, offsets, hitboxes, and nick handling across
+  legacy, Fabric, and Forge builds.
+- Fixed auto-requeue cancellation and lobby-transition scheduling, plus direct
+  leave/rejoin scheduling on modern builds.
+- Fixed Preview interaction regressions including hidden Guess Sounds entry
+  points, overlapping controls, scrollbar dragging, and volume editing.
+- Fixed correct-guess sound replacement timing, pitch, captions, item lookup,
+  and icons on the affected Fabric and Forge targets.
+- Fixed GTW complement handling and made tied shortcut-language strengths
+  resolve deterministically.
+- Fixed active-scoreboard rank color capture on 1.8.9 and the fallback color
+  for unranked players across legacy, Fabric, and Forge builds.
+
+### Compatibility and publication scope
+
+- The source tree covers Minecraft 1.8.9 Forge; 1.21.10-1.21.11 Fabric and
+  Forge; and 26.1/26.2 Fabric and Forge.
+- The 1.1.1 publication includes JARs for 1.8.9 Forge, 1.21.10-1.21.11
+  Fabric and Forge, and 26.1/26.2 Fabric.
+- 26.1 and 26.2 Forge are discontinued after 1.1.1 and will not receive
+  subsequent GTBS source or binary maintenance.
+
+## 1.1.0
 
 Compared with 1.0, this release turns GtbStructures from a hint-only
 overlay into a full Guess-The-Build companion: it tracks games

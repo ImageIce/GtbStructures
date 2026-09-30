@@ -15,8 +15,12 @@ base {
 def sharedProjectRoot = file('../../1.21.10-1.21.11/forge')
 def sharedMainJava = file("${sharedProjectRoot}/src/main/java")
 def sharedMainResources = file("${sharedProjectRoot}/src/main/resources")
+def sharedTestJava = file("${sharedProjectRoot}/src/test/java")
+def sharedTestResources = file("${sharedProjectRoot}/src/test/resources")
 def targetMainJava = file('src/main/java')
+def targetTestJava = file('src/test/java')
 def targetWorkRoot = providers.gradleProperty('gtbsTargetWorkRoot').orNull
+def mavenizerMemory = providers.gradleProperty('gtbsMavenizerMemory').orNull
 def targetRunDirectory = file('run')
 
 if (targetWorkRoot != null && !targetWorkRoot.trim().isEmpty()) {
@@ -28,10 +32,15 @@ if (targetWorkRoot != null && !targetWorkRoot.trim().isEmpty()) {
 java.toolchain.languageVersion = JavaLanguageVersion.of(25)
 
 minecraft {
+    if (mavenizerMemory != null && !mavenizerMemory.trim().isEmpty()) {
+        mavenizerArguments.addAll('--decompile-memory', mavenizerMemory.trim())
+    }
+
     runs {
         configureEach {
             workingDir = targetRunDirectory
             systemProperty 'eventbus.api.strictRuntimeChecks', 'true'
+            systemProperty 'forge.enabledGameTestNamespaces', project.mod_id
         }
 
         register('client')
@@ -67,6 +76,14 @@ sourceSets {
         )
         resources.setSrcDirs(['src/main/resources'])
     }
+    test {
+        java.setSrcDirs([sharedTestJava])
+        java.exclude('com/gtbstructures/items/DisallowedItemHiderSmoke.java')
+        java.exclude('com/gtbstructures/items/HandheldItemTrackerSmoke.java')
+        java.exclude('com/gtbstructures/overlay/ForgeHudLayerBridgeSmoke.java')
+        java.exclude('com/gtbstructures/ModernCommandRegistrationSmoke.java')
+        resources.setSrcDirs(sharedTestResources.exists() ? [sharedTestResources] : [])
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -80,6 +97,16 @@ tasks.named('compileJava', JavaCompile) {
     source(fileTree(targetMainJava) {
         include '**/*.java'
     })
+}
+
+tasks.named('compileTestJava', JavaCompile) {
+    source(fileTree(targetTestJava) {
+        include '**/*.java'
+    })
+}
+
+tasks.named('test', Test) {
+    failOnNoDiscoveredTests = false
 }
 
 tasks.named('processResources', ProcessResources) {
@@ -154,6 +181,32 @@ tasks.register('verifyCrossVersionIdentifierLinks') {
         }
     }
 }
-tasks.named('check') {
+
+def smokeTasks = []
+def registeredSmokeClasses = [] as Set
+[[root: file('src/test/java'), workingDir: projectDir],
+ [root: sharedTestJava, workingDir: sharedProjectRoot]].each { smokeRoot ->
+    if (!smokeRoot.root.exists()) return
+    fileTree(smokeRoot.root).matching { include '**/*Smoke.java' }.files.sort().each { smokeFile ->
+        def relative = smokeRoot.root.toPath().relativize(smokeFile.toPath()).toString()
+        def mainClassName = relative.replace(File.separatorChar, '.' as char).replaceFirst(/\.java$/, '')
+        if (!registeredSmokeClasses.add(mainClassName)) return
+        def simpleName = mainClassName.substring(mainClassName.lastIndexOf('.') + 1)
+        def smokeTask = tasks.register("run${simpleName}", JavaExec) {
+            group = 'verification'
+            description = "Runs ${simpleName}."
+            dependsOn tasks.testClasses
+            classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+            mainClass = mainClassName
+            workingDir = smokeRoot.workingDir
+        }
+        smokeTasks << smokeTask
+    }
+}
+
+tasks.register('runSmokeTests') {
+    group = 'verification'
+    description = 'Runs the complete shared GTBS Forge smoke suite.'
     dependsOn tasks.named('verifyCrossVersionIdentifierLinks')
+    dependsOn smokeTasks
 }

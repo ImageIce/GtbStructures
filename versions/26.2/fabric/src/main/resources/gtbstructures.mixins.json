@@ -4,6 +4,7 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "ClientEquipmentPacket26Mixin",
+    "ClientSoundPacketMixin",
     "ClientPlayerTeamPacketMixin",
     "ClassicBitmapGlyph26Mixin",
     "SpawnEggItemModel26Mixin",

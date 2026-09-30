@@ -137,6 +137,7 @@ public class LangPatterns {
     private static final Pattern MINI_SESSION_ID_PATTERN = Pattern.compile("^mini[0-9][0-9a-z]*$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern NON_WHITESPACE_TOKEN_PATTERN = Pattern.compile("\\S+");
+    private static final Pattern NON_EMPTY_TEXT_PATTERN = Pattern.compile(".*\\S.*");
     private static final String[][] NEW_SERVER_TRANSFER_TEMPLATES = new String[][] {
             { "Sending you to ", "!" }, // en
             { "\u6b63\u5728\u524d\u5f80", "\uff01" }, // zh_cn
@@ -162,6 +163,32 @@ public class LangPatterns {
             { "Skickar dig till ", "!" }, // sv
             { " ", " sunucusuna y\u00f6nlendiriliyorsunuz!" }, // tr
             { "\u0412\u0456\u0434\u043f\u0440\u0430\u0432\u043b\u044f\u0454\u043c\u043e \u0432\u0430\u0441 \u0434\u043e ", "!" }, // uk
+    };
+    private static final String[][] LOBBY_PROTECTION_TEMPLATES = new String[][] {
+            { "To leave ", ", type /lobby" }, // en
+            { "\u8f93\u5165/lobby\u6765\u79bb\u5f00", "\u3002" }, // zh_cn
+            { "\u82e5\u8981\u96e2\u958b", "\uff0c\u8acb\u8f38\u5165 /lobby" }, // zh_tw
+            { "Pro opu\u0161t\u011bn\u00ed ", ", napi\u0161 /lobby" }, // cs
+            { "For at forlade ", ", skriv /lobby" }, // da
+            { "Om ", " te verlaten, typ /lobby" }, // nl
+            { "Poistuaksesi pelist\u00e4 ", " kirjoita /lobby" }, // fi
+            { "Pour quitter ", ", tapez /lobby" }, // fr
+            { "Schreibe /lobby ", ", um das Spiel zu verlassen" }, // de
+            { "A ", ", elhagy\u00e1s\u00e1hoz \u00edrd be /lobby" }, // hu
+            { "Per uscire dalle ", ", digita /lobby" }, // it
+            { "", " \u304b\u3089\u9000\u51fa\u3059\u308b\u969b\u306f /lobby \u3092\u4f7f\u7528\u3057\u3066\u304f\u3060\u3055\u3044\u3002" }, // ja
+            { "", "\uc744(\ub97c) \ub098\uac00\ub824\uba74, /lobby\ub97c \uc785\ub825\ud558\uc138\uc694" }, // ko
+            { "For \u00e5 forlate ", ", skriv /lobby" }, // no
+            { "T' leave ", ", type /lobby" }, // pirate
+            { "Aby wyj\u015b\u0107 z ", ", wpisz /lobby" }, // pl
+            { "Para abandonar ", ", escreve /lobby" }, // pt
+            { "Para sair do ", ", use /lobby" }, // pt_br
+            { "Dac\u0103 vrei s\u0103 ie\u0219i din ", ", scrie /lobby" }, // ro
+            { "\u0427\u0442\u043e\u0431\u044b \u0432\u044b\u0439\u0442\u0438 \u0438\u0437 ", ", \u0432\u0432\u0435\u0434\u0438\u0442\u0435 /lobby" }, // ru
+            { "Para abandonar ", ", utiliza /lobby" }, // es
+            { "F\u00f6r att l\u00e4mna ", ", skriv /lobby" }, // sv
+            { "", " oyunundan \u00e7\u0131kmak i\u00e7in /lobby yaz\u0131n." }, // tr
+            { "\u0429\u043e\u0431 \u043f\u043e\u043a\u0438\u043d\u0443\u0442\u0438 ", ", \u043f\u0440\u043e\u043f\u0438\u0448\u0456\u0442\u044c /lobby" }, // uk
     };
     private static final String[] EN_BB_TITLES = new String[] {
             "Rookie", "Untrained", "Amateur", "Prospect", "Apprentice",
@@ -286,6 +313,12 @@ public class LangPatterns {
     static boolean isMiniServerTransferMessage(String cleanLine) {
         return matchesVariableTemplate(cleanLine, NEW_SERVER_TRANSFER_TEMPLATES,
                 MINI_SESSION_ID_PATTERN);
+    }
+
+    /** Matches a stripped, localized Hypixel /l protection line with a nonempty game name. */
+    public static boolean isLobbyProtectionMessage(String cleanLine) {
+        return matchesVariableTemplate(cleanLine, LOBBY_PROTECTION_TEMPLATES,
+                NON_EMPTY_TEXT_PATTERN);
     }
 
     private static boolean matchesVariableTemplate(String cleanLine, String[][] templates,
@@ -642,7 +675,7 @@ public class LangPatterns {
         ja.langSelectPrefix = "\u9078\u629e\u3057\u305f\u8a00\u8a9e\uff1a";
         ja.guiTitle = "\u4f5c\u308a\u305f\u3044\u30c6\u30fc\u30de\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\uff01";
         ja.sbTheme = "\u30c6\u30fc\u30de\uff1a"; ja.sbBuilder = "\u4f5c\u8005\uff1a";
-        ja.sbTime = "\u6b8b\u308a\u6642\u9593\uff1a"; ja.sbStartsIn = "\u958b\u59cb\u307e\u3067";
+        ja.sbTime = "\u6642\u9593:"; ja.sbStartsIn = "\u958b\u59cb\u307e\u3067";
         ja.sbMode = "\u30e2\u30fc\u30c9\uff1aGuess The Build"; ja.sbNextRound = "\u6b21\u306e\u30e9\u30a6\u30f3\u30c9\uff1a";
         ja.themeSelectingTitle = "\u30c6\u30fc\u30de\u3092\u9078\u629e\u4e2d\u3067\u3059...";
         ja.afkSubstring = "\u7121\u64cd\u4f5c\u72b6\u614b";
@@ -750,7 +783,7 @@ public class LangPatterns {
         tr.winnersKeyword = "Kazananlar";
         tr.langSelectPrefix = "Se\u00e7ili dil: ";
         tr.guiTitle = "\u0130n\u015fa etmek i\u00e7in bir tema se\u00e7!";
-        tr.sbTheme = "Tema:"; tr.sbBuilder = "Mimar:"; tr.sbTime = "S\u00fcre:";
+        tr.sbTheme = "Tema:"; tr.sbBuilder = "Mimar:"; tr.sbTime = "Zaman:";
         tr.sbStartsIn = "Ba\u015fl\u0131yor:";
         tr.sbMode = "Mod: Guess The Build"; tr.sbNextRound = "Sonraki Tur:";
         tr.themeSelectingTitle = "Tema se\u00e7iliyor...";
@@ -835,7 +868,7 @@ public class LangPatterns {
         fi.winnersKeyword = "Voittajat";
         fi.langSelectPrefix = "Valittu kieli: ";
         fi.guiTitle = "Valitse aihe rakentaaksesi!";
-        fi.sbTheme = "Aihe:"; fi.sbBuilder = "Rakentaja:"; fi.sbTime = "Aika:"; fi.sbStartsIn = "Alkaa ajassa";
+        fi.sbTheme = "Aihe:"; fi.sbBuilder = "Rakentaja:"; fi.sbTime = "Aikav\u00e4li:"; fi.sbStartsIn = "Alkaa ajassa";
         fi.sbMode = "Pelimuoto: Guess The Build"; fi.sbNextRound = "Seuraava kierros:";
         fi.themeSelectingTitle = "Aihetta valitaan...";
         fi.afkSubstring = "AFK! Ohitetaan";
@@ -863,8 +896,8 @@ public class LangPatterns {
         zhCN.langSelectPrefix = "\u5df2\u9009\u62e9\u8bed\u8a00\uff1a";
         zhCN.guiTitle = "\u9009\u62e9\u8981\u5efa\u9020\u7684\u4e3b\u9898\uff01";
         zhCN.sbTheme = "\u4e3b\u9898\uff1a"; zhCN.sbBuilder = "\u5efa\u7b51\u5e08\uff1a";
-        zhCN.sbTime = "\u65f6\u95f4\uff1a"; zhCN.sbStartsIn = "\u5f00\u59cb\u4e8e";
-        zhCN.sbMode = "\u6a21\u5f0f\uff1a\u5efa\u7b51\u731c\u731c\u4e50"; zhCN.sbNextRound = "\u4e0b\u4e00\u8f6e\uff1a";
+        zhCN.sbTime = "\u65f6\u95f4:"; zhCN.sbStartsIn = "\u5f00\u59cb\u4e8e:";
+        zhCN.sbMode = "\u6a21\u5f0f\uff1a\u5efa\u7b51\u731c\u731c\u4e50"; zhCN.sbNextRound = "\u4e0b\u4e00\u8f6e:";
         zhCN.sbTitle = "\u5efa\u7b51\u731c\u731c\u4e50";
         zhCN.themeSelectingTitle = "\u6b63\u5728\u9009\u62e9\u4e3b\u9898\u3002";
         zhCN.afkSubstring = "\u6682\u65f6\u79bb\u5f00\u4e86";
@@ -892,7 +925,7 @@ public class LangPatterns {
         zhTW.langSelectPrefix = "\u5df2\u9078\u5b9a\u8a9e\u8a00\uff1a";
         zhTW.guiTitle = "\u9078\u64c7\u8981\u5efa\u9020\u7684\u4e3b\u984c\uff01";
         zhTW.sbTheme = "\u4e3b\u984c\uff1a"; zhTW.sbBuilder = "\u5efa\u7bc9\u5e2b\uff1a";
-        zhTW.sbTime = "\u6642\u9593\uff1a"; zhTW.sbStartsIn = "\u5373\u5c07\u958b\u59cb\u65bc";
+        zhTW.sbTime = "\u6642\u9593:"; zhTW.sbStartsIn = "\u5373\u5c07\u958b\u59cb\u65bc:";
         zhTW.sbMode = "\u6a21\u5f0f\uff1a\u4f60\u84cb\u6211\u731c"; zhTW.sbNextRound = "\u4e0b\u4e00\u56de\uff1a";
         zhTW.sbTitle = "\u4f60\u84cb\u6211\u731c";
         zhTW.themeSelectingTitle = "\u6b63\u5728\u9078\u64c7\u4e3b\u984c\u4e2d......";
@@ -1712,7 +1745,7 @@ public class LangPatterns {
             if (lp.sbTheme != null && cleanLine.startsWith(lp.sbTheme)) return true;
             if (lp.sbBuilder != null && cleanLine.startsWith(lp.sbBuilder)) return true;
             if (lp.sbTime != null && cleanLine.startsWith(lp.sbTime)) return true;
-            if (lp.sbNextRound != null && cleanLine.startsWith(lp.sbNextRound)) return true;
+            if (startsWithRoundEndLabel(cleanLine, lp.sbNextRound)) return true;
             if (lp.sbMode != null && cleanLine.equals(lp.sbMode)) return true;
             if (lp.sbStartsIn != null) {
                 if (lp.sbStartsInIsSuffix) {
@@ -1723,6 +1756,12 @@ public class LangPatterns {
             }
         }
         return false;
+    }
+
+    /** Round-end labels are compared through Locale.ROOT lowercase forms. */
+    static boolean startsWithRoundEndLabel(String line, String label) {
+        return line != null && label != null
+                && line.toLowerCase(Locale.ROOT).startsWith(label.toLowerCase(Locale.ROOT));
     }
 
     public static boolean isScoreboardBuilderLabel(String cleanLine) {
@@ -1756,7 +1795,7 @@ public class LangPatterns {
         for (LangPatterns lp : ALL_PATTERNS) {
             if (lp.sbNextRound != null) {
                 for (String line : cleanLines) {
-                    if (line.startsWith(lp.sbNextRound)) return lp.lang;
+                    if (startsWithRoundEndLabel(line, lp.sbNextRound)) return lp.lang;
                 }
             }
         }
@@ -1797,7 +1836,7 @@ public class LangPatterns {
         for (LangPatterns lp : ALL_PATTERNS) {
             if (lp.sbNextRound != null) {
                 for (String line : cleanLines) {
-                    if (line.startsWith(lp.sbNextRound)) return GtbGame.State.ROUND_END;
+                    if (startsWithRoundEndLabel(line, lp.sbNextRound)) return GtbGame.State.ROUND_END;
                 }
             }
         }
@@ -1819,8 +1858,16 @@ public class LangPatterns {
         return GtbGame.State.NONE;
     }
 
+    public static List<String> languageCodes() {
+        List<String> codes = new ArrayList<>();
+        for (LangPatterns lp : ALL_PATTERNS) {
+            if (lp.lang != null) codes.add(lp.lang);
+        }
+        return Collections.unmodifiableList(codes);
+    }
+
     /** Map detected language names (native or ISO code) to English with proper capitalization. */
-    static String mapLanguageName(String lang) {
+    public static String mapLanguageName(String lang) {
         if (lang == null) return null;
         switch (lang.toLowerCase()) {
             // Native names

@@ -14,10 +14,13 @@ const API_BASE = "https://api.github.com/repos/zmh-program/gtb_platform";
 const RAW_BASE = "https://raw.githubusercontent.com/zmh-program/gtb_platform";
 const MANIFEST_FILE = "translation-history-seed.json";
 const SNAPSHOT_BUNDLE_FILE = "translation-history-snapshots.bin";
+const APPROVAL_HISTORY_FILE = "translation-approval-history.json.gz";
 const V2_BUNDLE_MAGIC = Buffer.from("GTBHIST2", "ascii");
 const BUNDLE_MAGIC = Buffer.from("GTBHIST3", "ascii");
 const V2_MANIFEST_SCHEMA = 2;
-const MANIFEST_SCHEMA = 3;
+const V3_MANIFEST_SCHEMA = 3;
+const MANIFEST_SCHEMA = 4;
+const APPROVAL_HISTORY_SCHEMA = 1;
 const FETCH_CONCURRENCY = 4;
 const MAX_V2_BUNDLE_ENTRIES = 1000;
 const MAX_V2_COMPRESSED_SNAPSHOT_BYTES = 16 * 1024 * 1024;
@@ -63,8 +66,17 @@ function request(url, accept) {
       "--connect-timeout", "20", "--max-time", "120",
       "--header", `Accept: ${accept}`,
       "--header", "User-Agent: GTBS-translation-history-generator",
-      url,
     ];
+    const githubToken = (process.env.GITHUB_TOKEN || "").trim();
+    if (githubToken !== "" && url.startsWith("https://api.github.com/")) {
+      if (/[\r\n]/.test(githubToken)) {
+        cleanup();
+        reject(new Error("GITHUB_TOKEN contains an invalid line break"));
+        return;
+      }
+      args.push("--header", `Authorization: Bearer ${githubToken}`);
+    }
+    args.push(url);
     execFile(command, args, { encoding: null, maxBuffer: 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error) {
@@ -178,6 +190,13 @@ function writeUint32(value, label) {
   const bytes = Buffer.alloc(4);
   bytes.writeUInt32BE(value, 0);
   return bytes;
+}
+
+function readUint32(bytes, offset, label) {
+  if (!Number.isInteger(offset) || offset < 0 || offset + 4 > bytes.length) {
+    throw new Error(`Truncated ${label}`);
+  }
+  return bytes.readUInt32BE(offset);
 }
 
 function rollingHash(bytes, offset) {
@@ -397,6 +416,150 @@ function readV2Bundle(bytes, label) {
   return snapshots;
 }
 
+function readV3Bundle(bytes, label, expectedVersions) {
+  if (bytes.length < BUNDLE_MAGIC.length + 4
+      || !bytes.subarray(0, BUNDLE_MAGIC.length).equals(BUNDLE_MAGIC)) {
+    throw new Error(`${label} does not have a GTBHIST3 header`);
+  }
+  const count = readUint32(bytes, BUNDLE_MAGIC.length, `${label} entry count`);
+  if (count === 0 || count > MAX_V2_BUNDLE_ENTRIES) {
+    throw new Error(`${label} has invalid entry count ${count}`);
+  }
+  if (expectedVersions !== undefined && count !== expectedVersions.length) {
+    throw new Error(`${label} entry count does not match its manifest`);
+  }
+
+  const snapshots = new Map();
+  let previous = null;
+  let offset = BUNDLE_MAGIC.length + 4;
+  for (let entry = 0; entry < count; entry += 1) {
+    if (offset + 41 > bytes.length) throw new Error(`${label} is truncated at entry ${entry}`);
+    const kind = bytes[offset];
+    offset += 1;
+    const hash = bytes.subarray(offset, offset + 32).toString("hex");
+    offset += 32;
+    const rawLength = readUint32(bytes, offset, `${label} raw length`);
+    offset += 4;
+    const payloadLength = readUint32(bytes, offset, `${label} payload length`);
+    offset += 4;
+    if (rawLength === 0 || rawLength > 32 * 1024 * 1024
+        || payloadLength === 0 || payloadLength > MAX_V2_COMPRESSED_SNAPSHOT_BYTES
+        || offset + payloadLength > bytes.length) {
+      throw new Error(`${label} has invalid lengths at entry ${entry}`);
+    }
+    if (expectedVersions !== undefined && expectedVersions[entry].hash !== hash) {
+      throw new Error(`${label} hash does not match its manifest at entry ${entry}`);
+    }
+    const payload = bytes.subarray(offset, offset + payloadLength);
+    offset += payloadLength;
+    let patch;
+    try {
+      patch = zlib.gunzipSync(payload);
+    } catch (error) {
+      throw new Error(`${label} cannot decompress entry ${entry}: ${error.message}`);
+    }
+    let raw;
+    if (entry === 0) {
+      if (kind !== 0) throw new Error(`${label} first entry is not full`);
+      raw = patch;
+    } else {
+      if (kind !== 1) throw new Error(`${label} entry ${entry} is not a delta`);
+      raw = applyPatch(previous, patch, rawLength);
+    }
+    if (raw.length !== rawLength || sha256(raw) !== hash) {
+      throw new Error(`${label} cannot verify entry ${entry}`);
+    }
+    validateTranslationJson(raw, `${label} entry ${entry}`);
+    if (snapshots.has(hash)) throw new Error(`${label} repeats snapshot ${hash}`);
+    snapshots.set(hash, { rawBytes: raw });
+    previous = raw;
+  }
+  if (offset !== bytes.length) throw new Error(`${label} has trailing bytes`);
+  return snapshots;
+}
+
+function validApprovalTime(value) {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const timestamp = Date.parse(value);
+  return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null;
+}
+
+function buildApprovalHistory(versions, snapshots) {
+  if (!Array.isArray(versions) || versions.length === 0) {
+    throw new Error("Cannot build approval history without translation versions");
+  }
+  const themes = new Map();
+  const entries = new Map();
+  for (let snapshotOrdinal = 0; snapshotOrdinal < versions.length; snapshotOrdinal += 1) {
+    const version = versions[snapshotOrdinal];
+    const snapshot = snapshots.get(version.hash);
+    if (snapshot === undefined) throw new Error(`Missing approval-history snapshot ${version.hash}`);
+    let records;
+    try {
+      records = JSON.parse(snapshot.rawBytes.toString("utf8"));
+    } catch (error) {
+      throw new Error(`Invalid approval-history snapshot ${version.hash}: ${error.message}`);
+    }
+    if (!Array.isArray(records)) throw new Error(`Invalid approval-history root ${version.hash}`);
+    for (const record of records) {
+      if (record === null || typeof record !== "object"
+          || !Number.isSafeInteger(record.id) || record.id <= 0
+          || typeof record.theme !== "string" || record.theme.trim() === "") continue;
+      themes.set(record.id, record.theme);
+      if (record.translations === null || typeof record.translations !== "object"
+          || Array.isArray(record.translations)) continue;
+      for (const [language, body] of Object.entries(record.translations)) {
+        if (language === "co" || body === null || typeof body !== "object"
+            || Array.isArray(body) || body.is_approved !== true
+            || typeof body.translation !== "string" || body.translation === "") continue;
+        const approvedAt = validApprovalTime(body.approved_at);
+        if (approvedAt === null) continue;
+        const key = `${record.id}\u0000${language}`;
+        let entry = entries.get(key);
+        if (entry === undefined) {
+          entry = { id: record.id, language, byEvent: new Map() };
+          entries.set(key, entry);
+        }
+        const eventKey = `${approvedAt}\u0000${body.translation}`;
+        if (entry.byEvent.has(eventKey)) continue;
+        entry.byEvent.set(eventKey, {
+          approvedAt,
+          snapshotOrdinal,
+          translation: body.translation,
+        });
+      }
+    }
+  }
+
+  const serializedEntries = Array.from(entries.values())
+    .sort((left, right) => left.id - right.id || left.language.localeCompare(right.language))
+    .map((entry) => [entry.id, entry.language, Array.from(entry.byEvent.values())
+      .sort((left, right) => left.approvedAt - right.approvedAt
+        || left.snapshotOrdinal - right.snapshotOrdinal)
+      .map((event) => [event.approvedAt, event.snapshotOrdinal, event.translation])]);
+  const serializedThemes = Array.from(themes.entries())
+    .sort((left, right) => left[0] - right[0]);
+  return {
+    schemaVersion: APPROVAL_HISTORY_SCHEMA,
+    currentHash: versions[versions.length - 1].hash,
+    themes: serializedThemes,
+    entries: serializedEntries,
+  };
+}
+
+function buildApprovalHistoryResource(versions, snapshots) {
+  const history = buildApprovalHistory(versions, snapshots);
+  const bytes = gzip(Buffer.from(JSON.stringify(history), "utf8"));
+  const eventCount = history.entries.reduce((total, entry) => total + entry[2].length, 0);
+  return {
+    bytes,
+    sha256: sha256(bytes),
+    themeCount: history.themes.length,
+    entryCount: history.entries.length,
+    eventCount,
+  };
+}
+
 function validateV2Manifest(manifest, label) {
   if (manifest === null || typeof manifest !== "object"
       || manifest.schemaVersion !== V2_MANIFEST_SCHEMA
@@ -406,6 +569,24 @@ function validateV2Manifest(manifest, label) {
       || manifest.versions.length === 0) {
     throw new Error(`${label} is not a supported schema-2 translation history manifest`);
   }
+  return validateManifestVersions(manifest, label);
+}
+
+function validateV3Manifest(manifest, label) {
+  if (manifest === null || typeof manifest !== "object"
+      || (manifest.schemaVersion !== V3_MANIFEST_SCHEMA
+        && manifest.schemaVersion !== MANIFEST_SCHEMA)
+      || manifest.upstreamRepository !== UPSTREAM_REPOSITORY
+      || manifest.upstreamPath !== UPSTREAM_PATH
+      || manifest.bundleKind !== "GTBHIST3-sequential-delta"
+      || !Array.isArray(manifest.versions)
+      || manifest.versions.length === 0) {
+    throw new Error(`${label} is not a supported schema-3 or schema-4 translation history manifest`);
+  }
+  return validateManifestVersions(manifest, label);
+}
+
+function validateManifestVersions(manifest, label) {
   const versions = manifest.versions;
   const hashes = new Set();
   for (let index = 0; index < versions.length; index += 1) {
@@ -471,7 +652,30 @@ function readV2Seed(resourceDir, targetName) {
   return { versions, snapshots };
 }
 
-function buildManifest(versions) {
+function readV3Seed(resourceDir, targetName) {
+  const manifestPath = path.join(resourceDir, MANIFEST_FILE);
+  const bundlePath = path.join(resourceDir, SNAPSHOT_BUNDLE_FILE);
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    throw new Error(`Could not read ${targetName} schema-3 manifest: ${error.message}`);
+  }
+  const versions = validateV3Manifest(manifest, `${targetName} manifest`);
+  let bundleBytes;
+  try {
+    bundleBytes = fs.readFileSync(bundlePath);
+  } catch (error) {
+    throw new Error(`Could not read ${targetName} GTBHIST3 bundle: ${error.message}`);
+  }
+  const snapshots = readV3Bundle(bundleBytes, `${targetName} GTBHIST3 bundle`, versions);
+  return { versions, snapshots };
+}
+
+function buildManifest(versions, approvalHistory) {
+  if (approvalHistory === undefined || approvalHistory === null) {
+    throw new Error("Approval-history metadata is required for schema-4 manifests");
+  }
   const latest = versions[versions.length - 1];
   return {
     schemaVersion: MANIFEST_SCHEMA,
@@ -480,6 +684,14 @@ function buildManifest(versions) {
     upstreamRepository: UPSTREAM_REPOSITORY,
     upstreamPath: UPSTREAM_PATH,
     bundleKind: "GTBHIST3-sequential-delta",
+    approvalHistory: {
+      resource: APPROVAL_HISTORY_FILE,
+      schemaVersion: APPROVAL_HISTORY_SCHEMA,
+      sha256: approvalHistory.sha256,
+      themeCount: approvalHistory.themeCount,
+      entryCount: approvalHistory.entryCount,
+      eventCount: approvalHistory.eventCount,
+    },
     versions,
   };
 }
@@ -498,12 +710,42 @@ function migrateV2(targets) {
   let result = null;
   for (const [name, resourceDir] of targets) {
     const seed = readV2Seed(path.join(REPO_ROOT, resourceDir), name);
-    const manifestBytes = Buffer.from(`${JSON.stringify(buildManifest(seed.versions), null, 2)}\n`, "utf8");
+    const approvalHistory = buildApprovalHistoryResource(seed.versions, seed.snapshots);
+    const manifestBytes = Buffer.from(
+      `${JSON.stringify(buildManifest(seed.versions, approvalHistory), null, 2)}\n`, "utf8");
     const bundleBytes = buildBundle(seed.versions, seed.snapshots);
     if (result === null) {
-      result = { manifestBytes, bundleBytes, versions: seed.versions };
-    } else if (!result.manifestBytes.equals(manifestBytes) || !result.bundleBytes.equals(bundleBytes)) {
+      result = {
+        manifestBytes,
+        bundleBytes,
+        approvalHistoryBytes: approvalHistory.bytes,
+        versions: seed.versions,
+      };
+    } else if (!result.manifestBytes.equals(manifestBytes) || !result.bundleBytes.equals(bundleBytes)
+        || !result.approvalHistoryBytes.equals(approvalHistory.bytes)) {
       throw new Error("Selected schema-2 resources are not identical across loader targets");
+    }
+  }
+  return result;
+}
+
+function rebuildApprovalHistory(targets) {
+  let result = null;
+  for (const [name, resourceDir] of targets) {
+    const seed = readV3Seed(path.join(REPO_ROOT, resourceDir), name);
+    const approvalHistory = buildApprovalHistoryResource(seed.versions, seed.snapshots);
+    const manifestBytes = Buffer.from(
+      `${JSON.stringify(buildManifest(seed.versions, approvalHistory), null, 2)}\n`, "utf8");
+    if (result === null) {
+      result = {
+        manifestBytes,
+        approvalHistoryBytes: approvalHistory.bytes,
+        approvalHistory,
+        versions: seed.versions,
+      };
+    } else if (!result.manifestBytes.equals(manifestBytes)
+        || !result.approvalHistoryBytes.equals(approvalHistory.bytes)) {
+      throw new Error("Selected GTBHIST3 resources are not identical across loader targets");
     }
   }
   return result;
@@ -648,6 +890,91 @@ function runSelfTest() {
   corruptedV2[V2_BUNDLE_MAGIC.length + 4 + 32 + 4] ^= 0xFF;
   assertSelfTestThrows(() => readV2Bundle(corruptedV2, "corrupt v2 self-test bundle"),
     "v2 decoder rejects corrupted gzip data");
+
+  const v2SnapshotMap = new Map(v2Versions.map((version, index) => [version.hash, {
+    rawBytes: v2Raw[index],
+  }]));
+  const v3Bundle = buildBundle(v2Versions, v2SnapshotMap);
+  const decodedV3 = readV3Bundle(v3Bundle, "v3 self-test bundle", v2Versions);
+  assertSelfTest(decodedV3.size === v2Versions.length, "v3 bundle count");
+  assertSelfTest(decodedV3.get(v2Versions[1].hash).rawBytes.equals(v2Raw[1]),
+    "v3 decoder reconstructs delta snapshots");
+
+  const approvalRaw = [
+    Buffer.from(JSON.stringify([{
+      id: 1,
+      theme: "Approval Theme",
+      translations: {
+        ru: { translation: "Old", is_approved: true, approved_at: "2024-01-01T00:00:00Z" },
+        fi: { translation: "Invalid", is_approved: true, approved_at: "not-a-date" },
+        co: { translation: "Excluded", is_approved: true, approved_at: "2024-01-01T00:00:00Z" },
+      },
+    }]), "utf8"),
+    Buffer.from(JSON.stringify([{
+      id: 1,
+      theme: "Approval Theme",
+      translations: {
+        ru: { translation: "Proposal", is_approved: false, approved_at: "2024-02-01T00:00:00Z" },
+      },
+    }]), "utf8"),
+    Buffer.from(JSON.stringify([{
+      id: 1,
+      theme: "Approval Theme Renamed",
+      translations: {
+        ru: { translation: "New", is_approved: true, approved_at: "2024-03-01T00:00:00Z" },
+      },
+    }]), "utf8"),
+  ];
+  const approvalVersions = approvalRaw.map((raw, index) => ({
+    hash: sha256(raw),
+    validFrom: index === 0 ? 0 : index * 1000,
+    validUntil: index + 1 === approvalRaw.length ? 0 : (index + 1) * 1000,
+    sourceTimestamp: (index + 1) * 1000,
+    sourceCommit: `${index + 1}`.repeat(40),
+    bundledSnapshot: true,
+  }));
+  const approvalSnapshots = new Map(approvalVersions.map((version, index) => [version.hash, {
+    rawBytes: approvalRaw[index],
+  }]));
+  const approvalHistory = buildApprovalHistory(approvalVersions, approvalSnapshots);
+  assertSelfTest(approvalHistory.themes.length === 1
+      && approvalHistory.themes[0][1] === "Approval Theme Renamed",
+    "approval history keeps the latest canonical theme name");
+  assertSelfTest(approvalHistory.entries.length === 1, "approval history excludes invalid entries");
+  const approvalEvents = approvalHistory.entries[0][2];
+  assertSelfTest(approvalEvents.length === 2
+      && approvalEvents[0][1] === 0 && approvalEvents[0][2] === "Old"
+      && approvalEvents[1][1] === 2 && approvalEvents[1][2] === "New",
+    "approval history retains prior approval across an unapproved proposal");
+  const approvalResource = buildApprovalHistoryResource(approvalVersions, approvalSnapshots);
+  assertSelfTest(approvalResource.bytes.equals(
+    buildApprovalHistoryResource(approvalVersions, approvalSnapshots).bytes),
+  "approval-history bytes are deterministic");
+  const conflictingRaw = Buffer.from(JSON.stringify([{
+    id: 1,
+    theme: "Approval Theme",
+    translations: {
+      ru: { translation: "Conflict", is_approved: true, approved_at: "2024-01-01T00:00:00Z" },
+    },
+  }]), "utf8");
+  const conflictingVersions = approvalVersions.slice(0, 1).concat([{
+    hash: sha256(conflictingRaw),
+    validFrom: 1000,
+    validUntil: 0,
+    sourceTimestamp: 2000,
+    sourceCommit: "f".repeat(40),
+    bundledSnapshot: true,
+  }]);
+  const conflictingSnapshots = new Map([
+    [conflictingVersions[0].hash, { rawBytes: approvalRaw[0] }],
+    [conflictingVersions[1].hash, { rawBytes: conflictingRaw }],
+  ]);
+  const sameTimeHistory = buildApprovalHistory(conflictingVersions, conflictingSnapshots);
+  const sameTimeEvents = sameTimeHistory.entries[0][2];
+  assertSelfTest(sameTimeEvents.length === 2
+      && sameTimeEvents[0][1] === 0 && sameTimeEvents[0][2] === "Old"
+      && sameTimeEvents[1][1] === 1 && sameTimeEvents[1][2] === "Conflict",
+    "approval history preserves same-time corrections in snapshot order");
 }
 
 function writeAtomic(file, bytes) {
@@ -672,6 +999,7 @@ async function main() {
         const absoluteDir = path.join(REPO_ROOT, resourceDir);
         writeAtomic(path.join(absoluteDir, MANIFEST_FILE), migration.manifestBytes);
         writeAtomic(path.join(absoluteDir, SNAPSHOT_BUNDLE_FILE), migration.bundleBytes);
+        writeAtomic(path.join(absoluteDir, APPROVAL_HISTORY_FILE), migration.approvalHistoryBytes);
       }
     }
     process.stdout.write(
@@ -684,24 +1012,48 @@ async function main() {
     );
     return;
   }
+  if (process.argv.includes("--rebuild-approval-history")) {
+    const rebuilt = rebuildApprovalHistory(targets);
+    const latest = rebuilt.versions[rebuilt.versions.length - 1];
+    validateCurrentTranslations(targets, latest.hash);
+    if (!process.argv.includes("--dry-run")) {
+      for (const [, resourceDir] of targets) {
+        const absoluteDir = path.join(REPO_ROOT, resourceDir);
+        writeAtomic(path.join(absoluteDir, MANIFEST_FILE), rebuilt.manifestBytes);
+        writeAtomic(path.join(absoluteDir, APPROVAL_HISTORY_FILE), rebuilt.approvalHistoryBytes);
+      }
+    }
+    process.stdout.write(
+      `${process.argv.includes("--dry-run") ? "Validated" : "Rebuilt"} `
+        + `${rebuilt.approvalHistory.entryCount} approval-history keys and `
+        + `${rebuilt.approvalHistory.eventCount} events `
+        + `(${rebuilt.approvalHistoryBytes.length} bundled bytes) for `
+        + `${targets.map(([name]) => name).join(", ")}.\n`,
+    );
+    return;
+  }
   const commits = await fetchCommitHistory();
   const records = await fetchSnapshots(commits);
   const { versions, snapshots } = buildHistory(records);
   const latest = versions[versions.length - 1];
-  const manifest = buildManifest(versions);
+  const latestSnapshot = snapshots.get(latest.hash);
+  if (latestSnapshot === undefined) throw new Error(`Missing current snapshot ${latest.hash}`);
+  const approvalHistory = buildApprovalHistoryResource(versions, snapshots);
+  const manifest = buildManifest(versions, approvalHistory);
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   const bundleBytes = buildBundle(versions, snapshots);
+  const staleTargets = [];
 
   for (const [name, resourceDir] of targets) {
     const absoluteDir = path.join(REPO_ROOT, resourceDir);
     const currentFile = path.join(absoluteDir, "translations-data.json");
     const currentHash = sha256(fs.readFileSync(currentFile));
-    if (currentHash !== latest.hash) {
-      throw new Error(`${name} translations-data.json is ${currentHash}, expected ${latest.hash}`);
-    }
+    if (currentHash !== latest.hash) staleTargets.push(name);
     if (!process.argv.includes("--dry-run")) {
+      writeAtomic(currentFile, latestSnapshot.rawBytes);
       writeAtomic(path.join(absoluteDir, MANIFEST_FILE), manifestBytes);
       writeAtomic(path.join(absoluteDir, SNAPSHOT_BUNDLE_FILE), bundleBytes);
+      writeAtomic(path.join(absoluteDir, APPROVAL_HISTORY_FILE), approvalHistory.bytes);
     }
   }
 
@@ -710,10 +1062,16 @@ async function main() {
   process.stdout.write(
     `${process.argv.includes("--dry-run") ? "Validated" : "Wrote"} `
       + `${versions.length} GitHub translation versions (${snapshots.size} unique snapshots, `
-      + `${rawBytes} raw bytes, ${bundleBytes.length} bundled bytes) for `
+      + `${rawBytes} raw bytes, ${bundleBytes.length} bundled bytes, `
+      + `${approvalHistory.entryCount} approval-history keys, `
+      + `${approvalHistory.eventCount} approval events, ${approvalHistory.bytes.length} `
+      + `approval-history bytes) for `
       + `${targets.map(([name]) => name).join(", ")}.\n`
       + `Earliest ${versions[0].sourceCommit} is valid from 0; current `
-      + `${latest.sourceCommit} is valid from ${latest.validFrom}.\n`,
+      + `${latest.sourceCommit} is valid from ${latest.validFrom}.\n`
+      + `${process.argv.includes("--dry-run") ? "Would refresh" : "Refreshed"} `
+      + `${staleTargets.length} stale current snapshot(s)`
+      + `${staleTargets.length === 0 ? "." : `: ${staleTargets.join(", ")}.`}\n`,
   );
 }
 

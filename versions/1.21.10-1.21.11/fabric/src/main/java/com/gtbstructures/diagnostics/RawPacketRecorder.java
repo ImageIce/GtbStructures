@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.lang.reflect.Method;
 
 /**
  * Platform-neutral JSONL recorder for GTBS raw/debug exports.
@@ -87,6 +88,43 @@ public final class RawPacketRecorder {
         if (!GameStats.INSTANCE.isTrackingEnabled()) return;
         if (packet == null || packet.trim().isEmpty()) return;
         addRecord(withContext(System.currentTimeMillis(), packet, summary));
+    }
+
+    public synchronized void captureSoundPacket(Object packet) {
+        if (!GameStats.INSTANCE.isTrackingEnabled() || packet == null) return;
+        captureSummary("S29PacketSoundEffect", summarizeSoundPacket(packet));
+    }
+
+    private static String summarizeSoundPacket(Object packet) {
+        Object sound = invoke(packet, "getSound", "method_11919", "a");
+        Object location = invoke(sound, "getLocation", "location", "method_10294");
+        String soundName = location == null ? String.valueOf(sound) : String.valueOf(location);
+        return "{\"soundName\":" + json(soundName)
+                + ",\"source\":" + json(String.valueOf(invoke(packet, "getSource", "method_11917", "b")))
+                + ",\"x\":" + number(invoke(packet, "getX", "method_11920", "c"))
+                + ",\"y\":" + number(invoke(packet, "getY", "method_11921", "d"))
+                + ",\"z\":" + number(invoke(packet, "getZ", "method_11922", "e"))
+                + ",\"volume\":" + number(invoke(packet, "getVolume", "method_11923", "f"))
+                + ",\"pitch\":" + number(invoke(packet, "getPitch", "method_11924", "g"))
+                + ",\"seed\":" + number(invoke(packet, "getSeed", "method_11925", "h"))
+                + "}";
+    }
+
+    private static Object invoke(Object target, String... names) {
+        if (target == null) return null;
+        for (String name : names) {
+            try {
+                Method method = target.getClass().getMethod(name);
+                return method.invoke(target);
+            } catch (ReflectiveOperationException ignored) {
+                // Try the next mapped name.
+            }
+        }
+        return null;
+    }
+
+    private static String number(Object value) {
+        return value instanceof Number ? String.valueOf(value) : "null";
     }
 
     public synchronized void captureDistinctSummary(String packet, String summary) {

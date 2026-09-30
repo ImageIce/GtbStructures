@@ -1,6 +1,8 @@
 package com.gtbstructures.scoreboard;
 
 import com.gtbstructures.overlay.FabricHudElementBridge;
+import com.gtbstructures.sound.SoundIconMapping;
+import com.gtbstructures.util.RuntimeReflectionCache;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.MappingResolver;
 import org.lwjgl.glfw.GLFW;
@@ -20,6 +22,9 @@ public final class PreviewEditorOverlayRenderer {
     private static final String WINDOW = "net.minecraft.class_1041";
     private static final String BUTTON_WIDGET = "net.minecraft.class_4185";
     private static final String DRAWABLE = "net.minecraft.class_4068";
+    private static final RuntimeReflectionCache.InvocationSite DRAW_ITEM =
+            RuntimeReflectionCache.instanceSite("drawItem", "renderItem", "item", "method_51427");
+    private static boolean itemRenderWarningLogged;
 
     private PreviewEditorOverlayRenderer() {
     }
@@ -428,6 +433,83 @@ public final class PreviewEditorOverlayRenderer {
         return type.equals(Float.TYPE) || type.equals(Float.class);
     }
 
+    private static boolean renderItem(Object graphics, String soundId, int x, int y) {
+        try {
+            String registryId = "minecraft:" + SoundIconMapping.itemIdFor(soundId);
+            Class<?> identifierClass = RuntimeReflectionCache.classAny(
+                    "net.minecraft.resources.ResourceLocation", "net.minecraft.resources.Identifier",
+                    "net.minecraft.util.Identifier", "net.minecraft.class_2960", "amj", "amo");
+            Object identifier = null;
+            for (Method method : identifierClass.getMethods()) {
+                if (!Modifier.isStatic(method.getModifiers())
+                        || !identifierClass.isAssignableFrom(method.getReturnType())) continue;
+                if (method.getParameterCount() == 1 && method.getParameterTypes()[0] == String.class) {
+                    try { identifier = method.invoke(null, registryId); } catch (ReflectiveOperationException | RuntimeException ignored) { }
+                } else if (method.getParameterCount() == 2
+                        && method.getParameterTypes()[0] == String.class
+                        && method.getParameterTypes()[1] == String.class) {
+                    int colon = registryId.indexOf(':');
+                    try { identifier = method.invoke(null, registryId.substring(0, colon), registryId.substring(colon + 1)); }
+                    catch (ReflectiveOperationException | RuntimeException ignored) { }
+                }
+                if (identifier != null) break;
+            }
+            if (identifier == null) return iconFailure(soundId, null);
+            Class<?> registryClass = RuntimeReflectionCache.classAny(
+                    "net.minecraft.core.registries.BuiltInRegistries", "net.minecraft.registry.Registries",
+                    "net.minecraft.class_7923", "mo", "mi");
+            Object registry = RuntimeReflectionCache.staticFieldAny(registryClass, "ITEM", "h", "field_41178", "field_11142");
+            Class<?> stackClass = RuntimeReflectionCache.classAny("net.minecraft.world.item.ItemStack",
+                    "net.minecraft.item.ItemStack", "net.minecraft.class_1799", "dhp", "dlt");
+            Object stack = null;
+            if (registry != null) {
+                registryMethods:
+                for (Method method : registry.getClass().getMethods()) {
+                    if (method.getParameterCount() != 1
+                            || !method.getParameterTypes()[0].isInstance(identifier)) continue;
+                    Object item;
+                    try { item = method.invoke(registry, identifier); }
+                    catch (ReflectiveOperationException | RuntimeException ignored) { continue; }
+                    if (item instanceof java.util.Optional) item = ((java.util.Optional<?>) item).orElse(null);
+                    if (item == null) continue;
+                    for (java.lang.reflect.Constructor<?> constructor : stackClass.getConstructors()) {
+                        if (constructor.getParameterCount() == 1
+                                && constructor.getParameterTypes()[0].isInstance(item)) {
+                            stack = constructor.newInstance(item);
+                            break registryMethods;
+                        }
+                    }
+                }
+            }
+            if (stack == null) return iconFailure(soundId, null);
+            if (drawItemForTest(graphics, stack, x, y)) return true;
+            return iconFailure(soundId, null);
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return iconFailure(soundId, failure);
+        }
+    }
+
+    static boolean drawItemForTest(Object graphics, Object stack, int x, int y)
+            throws ReflectiveOperationException {
+        return DRAW_ITEM.invokeIfPresent(graphics, stack, Integer.valueOf(x), Integer.valueOf(y));
+    }
+
+    private static boolean iconFailure(String soundId, Throwable error) {
+        if (itemRenderWarningLogged) return false;
+        itemRenderWarningLogged = true;
+        if (error == null) LOGGER.warn("Unable to render Guess Sounds icon for {}", soundId);
+        else LOGGER.warn("Unable to render Guess Sounds icon for " + soundId, error);
+        return false;
+    }
+
+    private static Object fieldAny(Class<?> type, String... names) throws ReflectiveOperationException {
+        for (String name : names) {
+            try { return type.getField(name).get(null); }
+            catch (NoSuchFieldException ignored) { }
+        }
+        throw new NoSuchFieldException(type.getName());
+    }
+
     private static String minecraftClassName(String intermediaryName) {
         try {
             MappingResolver resolver = FabricLoader.getInstance().getMappingResolver();
@@ -548,6 +630,11 @@ public final class PreviewEditorOverlayRenderer {
             } catch (ReflectiveOperationException | RuntimeException e) {
                 return false;
             }
+        }
+
+        @Override
+        public void drawSoundIcon(String soundId, int x, int y) {
+            renderItem(graphics, soundId, x, y);
         }
     }
 }

@@ -11,6 +11,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.util.*;
+import java.awt.Desktop;
 
 /**
  * JSON serialization, file I/O, and export logic for GTB game stats.
@@ -486,6 +487,124 @@ public class GameExporter {
         File statsDir = new File(new File(gameDir, "config"), "gtbstats");
         if (!statsDir.exists()) statsDir.mkdirs();
         return statsDir;
+    }
+
+    /** Opens the shared GTBS stats directory without blocking the client thread. */
+    public static void openStatsFolderAsync(File gameDir) {
+        startStatsFolderOpen(gameDir, new FolderOpenAction() {
+            @Override
+            public void open(File folder) throws Exception {
+                openFolder(folder);
+            }
+        });
+    }
+
+    private static void openFolder(File folder) throws Exception {
+        IOException nativeFailure = null;
+        String[] command = folderOpenCommand(System.getProperty("os.name"), folder);
+        if (command != null) {
+            try {
+                new ProcessBuilder(command)
+                        .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                        .redirectError(ProcessBuilder.Redirect.DISCARD)
+                        .start();
+                return;
+            } catch (IOException e) {
+                nativeFailure = e;
+            }
+        }
+
+        try {
+            if (!Desktop.isDesktopSupported()) {
+                throw new UnsupportedOperationException("Desktop integration is unavailable");
+            }
+            Desktop desktop = Desktop.getDesktop();
+            if (!desktop.isSupported(Desktop.Action.OPEN)) {
+                throw new UnsupportedOperationException("Folder opening is unavailable");
+            }
+            desktop.open(folder);
+        } catch (Exception e) {
+            if (nativeFailure != null) e.addSuppressed(nativeFailure);
+            throw e;
+        }
+    }
+
+    static String[] folderOpenCommand(String osName, File folder) {
+        if (folder == null) return null;
+        String normalizedOs = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
+        String path = folder.getAbsolutePath();
+        if (normalizedOs.contains("win")) {
+            return new String[] {"explorer.exe", path};
+        }
+        if (normalizedOs.contains("mac")) {
+            return new String[] {"/usr/bin/open", path};
+        }
+        if (normalizedOs.contains("linux") || normalizedOs.contains("unix")
+                || normalizedOs.contains("bsd") || normalizedOs.contains("sunos")) {
+            return new String[] {"xdg-open", path};
+        }
+        return null;
+    }
+
+    static Thread startStatsFolderOpen(File gameDir, final FolderOpenAction action) {
+        final File folder = getStatsDir(gameDir);
+        if (folder == null || action == null) return null;
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    action.open(folder.getCanonicalFile());
+                } catch (Throwable throwable) {
+                    LOGGER.log(Level.WARNING, "Failed to open the GTBS stats folder", throwable);
+                }
+            }
+        }, "GtbStructures-FolderOpen");
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
+    }
+
+    interface FolderOpenAction {
+        void open(File folder) throws Exception;
+    }
+
+    static String relativePathForChat(File gameDir, File file) {
+        if (file == null) return "";
+        String fallback = normalizePath(file.getPath());
+        if (gameDir == null) return fallback;
+        try {
+            java.nio.file.Path root = gameDir.getCanonicalFile().toPath();
+            java.nio.file.Path target = file.getCanonicalFile().toPath();
+            if (target.startsWith(root)) {
+                return normalizePath(root.relativize(target).toString());
+            }
+        } catch (IOException ignored) {
+            // The generated file is still useful to identify by its normalized path.
+        }
+        return fallback;
+    }
+
+    static String displayPathForChat(File gameDir, File file) {
+        String relativePath = relativePathForChat(gameDir, file);
+        if (gameDir == null || relativePath.length() == 0) return relativePath;
+        File root;
+        try {
+            root = gameDir.getCanonicalFile();
+        } catch (IOException ignored) {
+            root = gameDir.getAbsoluteFile();
+        }
+        String name = root.getName();
+        return name.length() == 0 ? relativePath : name + "/" + relativePath;
+    }
+
+    static String localFileNotice(String prefix, File gameDir, File file) {
+        return prefix + displayPathForChat(gameDir, file)
+                + " \u00a77(Click Here\u00a77 to open the folder)"
+                + StatsArchive.LOCAL_FILE_NOTICE_MARKER + "/gtbs openstatsfolder";
+    }
+
+    private static String normalizePath(String path) {
+        return path == null ? "" : path.replace('\\', '/');
     }
 
 }

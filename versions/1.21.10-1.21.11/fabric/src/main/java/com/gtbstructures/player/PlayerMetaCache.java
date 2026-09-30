@@ -83,13 +83,17 @@ public final class PlayerMetaCache {
         if (visibleIgnStart < 0) return;
 
         String label = hypixelRankLabelBefore(speaker, 0, visibleIgnStart);
-        if (label == null && hasBuildBattleTitleBeforeIgn(speaker, 0, visibleIgnStart)) return;
+        boolean hasBuildBattleTitle = label == null
+                && hasBuildBattleTitleBeforeIgn(speaker, 0, visibleIgnStart);
 
         int rawIgnStart = rawIndexForVisibleOffset(rawFormattedLine, visibleIgnStart);
         if (rawIgnStart < 0) return;
 
         String color = lastColorBefore(rawFormattedLine, rawIgnStart);
         putRankColor(lowerIgn, color);
+        // Build Battle titles are not Hypixel donor ranks, but the IGN color
+        // still carries the unranked §7 state.
+        if (hasBuildBattleTitle) return;
         if (label != null && !harvestedRankLabels.containsKey(lowerIgn)) {
             harvestedRankLabels.put(lowerIgn, label);
         }
@@ -174,7 +178,7 @@ public final class PlayerMetaCache {
             for (Map.Entry<String, String> entry : packetPlayerTeams.entrySet()) {
                 if (teamName.equals(entry.getValue())) {
                     harvestLobbyRankColorFromTeamName(entry.getKey(), teamName);
-                    harvestTeamFormat(entry.getKey(), entry.getKey(), fmt);
+                    harvestTeamFormat(entry.getKey(), entry.getKey(), fmt, true);
                 }
             }
         } else if (mode == 4 && members != null) {
@@ -189,12 +193,14 @@ public final class PlayerMetaCache {
     }
 
     public void observePacketRosterAdd(String ign) {
+        ign = GameStats.INSTANCE.canonicalRosterIgn(ign);
         if (isValidMcUsername(ign) && GameStats.INSTANCE.acceptsLobbyRosterEvidence(ign)) {
             packetRoster.add(ign);
         }
     }
 
     public String observePacketRosterRemove(String ign) {
+        ign = GameStats.INSTANCE.canonicalRosterIgn(ign);
         if (!isValidMcUsername(ign)) return null;
         Iterator<String> it = packetRoster.iterator();
         while (it.hasNext()) {
@@ -209,7 +215,15 @@ public final class PlayerMetaCache {
     }
 
     public void captureDisplayName(String ign, String formatted) {
+        String observedIgn = ign;
+        ign = GameStats.INSTANCE.canonicalRosterIgn(ign);
         if (!isValidMcUsername(ign) || formatted == null || formatted.isEmpty()) return;
+        if (isValidMcUsername(observedIgn) && !observedIgn.equalsIgnoreCase(ign)) {
+            // The source component belongs to the stale true-IGN alias. Keep
+            // roster canonicalization, but do not relabel that presentation as
+            // if the server had displayed it for the active nick.
+            return;
+        }
         String lowerIgn = ign.toLowerCase(Locale.ROOT);
         putRicher(capturedDisplayNames, lowerIgn, formatted);
         harvestEmblemFromFormattedName(lowerIgn, formatted);
@@ -217,15 +231,41 @@ public final class PlayerMetaCache {
     }
 
     private void observeTeamMember(String teamName, TeamFormat fmt, String ign) {
+        String observedIgn = ign;
+        ign = GameStats.INSTANCE.canonicalRosterIgn(ign);
         if (!isValidMcUsername(ign)) return;
+        boolean remappedLocalAlias = isValidMcUsername(observedIgn)
+                && !observedIgn.equalsIgnoreCase(ign);
         String lower = ign.toLowerCase(Locale.ROOT);
         if (GameStats.INSTANCE.acceptsLobbyRosterEvidence(ign)) {
             packetRoster.add(ign);
         }
-        packetPlayerTeams.put(lower, teamName);
-        harvestLobbyRankColorFromTeamName(lower, teamName);
+        if (!remappedLocalAlias) {
+            packetPlayerTeams.put(lower, teamName);
+            harvestLobbyRankColorFromTeamName(lower, teamName);
+        }
         harvestFromEncodedTeamName(lower, ign, teamName);
-        harvestTeamFormat(lower, ign, fmt);
+        harvestTeamFormat(lower, ign, fmt, !remappedLocalAlias);
+    }
+
+    public void transferIdentity(String oldIgn, String newIgn) {
+        if (!isValidMcUsername(oldIgn) || !isValidMcUsername(newIgn)
+                || oldIgn.equalsIgnoreCase(newIgn)) return;
+        String oldLower = oldIgn.toLowerCase(Locale.ROOT);
+        String newLower = newIgn.toLowerCase(Locale.ROOT);
+        // Hypixel rank presentation belongs to the server-visible identity, not
+        // the underlying account. Carrying the true IGN's rank label/color to a
+        // nick can paint the nick with the account's original rank until fresh
+        // nick evidence arrives. Drop the old presentation and preserve any
+        // independently harvested metadata already stored for the nick.
+        harvestedRankColors.remove(oldLower);
+        harvestedRankLabels.remove(oldLower);
+        moveStringMapValue(harvestedEmblems, oldLower, newLower);
+        moveIntegerMapValue(harvestedBbRankIndexes, oldLower, newLower);
+        capturedDisplayNames.remove(oldLower);
+        packetPlayerTeams.remove(oldLower);
+        replaceSetIdentity(encodedGameRoster, oldIgn, newIgn);
+        replaceSetIdentity(packetRoster, oldIgn, newIgn);
     }
 
     private void harvestLobbyRankColorFromTeamName(String lowerIgn, String teamName) {
@@ -323,16 +363,19 @@ public final class PlayerMetaCache {
         }
     }
 
-    private void harvestTeamFormat(String lowerIgn, String displayIgn, TeamFormat fmt) {
+    private void harvestTeamFormat(String lowerIgn, String displayIgn, TeamFormat fmt,
+                                   boolean harvestHypixelRank) {
         if (fmt == null) return;
         harvestBbRankFromPacketTeamFormat(lowerIgn, displayIgn, fmt);
-        harvestFromTeamPrefix(lowerIgn, fmt.prefix);
+        if (harvestHypixelRank) harvestFromTeamPrefix(lowerIgn, fmt.prefix);
         harvestFromTeamSuffix(lowerIgn, fmt.suffix);
-        String synthetic = (fmt.prefix == null ? "" : fmt.prefix)
-                + (displayIgn == null ? lowerIgn : displayIgn)
-                + (fmt.suffix == null ? "" : fmt.suffix);
-        if (!synthetic.equals(displayIgn)) {
-            putRicher(capturedDisplayNames, lowerIgn, synthetic);
+        if (harvestHypixelRank) {
+            String synthetic = (fmt.prefix == null ? "" : fmt.prefix)
+                    + (displayIgn == null ? lowerIgn : displayIgn)
+                    + (fmt.suffix == null ? "" : fmt.suffix);
+            if (!synthetic.equals(displayIgn)) {
+                putRicher(capturedDisplayNames, lowerIgn, synthetic);
+            }
         }
     }
 
@@ -645,6 +688,31 @@ public final class PlayerMetaCache {
         if (key == null || value == null || value.isEmpty()) return;
         String existing = map.get(key);
         if (existing == null || value.length() > existing.length()) map.put(key, value);
+    }
+
+    private static void moveStringMapValue(Map<String, String> map,
+                                           String oldKey, String newKey) {
+        String value = map.remove(oldKey);
+        if (value != null && !map.containsKey(newKey)) map.put(newKey, value);
+    }
+
+    private static void moveIntegerMapValue(Map<String, Integer> map,
+                                            String oldKey, String newKey) {
+        Integer value = map.remove(oldKey);
+        if (value != null && !map.containsKey(newKey)) map.put(newKey, value);
+    }
+
+    private static void replaceSetIdentity(Set<String> values, String oldIgn, String newIgn) {
+        boolean removed = false;
+        Iterator<String> iterator = values.iterator();
+        while (iterator.hasNext()) {
+            String existing = iterator.next();
+            if (existing != null && existing.equalsIgnoreCase(oldIgn)) {
+                iterator.remove();
+                removed = true;
+            }
+        }
+        if (removed) addIgnoreCase(values, newIgn);
     }
 
     private static void addIgnoreCase(Set<String> set, String value) {

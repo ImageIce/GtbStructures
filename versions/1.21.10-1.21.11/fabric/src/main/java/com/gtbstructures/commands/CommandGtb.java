@@ -1,7 +1,10 @@
 package com.gtbstructures.commands;
 
 import com.gtbstructures.chat.ChatHeader;
+import com.gtbstructures.sound.GuessSounds;
+import com.gtbstructures.sound.MinecraftClientSoundBridge;
 import com.gtbstructures.gtw.GtwLogic;
+import com.gtbstructures.translation.ShortcutLanguageGroups;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -26,7 +29,7 @@ public class CommandGtb {
     private static final String[] SUBCOMMANDS = {
         "hintstructure", "hs", "toggle", "setlocation", "setcolor", "colorlist", "stats", "export", "exportraw", "tracking", "autorequeue", "updatenotice",
         "haveibuilt", "whohasbuilt", "showallmatching", "themepointreveal", "shortcutreminder", "copytranslation", "gtw", "guess", "scoreboard",
-        "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guesspeek", "scrambleguess", "trollmode", "header", "preview", "overlay", "gtb", "lrj", "help"
+        "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guesspeek", "scrambleguess", "trollmode", "guesssound", "header", "preview", "overlay", "gtb", "lrj", "help"
     };
     private static final int HELP_LINES_PER_PAGE = 8;
 
@@ -44,7 +47,7 @@ public class CommandGtb {
             }
             if (isHintStructureCommand(args[0])) {
                 return getListOfStringsMatchingLastWord(args,
-                        "setlocation", "setcolor", "background");
+                        "setlocation", "setcolor", "background", "scale");
             }
             if (args[0].equalsIgnoreCase("setlocation")) {
                 return getListOfStringsMatchingLastWord(args, "x", "y");
@@ -53,40 +56,50 @@ public class CommandGtb {
                 return getListOfStringsMatchingLastWord(args, "bracket", "number", "hyphen");
             }
             if (args[0].equalsIgnoreCase("showallmatching")) {
-                return getListOfStringsMatchingLastWord(args, "showenglish");
+                return getListOfStringsMatchingLastWord(args, "showenglish", "showcount");
+            }
+            if (args[0].equalsIgnoreCase("autorequeue")) {
+                return getListOfStringsMatchingLastWord(args, "delay");
             }
             if (args[0].equalsIgnoreCase("themepointreveal")) {
                 return getListOfStringsMatchingLastWord(args, "showafterguess");
             }
             if (args[0].equalsIgnoreCase("shortcutreminder")) {
                 return getListOfStringsMatchingLastWord(args,
-                        "shownonascii", "showallshortcuts", "showmultiwords");
+                        "shownonascii", "showallshortcuts", "showmultiwords",
+                        "languagegroups");
             }
             if (args[0].equalsIgnoreCase("copytranslation")) {
-                return getListOfStringsMatchingLastWord(args, "prefix");
+                return getListOfStringsMatchingLastWord(args, "caps", "prefix");
             }
             if (args[0].equalsIgnoreCase("spawnegg")) {
                 return getListOfStringsMatchingLastWord(args, "classic", "new");
             }
             if (args[0].equalsIgnoreCase("handhelditem")) {
                 return getListOfStringsMatchingLastWord(args, "setlocation", "max", "background",
-                        "captions", "layout", "vertical", "horizontal", "size");
+                        "captions", "layout", "vertical", "horizontal", "size", "scale");
             }
             if (isEnvironmentCommand(args[0])) {
                 return getListOfStringsMatchingLastWord(args, "setlocation", "weather", "biome", "time",
-                        "chatnotice", "timepreset", "background");
+                        "timepreset", "background", "chatnotice", "scale");
             }
             if (args[0].equalsIgnoreCase("cooldowncounter")) {
-                return getListOfStringsMatchingLastWord(args, "setlocation", "setcolor", "timer", "bar", "background");
+                return getListOfStringsMatchingLastWord(args, "setlocation", "setcolor", "timer", "bar", "background", "scale");
             }
             if (args[0].equalsIgnoreCase("guesspeek")) {
                 return getListOfStringsMatchingLastWord(args, "showlangcodes", "display");
+            }
+            if (args[0].equalsIgnoreCase("guesssound")) {
+                return getListOfStringsMatchingLastWord(args, "1", "2", "3", "volume");
             }
             if (args[0].equalsIgnoreCase("scrambleguess")) {
                 return getListOfStringsMatchingLastWord(args, "on", "off", "true", "false", "fancy");
             }
             if (args[0].equalsIgnoreCase("trollmode")) {
                 return getListOfStringsMatchingLastWord(args, "autodisable", "on", "off", "true", "false");
+            }
+            if (args[0].equalsIgnoreCase("lrj")) {
+                return getListOfStringsMatchingLastWord(args, "bypassprotection");
             }
             if (args[0].equalsIgnoreCase("updatenotice")) {
                 return getListOfStringsMatchingLastWord(args, "on", "off", "toggle");
@@ -95,7 +108,20 @@ public class CommandGtb {
                 return Collections.emptyList();
             }
         }
+        if (args.length == 3 && args[0].equalsIgnoreCase("guesssound")) {
+            if (args[1].equalsIgnoreCase("volume")) return getListOfStringsMatchingLastWord(args, "0.0", "20.0", "30.0");
+            if (args[1].equals("1") || args[1].equals("2") || args[1].equals("3")) {
+                MinecraftClientSoundBridge.ensureCatalog();
+                List<String> sounds = new ArrayList<>();
+                sounds.add(GuessSounds.NONE); sounds.add(GuessSounds.RANDOM);
+                for (GuessSounds.Entry entry : GuessSounds.catalog().entries()) sounds.add(entry.id);
+                return getListOfStringsMatchingLastWord(args, sounds.toArray(new String[0]));
+            }
+        }
         if (isHintStructureCommand(args[0])) {
+            if (args.length == 3 && args[1].equalsIgnoreCase("scale")) {
+                return panelScaleSuggestions(args);
+            }
             if (args.length == 3 && args[1].equalsIgnoreCase("setlocation")) {
                 return getListOfStringsMatchingLastWord(args, "x", "y");
             }
@@ -122,6 +148,14 @@ public class CommandGtb {
                 && args[1].equalsIgnoreCase("showenglish")) {
             return getListOfStringsMatchingLastWord(args, "true", "false");
         }
+        if (args.length == 3 && args[0].equalsIgnoreCase("showallmatching")
+                && args[1].equalsIgnoreCase("showcount")) {
+            return getListOfStringsMatchingLastWord(args, "on", "off");
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("autorequeue")
+                && args[1].equalsIgnoreCase("delay")) {
+            return getListOfStringsMatchingLastWord(args, "0.0", "2.5", "5.0", "7.5", "10.0");
+        }
         if (args.length == 3 && args[0].equalsIgnoreCase("themepointreveal")
                 && args[1].equalsIgnoreCase("showafterguess")) {
             return getListOfStringsMatchingLastWord(args, "on", "off");
@@ -139,6 +173,12 @@ public class CommandGtb {
                 return getListOfStringsMatchingLastWord(args,
                         "on", "off", "toggle", "showall");
             }
+            if (args[1].equalsIgnoreCase("languagegroups")) {
+                return getListOfStringsMatchingLastWord(args,
+                        "on", "off", "list", "create",
+                        "enable", "rawtranslation", "lowercase",
+                        "rename", "languages", "delete");
+            }
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("shortcutreminder")
                 && args[1].equalsIgnoreCase("showmultiwords")
@@ -150,9 +190,36 @@ public class CommandGtb {
                 && isShortcutNonAsciiCategory(args[2])) {
             return getListOfStringsMatchingLastWord(args, "on", "off", "toggle");
         }
+        if (args.length == 4 && args[0].equalsIgnoreCase("shortcutreminder")
+                && args[1].equalsIgnoreCase("languagegroups")) {
+            if (isLanguageGroupIndexOperation(args[2])) {
+                return getListOfStringsMatchingLastWord(args, languageGroupNumbers());
+            }
+        }
+        if (args.length == 5 && args[0].equalsIgnoreCase("shortcutreminder")
+                && args[1].equalsIgnoreCase("languagegroups")
+                && (args[2].equalsIgnoreCase("enable")
+                || args[2].equalsIgnoreCase("rawtranslation")
+                || args[2].equalsIgnoreCase("lowercase"))) {
+            return getListOfStringsMatchingLastWord(args, "on", "off");
+        }
+        if (args.length >= 5 && args[0].equalsIgnoreCase("shortcutreminder")
+                && args[1].equalsIgnoreCase("languagegroups")
+                && (args[2].equalsIgnoreCase("create")
+                || args[2].equalsIgnoreCase("languages"))) {
+            return languageListCompletions(args[args.length - 1]);
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("lrj")
+                && args[1].equalsIgnoreCase("bypassprotection")) {
+            return getListOfStringsMatchingLastWord(args, "on", "off");
+        }
         if (args.length == 3 && args[0].equalsIgnoreCase("copytranslation")
                 && args[1].equalsIgnoreCase("prefix")) {
             return getListOfStringsMatchingLastWord(args, "true", "false");
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("copytranslation")
+                && args[1].equalsIgnoreCase("caps")) {
+            return getListOfStringsMatchingLastWord(args, "on", "off");
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("trollmode")
                 && args[1].equalsIgnoreCase("autodisable")) {
@@ -175,7 +242,7 @@ public class CommandGtb {
                         "skin", "vanilla", "default", "hypixel",
                         "backgroundopacity", "highlightintensity",
                         "showpoints", "showplaces", "showtitles", "showemblems",
-                        "leftlast", "textshadow");
+                        "showbuilders", "showrounds", "textshadow", "leftlast");
             }
             if (args.length == 3 && args[1].equalsIgnoreCase("skin")) {
                 return getListOfStringsMatchingLastWord(args, "vanilla", "default", "hypixel");
@@ -192,6 +259,9 @@ public class CommandGtb {
             return null;
         }
         if (args[0].equalsIgnoreCase("handhelditem")) {
+            if (args.length == 3 && args[1].equalsIgnoreCase("scale")) {
+                return panelScaleSuggestions(args);
+            }
             if (args.length == 3 && args[1].equalsIgnoreCase("setlocation")) {
                 return getListOfStringsMatchingLastWord(args, "x", "y");
             }
@@ -227,6 +297,9 @@ public class CommandGtb {
             return null;
         }
         if (isEnvironmentCommand(args[0])) {
+            if (args.length == 3 && args[1].equalsIgnoreCase("scale")) {
+                return panelScaleSuggestions(args);
+            }
             if (args.length == 3 && args[1].equalsIgnoreCase("setlocation")) {
                 return getListOfStringsMatchingLastWord(args, "x", "y");
             }
@@ -249,6 +322,9 @@ public class CommandGtb {
             return null;
         }
         if (args[0].equalsIgnoreCase("cooldowncounter")) {
+            if (args.length == 3 && args[1].equalsIgnoreCase("scale")) {
+                return panelScaleSuggestions(args);
+            }
             if (args.length == 3 && args[1].equalsIgnoreCase("setlocation")) {
                 return getListOfStringsMatchingLastWord(args, "x", "y");
             }
@@ -287,6 +363,40 @@ public class CommandGtb {
             return null;
         }
         return null;
+    }
+
+    private static List<String> panelScaleSuggestions(String[] args) {
+        return getListOfStringsMatchingLastWord(args,
+                "0.5", "0.75", "1", "1.25", "1.5", "50%", "100%", "150%");
+    }
+
+    private static boolean isLanguageGroupIndexOperation(String raw) {
+        return raw != null && (raw.equalsIgnoreCase("enable")
+                || raw.equalsIgnoreCase("rawtranslation")
+                || raw.equalsIgnoreCase("lowercase")
+                || raw.equalsIgnoreCase("rename")
+                || raw.equalsIgnoreCase("languages")
+                || raw.equalsIgnoreCase("delete"));
+    }
+
+    private static String[] languageGroupNumbers() {
+        String[] numbers = new String[ShortcutLanguageGroups.groups().size()];
+        for (int i = 0; i < numbers.length; i++) numbers[i] = Integer.toString(i + 1);
+        return numbers;
+    }
+
+    private static List<String> languageListCompletions(String raw) {
+        String value = raw == null ? "" : raw;
+        int comma = value.lastIndexOf(',');
+        String prefix = comma < 0 ? "" : value.substring(0, comma + 1);
+        String fragment = comma < 0 ? value : value.substring(comma + 1);
+        List<String> matches = new ArrayList<String>();
+        for (String code : ShortcutLanguageGroups.supportedLanguageCodes()) {
+            if (code.regionMatches(true, 0, fragment, 0, fragment.length())) {
+                matches.add(prefix + code);
+            }
+        }
+        return matches;
     }
 
     /** Return args[start..] as a fresh array. */
@@ -401,12 +511,14 @@ public class CommandGtb {
     private static boolean isScoreboardTriStateOption(String raw) {
         String key = scoreboardOptionKey(raw);
         return "showpoints".equals(key) || "showplaces".equals(key)
-                || "showtitles".equals(key) || "showemblems".equals(key);
+                || "showtitles".equals(key) || "showemblems".equals(key)
+                || "showrounds".equals(key);
     }
 
     private static boolean isScoreboardBooleanOption(String raw) {
         String key = scoreboardOptionKey(raw);
-        return "leftlast".equals(key) || "textshadow".equals(key);
+        return "textshadow".equals(key) || "leftlast".equals(key)
+                || "showbuilders".equals(key);
     }
 
     private static String scoreboardOptionKey(String raw) {
@@ -425,8 +537,12 @@ public class CommandGtb {
         if (key.equals("places") || key.equals("showplaces")) return "showplaces";
         if (key.equals("titles") || key.equals("showtitles")) return "showtitles";
         if (key.equals("emblems") || key.equals("showemblems")) return "showemblems";
-        if (key.equals("leftlast")) return "leftlast";
+        if (key.equals("builder") || key.equals("builders") || key.equals("showbuilder")
+                || key.equals("showbuilders") || key.equals("explicitlyshowbuilders")) return "showbuilders";
+        if (key.equals("round") || key.equals("rounds") || key.equals("showround")
+                || key.equals("showrounds")) return "showrounds";
         if (key.equals("shadow") || key.equals("textshadow")) return "textshadow";
+        if (key.equals("leftlast")) return "leftlast";
         return key;
     }
 
@@ -441,8 +557,8 @@ public class CommandGtb {
     }
 
     private static List<String> tabGtw(String[] args) {
-        if (args == null || args.length == 0) return Arrays.asList("start", "stop", "showenglish");
-        if (args.length == 1) return getListOfStringsMatchingLastWord(args, "start", "stop", "showenglish");
+        if (args == null || args.length == 0) return Arrays.asList("start", "stop", "showenglish", "showcount", "difficulty");
+        if (args.length == 1) return getListOfStringsMatchingLastWord(args, "start", "stop", "showenglish", "showcount", "difficulty");
         String sub = args[0].toLowerCase(Locale.ROOT);
         if (args.length == 2 && sub.equals("start")) {
             List<String> options = GtwLogic.languageCompletionOptions();
@@ -450,6 +566,12 @@ public class CommandGtb {
         }
         if (args.length == 2 && sub.equals("showenglish")) {
             return getListOfStringsMatchingLastWord(args, "true", "false");
+        }
+        if (args.length == 2 && sub.equals("showcount")) {
+            return getListOfStringsMatchingLastWord(args, "on", "off");
+        }
+        if (args.length == 2 && sub.equals("difficulty")) {
+            return getListOfStringsMatchingLastWord(args, "easy", "medium", "hard", "all");
         }
         return null;
     }
@@ -460,21 +582,24 @@ public class CommandGtb {
     private static final HelpCategory[] HELP_CATEGORIES = new HelpCategory[] {
             new HelpCategory("tracking", "TRACKING", "Stats tracking and exports", new HelpLine[] {
                     HelpLine.command("/gtbs stats session [days]", "Summarizes the current player's recorded sessions."),
-                    HelpLine.command("/gtbs stats theme [entries|all]", "Summarizes recorded English-theme occurrences."),
+                    HelpLine.command("/gtbs stats theme [entries|all]", "Summarizes recorded theme occurrences for the current player; entries is a positive result limit, and all includes every local player."),
+                    HelpLine.command("/gtbs stats theme [all] export", "Exports the theme-occurrence report for the current player or every local player."),
                     HelpLine.command("/gtbs export", "Exports the current game's stats to a file."),
-                    HelpLine.command("/gtbs exportraw", "Exports the current raw packet buffer."),
+                    HelpLine.command("/gtbs exportraw", "Exports recorded raw packet diagnostics."),
                     HelpLine.command("/gtbs tracking", "Toggles stats tracking."),
                     HelpLine.note("Tracks GTB rounds, builders, guesses, themes, scores, rejoin gaps, and final leaderboards."),
                     HelpLine.note("Output folder: .minecraft/config/gtbstats/")
             }),
             new HelpCategory("hints", "HINTS", "Hint structure and matching-theme output settings", new HelpLine[] {
-                    HelpLine.command("/gtbs hintstructure", "Toggles the hint structure overlay in the form of numbers and hyphens. The number indicates the consecutive underscores and revealed letters, and the hyphen indicates the sandwiched space. Shortcut: /gtbs hs."),
-                    HelpLine.command("/gtbs hintstructure background [on|off]", "Shows or sets the hint background."),
+                    HelpLine.command("/gtbs hintstructure", "Toggles the compact hint structure overlay. Shortcut: /gtbs hs."),
+                    HelpLine.command("/gtbs hintstructure background [on|off|toggle]", "Shows or sets the hint background. Shortcut: /gtbs overlay [on|off|toggle]; without a value, the shortcut toggles it."),
+                    HelpLine.command("/gtbs hintstructure scale [0.5-1.5|50%-150%]", "Shows or sets the hint panel scale."),
                     HelpLine.command("/gtbs hintstructure setlocation <x|y> [value]", "Shows or sets overlay position. Value is 0.0-1.0."),
                     HelpLine.command("/gtbs hintstructure setcolor <bracket|number|hyphen> [color]", "Shows or sets overlay bracket/number/hyphen color."),
                     HelpLine.command("/gtbs colorlist", "Lists shared Minecraft color codes."),
-                    HelpLine.command("/gtbs showallmatching", "Toggles whether to show all themes matching the initial hint after the theme is revealed."),
-                    HelpLine.command("/gtbs showallmatching showenglish [on|off]", "Controls whether to show English source themes in the matching-theme output.")
+                    HelpLine.command("/gtbs showallmatching", "Toggles showing every theme that matches the first revealed hint after the theme is revealed."),
+                    HelpLine.command("/gtbs showallmatching showenglish [on|off]", "Toggles or sets whether English source names are included in matching-theme output."),
+                    HelpLine.command("/gtbs showallmatching showcount [on|off]", "Adds or removes the number of displayed matching themes.")
             }),
             new HelpCategory("scoreboard", "SCOREBOARD", "Custom scoreboard related settings", new HelpLine[] {
                     HelpLine.command("/gtbs scoreboard", "Toggles the custom GTB scoreboard panel."),
@@ -485,59 +610,75 @@ public class CommandGtb {
                     HelpLine.note("\u00b7 \u00a77(\u00a7b+\u00a77) \u00a78- \u00a77pending score value change."),
                     HelpLine.note("\u00b7 \u00a77(\u00a72X\u00a77) \u00a78- \u00a77lower score bound or score interval."),
                     HelpLine.note("\u00b7 \u00a7c(!) \u00a78- \u00a77uncertain score."),
-                    HelpLine.command("/gtbs scoreboard skin [vanilla|default|hypixel]", "Shows or switches between vanilla, full custom (GuessTheUtils-style), and Hypixel-style skins."),
-                    HelpLine.command("/gtbs scoreboard <backgroundopacity|highlightintensity> [0-1]", "Shows or sets a custom scoreboard visual intensity."),
+                    HelpLine.command("/gtbs scoreboard skin [vanilla|default|hypixel]", "Shows or switches the scoreboard skin; the skin name also works without skin."),
+                    HelpLine.command("/gtbs scoreboard <backgroundopacity|highlightintensity> [0-1]", "Shows or sets scoreboard background opacity or highlight intensity."),
                     HelpLine.command("/gtbs scoreboard showpoints [off|expanded|on]", "Controls current-round score deltas."),
                     HelpLine.command("/gtbs scoreboard showplaces [off|expanded|on]", "Controls leaderboard place numbers."),
                     HelpLine.command("/gtbs scoreboard showtitles [off|expanded|on]", "Controls Build Battle titles."),
                     HelpLine.command("/gtbs scoreboard showemblems [off|expanded|on]", "Controls player emblems."),
-                    HelpLine.command("/gtbs scoreboard textshadow [on|off]", "Shows or hides custom scoreboard text shadow."),
-                    HelpLine.command("/gtbs scoreboard leftlast [on|off]", "Places confirmed leavers at the bottom of custom scoreboards.")
+                    HelpLine.command("/gtbs scoreboard showbuilders [on|off|toggle]", "Controls the explicit current-builder row in the Default skin."),
+                    HelpLine.command("/gtbs scoreboard showrounds [off|expanded|on]", "Controls round progress beside the Builder row in the Hypixel skin."),
+                    HelpLine.command("/gtbs scoreboard textshadow [on|off|toggle]", "Shows or hides custom scoreboard text shadow."),
+                    HelpLine.command("/gtbs scoreboard leftlast [on|off|toggle]", "Places confirmed leavers at the bottom of custom scoreboards.")
             }),
             new HelpCategory("items", "ITEMS", "Handheld item overlay and item settings", new HelpLine[] {
                     HelpLine.command("/gtbs handhelditem", "Toggles the builder handheld item history overlay."),
-                    HelpLine.command("/gtbs handhelditem background [on|off]", "Shows or hides the handheld item list background."),
+                    HelpLine.command("/gtbs handhelditem background [on|off|toggle]", "Shows or hides the handheld item list background."),
+                    HelpLine.command("/gtbs handhelditem scale [0.5-1.5|50%-150%]", "Shows or sets the handheld item panel scale."),
                     HelpLine.command("/gtbs handhelditem captions <name|id|metadata|mob> [on|off]", "Shows or sets an item caption. Captions appear only in vertical layout."),
                     HelpLine.command("/gtbs handhelditem layout [vertical|horizontal]", "Switches between captioned vertical items and an icon-only horizontal grid."),
                     HelpLine.command("/gtbs handhelditem vertical [top|bottom]", "Places newly held items at the top or bottom in vertical layout."),
                     HelpLine.command("/gtbs handhelditem horizontal [left|right] [top|bottom]", "Places newly held icons along each axis in horizontal layout."),
                     HelpLine.command("/gtbs handhelditem size <width|height> [value]", "Shows or sets the resizable panel bounds as a 0.0-1.0 scaled-screen ratio."),
                     HelpLine.command("/gtbs handhelditem setlocation <x|y> [value]", "Shows or sets the position of the handheld overlay. Value is 0.0-1.0."),
-                    HelpLine.command("/gtbs handhelditem max [rows]", "Sets visible rows of items on the overlay. Accepted value: 2-10."),
-                    HelpLine.command("/gtbs spawnegg [classic|new]", "Sets the appearance of spawn egg icons."),
-                    HelpLine.note("classic: 1.8 spawn eggs and 1.17 templates for moderner mobs."),
-                    HelpLine.note("new: 1.21 spawn eggs.")
+                    HelpLine.command("/gtbs handhelditem max [rows]", "Shows or sets visible rows of items on the overlay. Accepted value: 2-10."),
+                    HelpLine.command("/gtbs spawnegg [classic|new]", "Shows or sets the appearance of spawn egg icons."),
+                    HelpLine.note("classic: Uses the classic spawn egg appearance."),
+                    HelpLine.note("new: Uses the modern spawn egg appearance.")
             }),
             new HelpCategory("environment", "ENVIRONMENT", "Weather, biome, and time labels", new HelpLine[] {
-                    HelpLine.command("/gtbs environment", "Toggles the weather, biome, and time overlay."),
-                    HelpLine.command("/gtbs environment background [on|off]", "Shows or hides the environment panel background."),
-                    HelpLine.command("/gtbs environment <weather|biome|time> [on|off]", "Shows or hides an environment row."),
-                    HelpLine.command("/gtbs environment chatnotice <weather|biome|time> [on|off]", "Shows or controls chat notices when an environment value changes."),
+                    HelpLine.command("/gtbs environment", "Toggles the weather, biome, and time overlay. Shortcut: /gtbs env."),
+                    HelpLine.command("/gtbs environment background [on|off|toggle]", "Shows or hides the environment panel background."),
+                    HelpLine.command("/gtbs environment scale [0.5-1.5|50%-150%]", "Shows or sets the environment panel scale."),
+                    HelpLine.command("/gtbs environment <weather|biome|time> [on|off|toggle]", "Shows or hides an environment row."),
+                    HelpLine.command("/gtbs environment chatnotice <weather|biome|time> [on|off|toggle]", "Shows or controls chat notices when an environment value changes."),
                     HelpLine.command("/gtbs environment timepreset [clock|blocks]", "Shows or switches the time icon between clock and colored blocks; each block represents a 3-hour period."),
                     HelpLine.command("/gtbs environment setlocation <x|y> [value]", "Shows or sets the environment overlay bottom position. Value is 0.0-1.0.")
             }),
             new HelpCategory("chat", "CHAT", "Cooldown counter and guess annotations", new HelpLine[] {
-                    HelpLine.command("/gtbs header <content>", "Sets the formatting-aware prefix shown before GTBS notices; empty content restores the default."),
-                    HelpLine.command("/gtbs cooldowncounter", "Toggles the outbound chat cooldown counter when guessing."),
-                    HelpLine.command("/gtbs cooldowncounter <timer|bar> [on|off]", "Shows or hides the cooldown timer text or progress bar."),
-                    HelpLine.command("/gtbs cooldowncounter background <timer|bar> [on|off]", "Shows or hides timer or bar backgrounds."),
+                    HelpLine.command("/gtbs header <content>", "Sets the formatting-aware prefix shown before GTBS notices."),
+                    HelpLine.command("/gtbs cooldowncounter", "Toggles the chat cooldown indicator while guessing."),
+                    HelpLine.command("/gtbs cooldowncounter scale [0.5-1.5|50%-150%]", "Shows or sets the cooldown panel scale."),
+                    HelpLine.command("/gtbs cooldowncounter <timer|bar> [on|off|toggle]", "Shows or hides the cooldown timer text or progress bar."),
+                    HelpLine.command("/gtbs cooldowncounter background <timer|bar> [on|off|toggle]", "Shows or hides timer or bar backgrounds."),
                     HelpLine.command("/gtbs cooldowncounter setcolor <bar|timer> [color]", "Shows or sets cooldown bar or timer text color."),
                     HelpLine.command("/gtbs cooldowncounter setlocation <x|y> [value]", "Shows or sets cooldown counter position. Value is 0.0-1.0."),
                     HelpLine.command("/gtbs guesspeek", "Toggles English-theme annotations on matching GTB guesses."),
                     HelpLine.command("/gtbs guesspeek display [hover|suffix]", "Shows or sets where guess-peek translations appear."),
                     HelpLine.command("/gtbs guesspeek showlangcodes [on|off]", "Shows or hides source language codes in guess-peek hover text."),
-                    HelpLine.command("/gtbs themepointreveal", "Toggles exact theme point-value notices in chat."),
-                    HelpLine.command("/gtbs themepointreveal showafterguess <on|off>", "Controls whether a notice may still appear after the complete theme is revealed."),
-                    HelpLine.command("/gtbs shortcutreminder", "Toggles shortcut reminders after themes are revealed."),
-                    HelpLine.command("/gtbs shortcutreminder shownonascii [on|off]", "Shows or hides enabled non-ASCII shortcut categories."),
-                    HelpLine.command("/gtbs shortcutreminder shownonascii <extendedlatin|cyrillic|hanzi|japanese|hangul> [on|off]", "Customizes shown non-ASCII shortcut categories."),
-                    HelpLine.command("/gtbs shortcutreminder showallshortcuts [on|off]", "Shows every shortest shortcut instead of only the selected shortcut."),
-                    HelpLine.command("/gtbs shortcutreminder showmultiwords [on|off]", "Shows or hides multiword reminders after shortcut reminders."),
-                    HelpLine.command("/gtbs shortcutreminder showmultiwords showall [on|off]", "Shows every accepted multiword per theme set instead of only the shortest one.")
+                    HelpLine.command("/gtbs themepointreveal", "Toggles chat notices showing theme point values."),
+                    HelpLine.command("/gtbs themepointreveal showafterguess <on|off>", "Controls whether a point-value notice may appear after a correct guess."),
+                    HelpLine.command("/gtbs shortcutreminder", "Toggles shortcut reminders after themes are revealed. Shortcuts: /shortcutreminder, /screminder."),
+                    HelpLine.command("/gtbs shortcutreminder shownonascii [on|off|toggle]", "Shows or hides enabled non-ASCII shortcut categories."),
+                    HelpLine.command("/gtbs shortcutreminder shownonascii <extendedlatin|cyrillic|hanzi|japanese|hangul> [on|off|toggle]", "Customizes shown non-ASCII shortcut categories."),
+                    HelpLine.command("/gtbs shortcutreminder showallshortcuts [on|off|toggle]", "Shows every shortest shortcut instead of only the selected shortcut."),
+                    HelpLine.command("/gtbs shortcutreminder showmultiwords [on|off|toggle]", "Shows or hides multiword reminders after shortcut reminders."),
+                    HelpLine.command("/gtbs shortcutreminder showmultiwords showall [on|off|toggle]", "Shows every accepted multiword per theme set instead of only the shortest one."),
+                    HelpLine.command("/gtbs shortcutreminder languagegroups [on|off]", "Controls independent shortest shortcuts from configured language groups."),
+                    HelpLine.command("/gtbs shortcutreminder languagegroups list", "Lists configured language groups, states, and selected languages."),
+                    HelpLine.command("/gtbs shortcutreminder languagegroups create <name> <langs>", "Creates an enabled group from comma-separated language codes."),
+                    HelpLine.command("/gtbs shortcutreminder languagegroups enable <number> [on|off]", "Shows or sets one language group's enabled state."),
+                    HelpLine.command("/gtbs shortcutreminder languagegroups rawtranslation <number> [on|off]", "Uses each stored translation unchanged as that group's shortcut candidate."),
+                    HelpLine.command("/gtbs shortcutreminder languagegroups lowercase <number> [on|off]", "Lowercases those raw translation candidates; requires rawtranslation."),
+                    HelpLine.command("/gtbs shortcutreminder languagegroups rename <number> <name>", "Renames a configured language group."),
+                    HelpLine.command("/gtbs shortcutreminder languagegroups languages <number> <langs>", "Replaces one group's comma-separated language selection."),
+                    HelpLine.command("/gtbs shortcutreminder languagegroups delete <number>", "Deletes a configured language group.")
             }),
             new HelpCategory("experimental", "EXPERIMENTAL", "Experimental options", new HelpLine[] {
-                    HelpLine.command("/gtbs scrambleguess [on|off]", "Toggles whether to replace a valid guess with a random guess working for the exact same theme."),
-                    HelpLine.command("/gtbs scrambleguess fancy [on|off]", "Toggles whether to apply randomized modifications to the final string."),
+                    HelpLine.command("/gtbs guesssound [1|2|3] [id|none|random]", "Shows or sets the sound for a correct guess by point value."),
+                    HelpLine.command("/gtbs guesssound volume [0-30]", "Shows or sets the global correct-guess sound volume."),
+                    HelpLine.command("/gtbs scrambleguess [on|off]", "Toggles replacing a valid guess with another valid guess for the same theme."),
+                    HelpLine.command("/gtbs scrambleguess fancy [on|off]", "Toggles randomized text changes on the replacement guess."),
                     HelpLine.command("/gtbs trollmode [on|off]", "Toggles whether to change a valid guess into a visually similar invalid guess. Shortcut: /trollmode [on|off]."),
                     HelpLine.command("/gtbs trollmode autodisable [on|off]", "Controls whether Troll Mode turns off when a GTB game starts. Shortcut: /trollmode autodisable [on|off].")
             }),
@@ -545,23 +686,28 @@ public class CommandGtb {
                     HelpLine.command("/gtbs toggle", "Toggles all GTBS features without changing their individual settings."),
                     HelpLine.command("/gtbs gtb", "Joins Guess the Build. Shortcut: /gtb."),
                     HelpLine.command("/gtbs lrj", "Leaves to lobby, then rejoins. Shortcut: /lrj."),
-                    HelpLine.command("/gtbs preview", "Toggles a session-only GUI preview for enabled interface features where you can customize the settings."),
+                    HelpLine.command("/gtbs lrj bypassprotection [on|off]", "Retries /lrj when Hypixel requires confirmation before leaving. Shortcut: /lrj bypassprotection [on|off]."),
+                    HelpLine.command("/gtbs preview", "Toggles the session-only GUI for previewing and configuring interface features."),
                     HelpLine.command("/gtbs autorequeue", "Toggles auto-requeue after a game ends."),
-                    HelpLine.command("/gtbs updatenotice [on|off|toggle]", "Controls the update notice shown after the first server join of each startup."),
+                    HelpLine.command("/gtbs autorequeue delay [time]", "Shows or sets the wait before rejoining after a game ends. Accepted value: 0.0-10.0 seconds."),
+                    HelpLine.command("/gtbs updatenotice [on|off|toggle]", "Toggles or sets the startup update notice shown after the first multiplayer join."),
                     HelpLine.command("/gtbs haveibuilt", "Reports whether you have built this game."),
-                    HelpLine.command("/gtbs whohasbuilt", "Lists players who have built so far this game.")
+                    HelpLine.command("/gtbs whohasbuilt", "Lists players who have built and identifies the current or upcoming builder this game.")
             }),
             new HelpCategory("copy", "COPY", "Copy theme translations", new HelpLine[] {
                     HelpLine.command("/gtbs copytranslation <theme> [langs]", "Copies theme translations. Shortcuts: /copytranslation, /copyt."),
                     HelpLine.note("With no language value, copies translations from every available language."),
                     HelpLine.note("You can use language codes or full names to select desired translations to copy; for multiple languages, use comma to separate. e.g. en,ru; pirate_speak,Chinese_Simplified."),
+                    HelpLine.command("/gtbs copytranslation caps [on|off]", "Uses an initial capital when on; lowercases every letter when off."),
                     HelpLine.command("/gtbs copytranslation prefix <true|false>", "Toggles whether to show the copied \"The theme is\" prefix.")
             }),
             new HelpCategory("gtw", "GTW", "Guess The Wordhint mini-game", new HelpLine[] {
                     HelpLine.command("/gtbs gtw start [language]", "Starts a Guess The Wordhint mini-session. Shortcut: /gtw start [language]."),
                     HelpLine.command("/gtbs guess <guess>", "Submits a Guess The Wordhint answer. Shortcut: /guess <guess>."),
                     HelpLine.command("/gtbs gtw stop", "Stops the Guess The Wordhint session and reveals the theme. Shortcut: /gtw stop."),
-                    HelpLine.command("/gtbs gtw showenglish <true|false>", "Sets whether GTW reveal/list lines include English names.")
+                    HelpLine.command("/gtbs gtw showenglish [true|false]", "Shows or sets whether GTW reveal and list lines include English names."),
+                    HelpLine.command("/gtbs gtw showcount [on|off]", "Shows or sets whether GTW output includes the number of matching themes. Shortcut: /gtw showcount [on|off]."),
+                    HelpLine.command("/gtbs gtw difficulty [easy|medium|hard|all]", "Shows or selects GTW themes by their English length-based point value. Shortcut: /gtw difficulty [easy|medium|hard|all].")
             })
     };
     private static final HelpCategory ALL_HELP_CATEGORY = buildAllHelpCategory();

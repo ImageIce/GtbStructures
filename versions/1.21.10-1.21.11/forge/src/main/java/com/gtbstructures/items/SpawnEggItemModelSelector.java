@@ -56,7 +56,8 @@ public final class SpawnEggItemModelSelector {
         return stringValue(itemIdentifier(item));
     }
 
-    static ItemStack stackForRegistryName(String registryName) {
+    /** Returns a client-renderable stack for a vanilla registry id, or EMPTY when absent. */
+    public static ItemStack stackForRegistryName(String registryName) {
         String clean = registryName == null ? "" : registryName.trim();
         if (clean.isEmpty()) return ItemStack.EMPTY;
         Item item = ITEM_BY_REGISTRY_NAME.get(clean);

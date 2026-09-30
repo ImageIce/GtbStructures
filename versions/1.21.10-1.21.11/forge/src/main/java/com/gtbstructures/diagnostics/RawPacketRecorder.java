@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.lang.reflect.Method;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
 import java.util.Date;
@@ -83,6 +84,38 @@ public final class RawPacketRecorder {
         if (!GameStats.INSTANCE.isTrackingEnabled()) return;
         if (packet == null || packet.trim().isEmpty()) return;
         addRecord(withContext(System.currentTimeMillis(), packet, summary));
+    }
+
+    public synchronized void captureSoundPacket(Object packet) {
+        if (!GameStats.INSTANCE.isTrackingEnabled() || packet == null) return;
+        captureSummary("S29PacketSoundEffect", summarizeSoundPacket(packet));
+    }
+
+    private static String summarizeSoundPacket(Object packet) {
+        Object sound = invoke(packet, "getSound", "method_11919", "a");
+        Object location = invoke(sound, "getLocation", "location", "method_10294");
+        String soundName = location == null ? String.valueOf(sound) : String.valueOf(location);
+        return "{\"soundName\":" + json(soundName)
+                + ",\"source\":" + json(String.valueOf(invoke(packet, "getSource", "method_11917", "b")))
+                + ",\"x\":" + number(invoke(packet, "getX", "method_11920", "c"))
+                + ",\"y\":" + number(invoke(packet, "getY", "method_11921", "d"))
+                + ",\"z\":" + number(invoke(packet, "getZ", "method_11922", "e"))
+                + ",\"volume\":" + number(invoke(packet, "getVolume", "method_11923", "f"))
+                + ",\"pitch\":" + number(invoke(packet, "getPitch", "method_11924", "g"))
+                + ",\"seed\":" + number(invoke(packet, "getSeed", "method_11925", "h")) + "}";
+    }
+
+    private static Object invoke(Object target, String... names) {
+        if (target == null) return null;
+        for (String name : names) {
+            try { return target.getClass().getMethod(name).invoke(target); }
+            catch (ReflectiveOperationException ignored) { }
+        }
+        return null;
+    }
+
+    private static String number(Object value) {
+        return value instanceof Number ? String.valueOf(value) : "null";
     }
 
     public synchronized void captureDistinctSummary(String packet, String summary) {

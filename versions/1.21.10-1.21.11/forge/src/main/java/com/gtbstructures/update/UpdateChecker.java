@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
 /** Performs the single update lookup allowed during a Minecraft startup. */
 public final class UpdateChecker {
     public static final UpdateChecker INSTANCE = new UpdateChecker();
-    public static final String CURRENT_VERSION = "1.1.0";
+    public static final String CURRENT_VERSION = "1.1.1";
     public static final String MODRINTH_URL = "https://modrinth.com/mod/gtbstructures/versions";
 
     private static final String LATEST_RELEASE_API =

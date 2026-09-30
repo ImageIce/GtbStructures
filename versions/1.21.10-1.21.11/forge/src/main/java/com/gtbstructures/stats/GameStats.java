@@ -1,6 +1,8 @@
 package com.gtbstructures.stats;
 
 import com.gtbstructures.GtbStructuresSettings;
+import com.gtbstructures.sound.GuessSoundController;
+import com.gtbstructures.sound.MinecraftClientSoundBridge;
 import com.gtbstructures.chat.ChatHeader;
 import com.gtbstructures.commands.CommandGtb;
 import com.gtbstructures.hints.HintStructureParser;
@@ -10,6 +12,7 @@ import com.gtbstructures.diagnostics.RawPacketRecorder;
 import com.gtbstructures.player.PlayerMetaCache;
 import com.gtbstructures.scoreboard.GameTracker;
 import com.gtbstructures.scoreboard.GtbGame;
+import com.gtbstructures.translation.ShortcutLanguageGroups;
 import com.gtbstructures.translation.ShortcutReminder;
 import com.gtbstructures.translation.ThemePointReveal;
 import com.gtbstructures.translation.TranslationData;
@@ -51,6 +54,11 @@ public class GameStats {
     private static final Logger LOGGER = Logger.getLogger("GtbStructures");
     private static final Pattern LOBBY_COUNT_PATTERN = Pattern.compile("\\((\\d+)/(\\d+)\\)");
     private static final Pattern DATE_FOOTER_PATTERN = Pattern.compile("\\d{2}/\\d{2}/\\d{2}.*");
+    // A localized phase line can become unknown when Hypixel changes its text.
+    // Reject its clock token before the generic "IGN: score" parser can turn
+    // the minutes into a numeric ghost player (for example 00 from 00:05).
+    private static final Pattern SIDEBAR_CLOCK_TOKEN_PATTERN =
+            Pattern.compile(".*\\d{1,2}:\\d{2}.*");
     private static final Pattern RANK_LINE_PATTERN = Pattern.compile("^(\\d+)\\.\\s+(.+)$");
     private static final Pattern RANK_SCORE_PATTERN = Pattern.compile("^(.*?)[\\s:\\-]+(\\d+)$");
     private static final long END_GAME_DELAY_MS = 1500L;
@@ -67,6 +75,8 @@ public class GameStats {
 
     private boolean trackingEnabled = true;
     private boolean autoRequeue;
+    private float autoRequeueDelaySeconds = GtbStructuresSettings.DEFAULT_AUTO_REQUEUE_DELAY_SECONDS;
+    private long firstFinalRosterCaptureTime;
     private long requeueTime;
     private TrackingState state = TrackingState.NOT_IN_GAME;
     private long gameStart;
@@ -81,6 +91,8 @@ public class GameStats {
     private String nick;
     private boolean isNicked;
     private String lastLocalIgn;
+    private String observedLocalIgn;
+    private String serverConfirmedLocalIgn;
     String currentLanguage;
     String currentLangCode;
     List<String> players = new ArrayList<String>();
@@ -156,6 +168,7 @@ public class GameStats {
     public interface GtbHooks {
         void onGameStart(List<String> players, String localIgn);
         default void onRoundPre() {}
+        default void onRoundBuild() {}
         void onRoundStart(int currentRound, int totalRounds);
         default void onInferredRoundStart(int currentRound, int totalRounds,
                                           boolean guessOrderUncertain) {
@@ -196,6 +209,23 @@ public class GameStats {
                 || state == TrackingState.POST_GAME;
     }
 
+    /**
+     * A recognized GTB title is positive evidence that the scoreboard has not
+     * disappeared. Keep the current active state when its localized phase label
+     * is temporarily missing or not yet known instead of treating that single
+     * classification miss as a disconnect.
+     */
+    static TrackingState retainActiveStateForUnclassifiedGtb(TrackingState currentState,
+                                                               TrackingState detectedState,
+                                                               boolean scoreboardShowsGtb) {
+        if (scoreboardShowsGtb
+                && detectedState == TrackingState.NOT_IN_GAME
+                && isActiveGame(currentState)) {
+            return currentState;
+        }
+        return detectedState;
+    }
+
     public static boolean isBbRankDisplayRepairState(TrackingState state) {
         return state == TrackingState.ROUND_PRE
                 || state == TrackingState.ROUND_BUILD
@@ -213,11 +243,11 @@ public class GameStats {
 
     public boolean hasLocalPlayerCorrectlyGuessedCurrentRound() {
         if (currentRound == null || currentRound.correctGuesses == null
-                || localPlayer == null || localPlayer.isEmpty()) {
+                || bestKnownLocalIgn() == null) {
             return false;
         }
         for (CorrectGuessEntry guess : currentRound.correctGuesses) {
-            if (guess != null && guess.ign != null && guess.ign.equalsIgnoreCase(localPlayer)) {
+            if (guess != null && isLocalPlayerIgn(guess.ign)) {
                 return true;
             }
         }
@@ -464,9 +494,12 @@ public class GameStats {
     }
 
     public void onServerSessionReset() {
+        GuessSoundController.INSTANCE.onDisconnect();
         cancelPendingAutoRequeue("server session reset");
         lobbyLanguageFallback.resetForServerSession();
         pendingTabReturnSnapshots.clear();
+        serverConfirmedLocalIgn = null;
+        clearPendingSelfGuessScore();
     }
 
     public boolean isTrackingEnabled() {
@@ -486,7 +519,20 @@ public class GameStats {
 
     public void setAutoRequeue(boolean enabled) {
         this.autoRequeue = enabled;
-        if (!enabled) requeueTime = 0L;
+        if (!enabled) {
+            clearAutoRequeueSchedule();
+        } else {
+            rescheduleAutoRequeueFromFirstRoster();
+        }
+    }
+
+    public float getAutoRequeueDelaySeconds() {
+        return autoRequeueDelaySeconds;
+    }
+
+    public void setAutoRequeueDelaySeconds(float seconds) {
+        autoRequeueDelaySeconds = GtbStructuresSettings.normalizeAutoRequeueDelaySeconds(seconds);
+        rescheduleAutoRequeueFromFirstRoster();
     }
 
     public void onOutboundServerCommand(String command) {
@@ -513,30 +559,48 @@ public class GameStats {
     }
 
     private void cancelPendingAutoRequeue(String reason) {
-        if (requeueTime <= 0L) return;
-        requeueTime = 0L;
+        if (requeueTime <= 0L && firstFinalRosterCaptureTime <= 0L) return;
+        clearAutoRequeueSchedule();
         LOGGER.info("Auto-requeue cancelled: " + reason);
     }
 
-    void scheduleAutoRequeue(long now, boolean completed, boolean hadFinalRankings) {
-        requeueTime = 0L;
-        if (completed && autoRequeue && hadFinalRankings) {
-            requeueTime = now + 5000L;
+    void scheduleAutoRequeue(long rosterCapturedAt, boolean completed, boolean hadFinalRankings) {
+        if (!completed || !hadFinalRankings || !autoRequeue) return;
+        if (firstFinalRosterCaptureTime <= 0L) {
+            firstFinalRosterCaptureTime = rosterCapturedAt;
+            rescheduleAutoRequeueFromFirstRoster();
         }
     }
 
-    boolean consumeAutoRequeueIfReady(long now, TrackingState scoreboardState) {
-        if (requeueTime <= 0L || now < requeueTime) return false;
+    private void rescheduleAutoRequeueFromFirstRoster() {
+        if (!autoRequeue || firstFinalRosterCaptureTime <= 0L) {
+            requeueTime = 0L;
+            return;
+        }
+        requeueTime = firstFinalRosterCaptureTime
+                + Math.round(autoRequeueDelaySeconds * 1000F);
+    }
+
+    private void clearAutoRequeueSchedule() {
+        firstFinalRosterCaptureTime = 0L;
         requeueTime = 0L;
-        boolean safeState = scoreboardState == TrackingState.POST_GAME
-                || scoreboardState == TrackingState.LOBBY
-                || scoreboardState == TrackingState.NOT_IN_GAME;
-        boolean shouldSend = autoRequeue && safeState;
-        if (!shouldSend) {
+    }
+
+    boolean consumeAutoRequeueIfReady(long now, TrackingState scoreboardState) {
+        if (requeueTime <= 0L) return false;
+        if (!autoRequeue || scoreboardState != TrackingState.POST_GAME) {
             LOGGER.info("Auto-requeue skipped: enabled=" + autoRequeue
                     + " scoreboardState=" + scoreboardState);
+            clearAutoRequeueSchedule();
+            return false;
         }
-        return shouldSend;
+        if (now < requeueTime) return false;
+        if (!gameEnded) {
+            scheduledEndGameTime = 0L;
+            endGame(true, null, now);
+        }
+        clearAutoRequeueSchedule();
+        return true;
     }
 
     public boolean consumeAutoRequeueIfReady(long now) {
@@ -558,7 +622,6 @@ public class GameStats {
     }
 
     private void endPendingGame(File statsDir, String reason, long now) {
-        boolean hadFinalRankings = !rankings.isEmpty();
         if (statsDir != null && !rounds.isEmpty()) {
             captureTrueIgn();
             refreshIdentityMetadata();
@@ -584,7 +647,7 @@ public class GameStats {
         currentRound = null;
         clearPendingSelfGuessScore();
         resetPhysicalTimerTracking();
-        scheduleAutoRequeue(now, false, hadFinalRankings);
+        clearAutoRequeueSchedule();
     }
 
     private JsonObject readRecoverableCurrent(File statsDir) {
@@ -639,6 +702,7 @@ public class GameStats {
     }
 
     private void restorePendingSession(JsonObject session, long now) {
+        clearAutoRequeueSchedule();
         gameStart = longValue(session, "gameStart", now);
         activeTimeMs = longValue(session, "activeTimeMs", 0L);
         activeTimeStartedAt = 0L;
@@ -1004,10 +1068,49 @@ public class GameStats {
     }
 
     public void setLocalPlayerName(String ign) {
-        if (samePlainIdentity(localPlayer, ign)) return;
+        String clean = cleanIgn(ign);
+        if (!isValidMcUsername(clean)) return;
+        observedLocalIgn = clean;
+        captureTrueIgn();
+        if (isValidMcUsername(serverConfirmedLocalIgn)
+                && isValidMcUsername(trueIgn)
+                && clean.equalsIgnoreCase(trueIgn)
+                && !serverConfirmedLocalIgn.equalsIgnoreCase(trueIgn)) {
+            return;
+        }
+        if (!isValidMcUsername(lastLocalIgn)
+                || state == TrackingState.NOT_IN_GAME
+                || state == TrackingState.LOBBY) {
+            if (state == TrackingState.LOBBY
+                    && isValidMcUsername(localPlayer)
+                    && !localPlayer.equalsIgnoreCase(clean)) {
+                replaceRosterIdentityIfPresent(players, localPlayer, clean);
+                replaceRosterIdentityIfPresent(handoffLobbyRoster, localPlayer, clean);
+                PlayerMetaCache.INSTANCE.transferIdentity(localPlayer, clean);
+            }
+            setLocalPlayerIdentity(clean);
+        }
+    }
+
+    public String canonicalRosterIgn(String ign) {
+        String clean = cleanIgn(ign);
+        if (!isValidMcUsername(clean)) return clean;
+        captureTrueIgn();
+        if (isValidMcUsername(trueIgn)
+                && isValidMcUsername(localPlayer)
+                && !trueIgn.equalsIgnoreCase(localPlayer)
+                && trueIgn.equalsIgnoreCase(clean)) {
+            return localPlayer;
+        }
+        return clean;
+    }
+
+    public void setAccountPlayerName(String ign) {
+        if (samePlainIdentity(trueIgn, ign)) return;
         String clean = cleanIgn(ign);
         if (isValidMcUsername(clean)) {
-            setLocalPlayerIdentity(clean);
+            trueIgn = clean;
+            refreshIdentityMetadata();
         }
     }
 
@@ -1016,6 +1119,24 @@ public class GameStats {
         if (normalized != null && launchPlayerUuid == null) {
             launchPlayerUuid = normalized;
         }
+    }
+
+    /** Promotes a server-visible identity already tied to the logged-in local account. */
+    public void confirmServerLocalPlayerName(String ign) {
+        String clean = cleanIgn(ign);
+        if (!isValidMcUsername(clean)) return;
+        serverConfirmedLocalIgn = clean;
+        if (!isValidMcUsername(localPlayer)) {
+            setLocalPlayerIdentity(clean);
+            return;
+        }
+        if (localPlayer.equalsIgnoreCase(clean)) {
+            refreshIdentityMetadata();
+            return;
+        }
+        String previous = localPlayer;
+        PlayerMetaCache.INSTANCE.transferIdentity(previous, clean);
+        transferIdentity(previous, clean);
     }
 
     static boolean samePlainIdentity(String current, String candidate) {
@@ -1041,7 +1162,7 @@ public class GameStats {
     }
 
     public void discardPendingAutonomousActions() {
-        requeueTime = 0L;
+        clearAutoRequeueSchedule();
         notificationMessages.clear();
     }
 
@@ -1059,6 +1180,8 @@ public class GameStats {
         String hintLangCode = firstNonEmpty(currentRound.langCode, currentLangCode);
         boolean exactKnownActionbarTheme = currentRound.completeThemeRevealedToUser
                 && !TranslationData.findShortcutThemes(hintLangCode, trimmed).isEmpty();
+        boolean exactThemeChanged = exactKnownActionbarTheme
+                && !trimmed.equals(currentRound.theme);
         if (exactKnownActionbarTheme) currentRound.theme = trimmed;
         if (currentRound.hintStructure == null) {
             currentRound.hintStructure = parsed.structure;
@@ -1071,6 +1194,7 @@ public class GameStats {
         queueThemePointFromHint(currentRound);
         if (exactKnownActionbarTheme) {
             queueShortcutReminder(currentRound, trimmed, GtbStructuresSettings.INSTANCE);
+            if (exactThemeChanged) writeLiveFile();
         }
         if (gtbHooks != null) {
             gtbHooks.onHintUpdate(trimmed, parsed.structure, hintLangCode);
@@ -1083,7 +1207,7 @@ public class GameStats {
 
     public boolean onGuiThemePick(String[] themes, String localPlayerName) {
         if (!trackingEnabled || !isInRound(state) || currentRound == null) return false;
-        String builder = cleanIgn(localPlayerName);
+        String builder = canonicalRosterIgn(localPlayerName);
         boolean builderChanged = isValidMcUsername(builder)
                 && (currentRound.builder == null || !currentRound.builder.equalsIgnoreCase(builder));
         if (isValidMcUsername(builder)) {
@@ -1139,7 +1263,7 @@ public class GameStats {
             String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date(now));
             File file = new File(statsDir, "export_" + timestamp + ".json");
             GameExporter.writeJsonFile(file, json);
-            return "Exported to " + file.getName();
+            return GameExporter.localFileNotice("Exported to ", gameDir, file);
         }
         return "Failed to export (no config directory).";
     }
@@ -1153,7 +1277,7 @@ public class GameStats {
         String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date(System.currentTimeMillis()));
         File file = RawPacketRecorder.INSTANCE.writeSnapshot(statsDir, "raw_" + timestamp);
         if (file == null) return "No raw packet data to export.";
-        return "Raw packets exported to " + file.getName();
+        return GameExporter.localFileNotice("Raw packets exported to ", gameDir, file);
     }
 
     public String formatHaveIBuilt(String localPlayerName) {
@@ -1307,8 +1431,7 @@ public class GameStats {
         renameMapKey(sidebarDropKnownScores, oldIgn, newIgn);
         renameMapKey(pendingTabReturnSnapshots, oldIgn, newIgn);
         if (localPlayer != null && localPlayer.equalsIgnoreCase(oldIgn)) {
-            localPlayer = newIgn;
-            refreshIdentityMetadata();
+            setLocalPlayerIdentity(newIgn);
         }
         moveSetValue(leavers, oldIgn, newIgn);
         moveSetValue(builderLeftLeavers, oldIgn, newIgn);
@@ -1319,6 +1442,35 @@ public class GameStats {
                     "identity_transfer", oldIgn + "->" + newIgn));
         }
         if (gtbHooks != null) gtbHooks.onIdentityTransfer(oldIgn, newIgn);
+    }
+
+    private void observeLocalIdentity(String localNow, TrackingState observedScoreboardState) {
+        if (!isValidMcUsername(localNow)) return;
+
+        if (isValidMcUsername(serverConfirmedLocalIgn)
+                && isValidMcUsername(trueIgn)
+                && localNow.equalsIgnoreCase(trueIgn)
+                && !serverConfirmedLocalIgn.equalsIgnoreCase(trueIgn)
+                && isValidMcUsername(localPlayer)
+                && localPlayer.equalsIgnoreCase(serverConfirmedLocalIgn)) {
+            lastLocalIgn = serverConfirmedLocalIgn;
+            return;
+        }
+
+        boolean confirmedPausedRecovery = state == TrackingState.PAUSED
+                && isInRound(observedScoreboardState);
+        if (state == TrackingState.PAUSED && !confirmedPausedRecovery) {
+            return;
+        }
+
+        if (isValidMcUsername(lastLocalIgn)
+                && !lastLocalIgn.equalsIgnoreCase(localNow)
+                && (isActiveGame(state) || confirmedPausedRecovery)) {
+            // The local entity name is authoritative. The returned identity can
+            // already exist as a roster shell, which transferIdentity merges.
+            transferIdentity(lastLocalIgn, localNow);
+        }
+        lastLocalIgn = localNow;
     }
 
     public void markActivity(String ign) {
@@ -1355,6 +1507,7 @@ public class GameStats {
     }
 
     public void onPacketRosterAdd(String ign) {
+        ign = canonicalRosterIgn(ign);
         if (!isValidMcUsername(ign) || isReservedNonPlayerName(ign)) return;
         removeIgnoreCase(lobbyPacketRemovals, ign);
         if (!acceptsGtbRosterPackets()) {
@@ -1375,6 +1528,7 @@ public class GameStats {
     }
 
     public void onPacketRosterRemove(String ign) {
+        ign = canonicalRosterIgn(ign);
         if (!isValidMcUsername(ign) || isReservedNonPlayerName(ign)) return;
         if (state == TrackingState.LOBBY && gtbLobbyRosterConfirmed) {
             addIgnoreCase(lobbyPacketRemovals, ign);
@@ -1408,6 +1562,7 @@ public class GameStats {
     }
 
     public void onEncodedGameRosterPlayer(String ign) {
+        ign = canonicalRosterIgn(ign);
         if (!isValidMcUsername(ign) || !acceptsLobbyRosterEvidence(ign)) return;
         addPlayerIfAbsent(ign);
     }
@@ -1450,11 +1605,14 @@ public class GameStats {
         if (!trackingEnabled) return;
         boolean scoreboardShowsGtb = LangPatterns.isGtbTitle(titleClean);
         TrackingState sbState = scoreboardState(cleanLines, scoreboardShowsGtb);
+        sbState = retainActiveStateForUnclassifiedGtb(state, sbState, scoreboardShowsGtb);
+        observeLocalIdentity(clientPlayerIgn(), sbState);
         if (state != TrackingState.ROUND_BUILD || sbState != TrackingState.ROUND_BUILD) {
             resetAuthoritativeLowRosterCandidate();
         }
         lastScoreboardState = sbState;
         long now = System.currentTimeMillis();
+        if (sbState != TrackingState.POST_GAME) clearAutoRequeueSchedule();
         // Persisted current.json is resolved by the lobby/user-joined boundary.
         // An arbitrary active sidebar can belong to a different GTB instance.
         if (state == TrackingState.NOT_IN_GAME
@@ -1468,6 +1626,7 @@ public class GameStats {
             notInGameTicks++;
             if (notInGameTicks >= PAUSE_GRACE_TICKS) {
                 if (state == TrackingState.POST_GAME) {
+                    clearAutoRequeueSchedule();
                     endGame(true, null, now);
                 } else if (state == TrackingState.LOBBY) {
                     beginLobbyHandoff(now);
@@ -1491,9 +1650,14 @@ public class GameStats {
             return;
         }
 
+        if (state == TrackingState.POST_GAME && sbState != TrackingState.POST_GAME) {
+            clearAutoRequeueSchedule();
+        }
+
         if (isActiveGame(state) && state != TrackingState.LOBBY
                 && sbState == TrackingState.LOBBY) {
             boolean completed = state == TrackingState.POST_GAME;
+            if (completed) clearAutoRequeueSchedule();
             endGame(completed, completed ? null : "new_gtb_lobby", now);
             resetFreshLobbyRoster();
             state = TrackingState.LOBBY;
@@ -1525,9 +1689,12 @@ public class GameStats {
                 && (sbState == TrackingState.ROUND_PRE || sbState == TrackingState.ROUND_BUILD)) {
             autoDisableTrollModeAtGameStart();
         }
+        boolean enteredBuildPhase = state == TrackingState.ROUND_PRE
+                && sbState == TrackingState.ROUND_BUILD;
         applyScoreboardRoundState(sbState, now);
+        if (enteredBuildPhase && gtbHooks != null) gtbHooks.onRoundBuild();
         if (state == TrackingState.POST_GAME && sbState == TrackingState.POST_GAME) {
-            if (parseRankings(cleanLines)) {
+            if (parseRankings(cleanLines, now)) {
                 fireTrueScoresUpdate();
             }
             return;
@@ -1543,7 +1710,9 @@ public class GameStats {
         text = text.trim();
         if (text.isEmpty()) return;
         if (isGtbClientNotice(raw) || isGtbClientNotice(text)) return;
+        if (isNonGameChannelMessage(text)) return;
 
+        observeGuessSoundChat(text, System.currentTimeMillis());
         maybeAutoDisableTrollModeFromRoundStart(text);
         if (!trackingEnabled) return;
         long now = System.currentTimeMillis();
@@ -1794,14 +1963,17 @@ public class GameStats {
             ScoreReconciler.recordGuessDelta(currentRound, ign, orderZeroBased);
         }
         notePlayerActivity(ign, "correct_guess");
-        if (localPlayer != null && localPlayer.equalsIgnoreCase(ign)) {
-            ModernChatCooldownCounter.onUserCorrectGuess();
-            rememberPendingSelfGuessScore(ign, now);
-            markCompleteThemeRevealed(currentRound);
-            queueThemePointFromTheme(currentRound.theme, currentRound.langCode);
-            queueRoundRevealNotifications(currentRound, currentRound.theme);
-        }
+        if (isLocalPlayerIgn(ign)) handleLocalCorrectGuess(ign, now, true);
         if (gtbHooks != null) gtbHooks.onCorrectGuess(Collections.singletonList(ign));
+    }
+
+    private void handleLocalCorrectGuess(String ign, long now, boolean updateCooldown) {
+        if (currentRound == null || !isValidMcUsername(ign)) return;
+        if (updateCooldown) ModernChatCooldownCounter.onUserCorrectGuess();
+        rememberPendingSelfGuessScore(ign, now);
+        markCompleteThemeRevealed(currentRound);
+        queueThemePointFromTheme(currentRound.theme, currentRound.langCode);
+        queueRoundRevealNotifications(currentRound, currentRound.theme);
     }
 
     private void rememberPendingSelfGuessScore(String ign, long now) {
@@ -1843,6 +2015,7 @@ public class GameStats {
         String cleanTheme = theme == null ? "" : theme.trim();
         if (cleanTheme.isEmpty()) return;
 
+        boolean themeChanged = !cleanTheme.equals(currentRound.theme);
         currentRound.theme = cleanTheme;
         if (currentRound.langCode == null) currentRound.langCode = currentLangCode;
         if (currentRound.language == null) currentRound.language = currentLanguage;
@@ -1856,6 +2029,7 @@ public class GameStats {
         }
         queueThemePointFromTheme(cleanTheme, currentLangCode);
         queueRoundRevealNotifications(currentRound, cleanTheme);
+        if (themeChanged) writeLiveFile();
         finishCurrentRound(now, false);
     }
 
@@ -1994,7 +2168,7 @@ public class GameStats {
             currentRound.roundEnd = now;
             if (gtbHooks != null) gtbHooks.onRoundEnd(false);
         }
-        if (parseRankings(cleanLines)) {
+        if (parseRankings(cleanLines, now)) {
             fireTrueScoresUpdate();
         }
         writeLiveFile();
@@ -2033,7 +2207,6 @@ public class GameStats {
             lastUnknownResidual.putAll(finalization.unknownResidual);
         }
 
-        boolean hadFinalRankings = !rankings.isEmpty();
         boolean skipExport = !completed && rounds.isEmpty();
         File statsDir = runtimeStatsDir();
         if (statsDir != null && !skipExport) {
@@ -2094,7 +2267,8 @@ public class GameStats {
         PlayerMetaCache.INSTANCE.clearHarvestedRanks();
         lobbyQuitSuppress.clear();
 
-        scheduleAutoRequeue(now, completed, hadFinalRankings);
+        if (!completed) clearAutoRequeueSchedule();
+
     }
 
     private boolean handleLanguageSelection(String text, LangPatterns lp) {
@@ -2259,7 +2433,7 @@ public class GameStats {
         }
     }
 
-    private boolean parseRankings(List<String> cleanLines) {
+    private boolean parseRankings(List<String> cleanLines, long now) {
         if (cleanLines == null || cleanLines.isEmpty()) return false;
         List<RankEntry> next = new ArrayList<RankEntry>();
         for (String line : cleanLines) {
@@ -2297,6 +2471,7 @@ public class GameStats {
         repairTruncatedScores(next);
         rankings.clear();
         rankings.addAll(next);
+        scheduleAutoRequeue(now, true, true);
         return true;
     }
 
@@ -2315,7 +2490,8 @@ public class GameStats {
             if (cleanLine == null) continue;
             String line = cleanLine.trim();
             if (line.isEmpty() || line.contains("hypixel.net") || line.startsWith("www.")
-                    || line.equals("???") || DATE_FOOTER_PATTERN.matcher(line).matches()) {
+                    || line.equals("???") || DATE_FOOTER_PATTERN.matcher(line).matches()
+                    || containsSidebarClockToken(line)) {
                 continue;
             }
             if (LangPatterns.isScoreboardLabel(line)) continue;
@@ -2362,6 +2538,7 @@ public class GameStats {
             ScoreReconciler.crosscheckBuilderFromScoreboard(currentRound, sidebarLangCode, sbTheme);
         }
         if (sbTheme != null && state == TrackingState.ROUND_BUILD) {
+            boolean themeChanged = !sbTheme.equals(currentRound.theme);
             currentRound.theme = sbTheme;
             if (!isLocalPlayerBuilder(currentRound)) {
                 markCompleteThemeRevealed(currentRound);
@@ -2370,6 +2547,13 @@ public class GameStats {
                     sidebarLangCode);
             if (gtbHooks != null) gtbHooks.onThemeUpdate(sbTheme, sidebarLangCode);
             queueThemePointFromTheme(sbTheme, sidebarLangCode);
+            if (themeChanged) writeLiveFile();
+        } else if (sbTheme != null && state == TrackingState.ROUND_END
+                && gtbHooks != null) {
+            // The revealed vanilla Theme row follows the live language even
+            // between rounds. Keep the replacement Default panel in sync
+            // without replaying round-scoring or notification work.
+            gtbHooks.onThemeUpdate(sbTheme, sidebarLangCode);
         }
 
         if (gtbHooks != null && !currentSidebar.isEmpty()
@@ -2614,7 +2798,7 @@ public class GameStats {
         return null;
     }
 
-    private String matchTimerLine(List<String> cleanLines, LangPatterns pattern) {
+    static String matchTimerLine(List<String> cleanLines, LangPatterns pattern) {
         if (pattern == null || cleanLines == null) return null;
         for (String line : cleanLines) {
             if (line == null || line.isEmpty()) continue;
@@ -2622,7 +2806,7 @@ public class GameStats {
                 String value = line.substring(pattern.sbTime.length()).trim();
                 if (!value.isEmpty()) return value;
             }
-            if (pattern.sbNextRound != null && line.startsWith(pattern.sbNextRound)) {
+            if (LangPatterns.startsWithRoundEndLabel(line, pattern.sbNextRound)) {
                 String value = line.substring(pattern.sbNextRound.length()).trim();
                 if (!value.isEmpty()) return value;
             }
@@ -2640,6 +2824,10 @@ public class GameStats {
             }
         }
         return null;
+    }
+
+    static boolean containsSidebarClockToken(String cleanLine) {
+        return cleanLine != null && SIDEBAR_CLOCK_TOKEN_PATTERN.matcher(cleanLine).matches();
     }
 
     private static void sortRankingsByPlace(List<RankEntry> values) {
@@ -2729,6 +2917,7 @@ public class GameStats {
             rounds.add(currentRound);
             pendingNextBuilder = null;
             state = TrackingState.ROUND_PRE;
+            if (gtbHooks != null) gtbHooks.onRoundPre();
             emitBuilderHook(null, currentRound.builder);
         }
         if (currentRound == null) return;
@@ -2761,8 +2950,12 @@ public class GameStats {
         if ("guesser".equals(variant) && isValidMcUsername(cleanBuilder)) {
             resolveRejoinMessageBuilder(cleanBuilder, timestamp);
         } else if ("builder".equals(variant) && currentRound != null) {
-            currentRound.theme = theme;
+            String cleanTheme = theme == null ? "" : theme.trim();
+            boolean themeChanged = !cleanTheme.isEmpty()
+                    && !cleanTheme.equals(currentRound.theme);
+            if (themeChanged) currentRound.theme = cleanTheme;
             clearPendingRejoinState();
+            if (themeChanged) writeLiveFile();
         }
     }
 
@@ -2906,7 +3099,7 @@ public class GameStats {
         String bestLocalIgn = bestKnownLocalIgn();
         if (isValidMcUsername(bestLocalIgn)) {
             setLocalPlayerIdentity(bestLocalIgn);
-            addPlayerIfAbsent(bestLocalIgn);
+            if (players.isEmpty()) addPlayerIfAbsent(bestLocalIgn);
         }
         gameInitialized = true;
         gameEnded = false;
@@ -2914,6 +3107,7 @@ public class GameStats {
         activeTimeMs = 0L;
         activeTimeStartedAt = now;
         scheduledEndGameTime = 0L;
+        clearAutoRequeueSchedule();
         lastUnknownResidual.clear();
         midGameUnattributedResidual.clear();
         lastSidebarScores.clear();
@@ -2963,10 +3157,15 @@ public class GameStats {
                 && (gameInitialized || currentRound != null || !rounds.isEmpty());
         if (hasInMemoryGame) {
             boolean completed = state == TrackingState.POST_GAME;
+            if (completed) clearAutoRequeueSchedule();
             endGame(completed, completed ? null : "new_gtb_lobby", now);
             return;
         }
         finalizePendingCurrent(runtimeStatsDir(), "new_gtb_lobby", now);
+    }
+
+    public boolean isLocalPlayerIdentity(String ign) {
+        return isLocalPlayerIgn(ign);
     }
 
     private boolean isLocalPlayerIgn(String ign) {
@@ -3100,7 +3299,8 @@ public class GameStats {
 
     private void mergeRosterInto(List<String> target, Collection<String> observed) {
         if (target == null || observed == null) return;
-        for (String ign : observed) {
+        for (String observedIgn : observed) {
+            String ign = canonicalRosterIgn(observedIgn);
             if (!isValidMcUsername(ign) || isLobbyQuitSuppressed(ign)) continue;
             boolean present = false;
             for (String existing : target) {
@@ -3396,6 +3596,7 @@ public class GameStats {
 
     private static ShortcutReminder.Options shortcutReminderOptions(GtbStructuresSettings settings) {
         ShortcutReminder.Options options = new ShortcutReminder.Options();
+        options.languageGroups = ShortcutLanguageGroups.snapshot();
         if (settings == null) return options;
         options.enabled = settings.shortcutReminder;
         options.showAllShortcuts = settings.shortcutReminderShowAllShortcuts;
@@ -3415,20 +3616,81 @@ public class GameStats {
         return second != null && !second.trim().isEmpty() ? second : null;
     }
 
+    private void observeGuessSoundChat(String clean, long now) {
+        if (!GtbStructuresSettings.INSTANCE.modEnabled) {
+            GuessSoundController.INSTANCE.reset();
+            return;
+        }
+        MinecraftClientSoundBridge.ensureInstalled();
+        if (clean == null || isNonGameChannelMessage(clean)) return;
+        String guesser = LangPatterns.stripGuesserChatPrefix(clean);
+        if (guesser != null || (clean.contains(": ")
+                && LangPatterns.startsWithChatTitle(LangPatterns.stripEmojis(clean).trim()))) return;
+
+        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+            if (lp.countdown1Sec != null && clean.equals(lp.countdown1Sec)) {
+                GuessSoundController.INSTANCE.onRoundBoundary();
+                break;
+            }
+            if (lp.roundPrefix != null && clean.startsWith(lp.roundPrefix)) {
+                GuessSoundController.INSTANCE.onRoundBoundary();
+                break;
+            }
+            if (lp.themeWasPrefix != null && clean.startsWith(lp.themeWasPrefix)) {
+                GuessSoundController.INSTANCE.onRoundBoundary();
+                break;
+            }
+        }
+
+        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+            if (lp.builderPrefix == null || !clean.startsWith(lp.builderPrefix)) continue;
+            String builder = cleanIgn(clean.substring(lp.builderPrefix.length()));
+            if (!builder.isEmpty()) {
+                GuessSoundController.INSTANCE.observeBuilderStatus(isLocalPlayerIgn(builder));
+            }
+            break;
+        }
+
+        Integer points = LangPatterns.selfCorrectGuessPoints(clean);
+        if (points != null) {
+            GuessSoundController.INSTANCE.observeLocalGuessPoints(points.intValue(), now);
+            return;
+        }
+
+        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+            if (lp.correctGuessSuffix == null) continue;
+            String ign = extractCorrectGuessIgn(clean, lp);
+            if (ign != null && isLocalPlayerIgn(ign)) {
+                MinecraftClientSoundBridge.ensureCatalog();
+                // The initial native resource lookup may load classes before the token is armed.
+                GuessSoundController.INSTANCE.observeLocalCorrectGuess(System.currentTimeMillis());
+                return;
+            }
+        }
+    }
+
     private static String extractCorrectGuessIgn(String text, LangPatterns lp) {
         if (text == null || lp == null || lp.correctGuessSuffix == null) return null;
-        String ign;
+        String candidate;
         if (lp.correctGuessPrefix != null) {
             if (!text.startsWith(lp.correctGuessPrefix)) return null;
             String rest = text.substring(lp.correctGuessPrefix.length());
             if (!rest.endsWith(lp.correctGuessSuffix)) return null;
-            ign = rest.substring(0, rest.length() - lp.correctGuessSuffix.length()).trim();
+            candidate = rest.substring(0, rest.length() - lp.correctGuessSuffix.length()).trim();
         } else {
             if (!text.endsWith(lp.correctGuessSuffix)) return null;
-            ign = text.substring(0, text.length() - lp.correctGuessSuffix.length()).trim();
+            candidate = text.substring(0, text.length() - lp.correctGuessSuffix.length()).trim();
         }
-        ign = cleanIgn(ign);
-        return isValidMcUsername(ign) ? ign : null;
+        candidate = stripControlCodes(candidate);
+        if (isValidMcUsername(candidate)) return candidate;
+
+        // Correct-guess system lines may retain a bracketed rank before the
+        // name. Remove only those complete prefixes; never sanitize arbitrary
+        // punctuation or surrounding words into a username.
+        String normalized = stripRankPrefixes(candidate);
+        normalized = LangPatterns.stripLeadingBbTitle(normalized);
+        return !normalized.equals(candidate) && isValidMcUsername(normalized)
+                ? normalized : null;
     }
 
     private static String extractThemeReveal(String text, LangPatterns lp) {
@@ -3462,7 +3724,7 @@ public class GameStats {
         if (!isInRound(state) || currentRound == null) return;
         PlayerChatObservation chat = extractPlayerChatObservation(raw, text);
         if (chat == null || isReservedNonPlayerName(chat.ign)) return;
-        if (localPlayer != null && localPlayer.equalsIgnoreCase(chat.ign)) {
+        if (isLocalPlayerIgn(chat.ign)) {
             ModernChatCooldownCounter.onUserChatAccepted(now);
         }
         PlayerMetaCache.INSTANCE.harvestChatMessageRank(chat.ign, raw);
@@ -3542,6 +3804,35 @@ public class GameStats {
         if (header.isEmpty()) return false;
         String visible = stripControlCodes(value).trim();
         return visible.equals(header) || visible.startsWith(header + " ");
+    }
+
+    private static boolean isNonGameChannelMessage(String value) {
+        String visible = stripControlCodes(value).trim();
+        if (visible.isEmpty()) return false;
+        if (visible.startsWith("Party > ")
+                || visible.startsWith("Guild > ")
+                || visible.startsWith("Officer > ")) {
+            return true;
+        }
+        return isDirectChannelMessage(visible, "From")
+                || isDirectChannelMessage(visible, "To");
+    }
+
+    private static boolean isDirectChannelMessage(String value, String prefix) {
+        String marker = prefix + " ";
+        if (!value.startsWith(marker)) return false;
+        int colon = value.indexOf(": ", marker.length());
+        if (colon < 0) return false;
+        String identity = value.substring(marker.length(), colon).trim();
+        if (identity.isEmpty()) return false;
+        String[] tokens = identity.split("\\s+");
+        if (tokens.length == 0 || !isValidMcUsername(tokens[tokens.length - 1])) return false;
+        for (int i = 0; i < tokens.length - 1; i++) {
+            String token = tokens[i];
+            if (token.length() < 3 || token.charAt(0) != '['
+                    || token.charAt(token.length() - 1) != ']') return false;
+        }
+        return true;
     }
 
     private static String extractColorBeforeVisibleChar(String rawToken, char visible) {
@@ -3688,6 +3979,26 @@ public class GameStats {
         } else if (!newAlreadyPresent) {
             players.add(newIgn);
         }
+    }
+
+    private static void replaceRosterIdentityIfPresent(List<String> roster,
+                                                       String oldIgn, String newIgn) {
+        if (roster == null || oldIgn == null || newIgn == null
+                || oldIgn.equalsIgnoreCase(newIgn)) return;
+        int replacementIndex = -1;
+        boolean newPresent = false;
+        for (int i = 0; i < roster.size(); i++) {
+            String existing = roster.get(i);
+            if (existing == null) continue;
+            if (existing.equalsIgnoreCase(newIgn)) newPresent = true;
+            if (existing.equalsIgnoreCase(oldIgn)) {
+                if (replacementIndex < 0) replacementIndex = i;
+                else roster.remove(i--);
+            }
+        }
+        if (replacementIndex < 0) return;
+        if (newPresent) roster.remove(replacementIndex);
+        else roster.set(replacementIndex, newIgn);
     }
 
     private void addPlayerIfAbsent(String ign) {

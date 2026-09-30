@@ -23,16 +23,19 @@ public final class ModernPlayerListLogic {
         RawPacketRecorder.INSTANCE.capturePlayerListSnapshot(
                 snapshot.playerListRawSummary(), snapshot.teamRawSummary());
 
+        Set<String> currentRoster = new LinkedHashSet<String>();
         Set<String> currentLower = new LinkedHashSet<String>();
         for (Map.Entry<String, String> entry : snapshot.displayNames.entrySet()) {
-            String ign = entry.getKey();
+            String observedIgn = entry.getKey();
+            String ign = GameStats.INSTANCE.canonicalRosterIgn(observedIgn);
             if (!PlayerMetaCache.isValidMcUsername(ign)) continue;
+            currentRoster.add(ign);
             currentLower.add(ign.toLowerCase(Locale.ROOT));
             PlayerMetaCache.INSTANCE.observePacketRosterAdd(ign);
             GameStats.INSTANCE.onPacketRosterAdd(ign);
             String display = entry.getValue();
             if (display != null && !display.isEmpty()) {
-                PlayerMetaCache.INSTANCE.captureDisplayName(ign, display);
+                PlayerMetaCache.INSTANCE.captureDisplayName(observedIgn, display);
             }
         }
 
@@ -44,9 +47,10 @@ public final class ModernPlayerListLogic {
         if (previousRoster != null) {
             List<String> removed = new ArrayList<String>();
             for (String previous : previousRoster) {
-                if (previous == null) continue;
-                if (!currentLower.contains(previous.toLowerCase(Locale.ROOT))) {
-                    removed.add(previous);
+                String canonicalPrevious = GameStats.INSTANCE.canonicalRosterIgn(previous);
+                if (!PlayerMetaCache.isValidMcUsername(canonicalPrevious)) continue;
+                if (!currentLower.contains(canonicalPrevious.toLowerCase(Locale.ROOT))) {
+                    removed.add(canonicalPrevious);
                 }
             }
             for (String ign : removed) {
@@ -54,7 +58,7 @@ public final class ModernPlayerListLogic {
                 GameStats.INSTANCE.onPacketRosterRemove(removedIgn == null ? ign : removedIgn);
             }
             previousRoster.clear();
-            previousRoster.addAll(snapshot.displayNames.keySet());
+            previousRoster.addAll(currentRoster);
         }
     }
 

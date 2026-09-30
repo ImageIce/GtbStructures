@@ -75,6 +75,13 @@ public final class GameTracker implements GameStats.GtbHooks {
     }
 
     @Override
+    public void onMidGameStart() {
+        if (game == null) return;
+        game.totalRounds = 0;
+        game.awaitingAuthoritativeRoundTotal = true;
+    }
+
+    @Override
     public void onTickActivity() {
         if (game == null) return;
         for (GtbPlayer p : game.players.values()) p.inactiveTicks++;
@@ -92,12 +99,49 @@ public final class GameTracker implements GameStats.GtbHooks {
     // 鈹€鈹€ Round flow 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     @Override
+    public void onRoundPre() {
+        if (game == null) {
+            onGameStart(null, null);
+            if (game == null) return;
+        }
+        if (game.pendingRejoinFromUserBuildRound) {
+            clearRejoinRoundScoreUncertainty();
+            game.rejoinGuessOrderUncertain = false;
+            game.rejoinBuilderChangedBeforeRoundHeader = false;
+        }
+        if (game.totalRounds <= 0 && !game.awaitingAuthoritativeRoundTotal) {
+            game.totalRounds = Math.max(1, game.players.size());
+            for (GtbPlayer p : game.players.values()) {
+                ensurePointsCapacity(p, game.totalRounds);
+            }
+        }
+        game.currentTheme = "";
+        game.state = GtbGame.State.ROUND_PRE;
+    }
+
+    @Override
+    public void onRoundBuild() {
+        // The initial sidebar can enter BUILD without a Round: 1/N chat header.
+        // Keep countdowns in PRE, then mark the builder when that phase ends.
+        if (game == null || game.state != GtbGame.State.ROUND_PRE
+                || game.currentRound > 1 || game.lastCompletedRound != 0
+                || game.roundSkippedThisRound || hasLocalRejoinUncertainty()) return;
+        ensureImplicitFirstRound();
+        game.state = GtbGame.State.ROUND_BUILD;
+        if (game.currentBuilder != null && game.currentBuilder.buildRound != 1) {
+            game.currentBuilder.buildRound = 1;
+            onBuilderAssigned(game.currentBuilder);
+        }
+    }
+
+    @Override
     public void onRoundStart(int currentRound, int totalRounds) {
         if (game == null) {
 
             return;
         }
         boolean previousRoundEnded = game.state == GtbGame.State.ROUND_END;
+        game.roundEndBuilder = null;
         if (currentRound > 0 && game.currentRound == currentRound) {
             updateKnownRoundCount(totalRounds);
             game.roundCountUnknown = false;
@@ -381,6 +425,9 @@ public final class GameTracker implements GameStats.GtbHooks {
 
             return;
         }
+        if (game.currentRound > game.lastCompletedRound) {
+            game.lastCompletedRound = game.currentRound;
+        }
         boolean actuallySkipped = skipped
                 || game.roundSkippedThisRound
                 || (game.currentBuilder != null && game.currentBuilder.isUser && game.userRoundSkipped);
@@ -408,6 +455,7 @@ public final class GameTracker implements GameStats.GtbHooks {
         // Keep unresolved pending builder-score markers until the next round
         // start; the revealed-theme message can arrive during ROUND_END after
         // the builder reference is cleared.
+        game.roundEndBuilder = game.currentBuilder;
         game.currentBuilder = null;
         game.currentTheme = "";
         game.currentHintStructure = "";
@@ -553,11 +601,20 @@ public final class GameTracker implements GameStats.GtbHooks {
             return;
         }
         GtbPlayer p = removePlayerIgnoreCase(oldIgn);
+        GtbPlayer shell = removePlayerIgnoreCase(newIgn);
         if (p == null) {
-
+            if (shell == null) return;
+            if (GameStats.INSTANCE.isLocalPlayerIdentity(newIgn)) {
+                shell.isUser = true;
+                shell.unresolvedIdentity = false;
+            }
+            shell.name = newIgn;
+            game.players.put(newIgn, shell);
+            transferScoreKey(game.latestTrueScore, oldIgn, newIgn);
+            transferScoreKey(game.roundStartTrueScore, oldIgn, newIgn);
+            transferScoreKey(game.visibleTrueScore, oldIgn, newIgn);
             return;
         }
-        GtbPlayer shell = removePlayerIgnoreCase(newIgn);
         if (shell != null && shell != p) mergeIdentityShell(p, shell);
         p.name = newIgn;
         game.players.put(newIgn, p);
@@ -610,6 +667,19 @@ public final class GameTracker implements GameStats.GtbHooks {
         target.authoritativeBuilderScoreRound = Math.max(
                 target.authoritativeBuilderScoreRound,
                 shell.authoritativeBuilderScoreRound);
+        if (target.buildRound == 0) target.buildRound = shell.buildRound;
+        if (shell.points != null) {
+            ensurePointsCapacity(target, shell.points.length);
+            for (int i = 0; i < shell.points.length; i++) {
+                PointEntry existing = target.points[i];
+                // Both rows describe the same player. Fill absent history;
+                // adding their entries would count repeated observations twice.
+                if (existing == null || existing.kind == PointEntry.Kind.ZERO
+                        || (existing.kind == PointEntry.Kind.DEFINITE && existing.value == 0)) {
+                    if (shell.points[i] != null) target.points[i] = shell.points[i];
+                }
+            }
+        }
     }
 
     private void resolveUnresolvedIdentities(Map<String, Integer> finalScores) {
@@ -685,7 +755,12 @@ public final class GameTracker implements GameStats.GtbHooks {
         String scoreKey = findKeyIgnoreCase(scores, oldIgn);
         if (scoreKey != null) {
             Integer score = scores.remove(scoreKey);
-            scores.put(newIgn, score);
+            String existingKey = findKeyIgnoreCase(scores, newIgn);
+            Integer existing = existingKey == null ? null : scores.remove(existingKey);
+            if (existing != null && (score == null || existing.intValue() > score.intValue())) {
+                score = existing;
+            }
+            if (score != null) scores.put(newIgn, score);
         }
     }
 
@@ -771,7 +846,7 @@ public final class GameTracker implements GameStats.GtbHooks {
         return scoreIgnoreCase(scores, ign) != null;
     }
 
-    private Integer scoreIgnoreCase(Map<String, Integer> scores, String ign) {
+    private static Integer scoreIgnoreCase(Map<String, Integer> scores, String ign) {
         String key = findKeyIgnoreCase(scores, ign);
         return key == null ? null : scores.get(key);
     }
@@ -1096,6 +1171,7 @@ public final class GameTracker implements GameStats.GtbHooks {
     private void updateKnownRoundCount(int totalRounds) {
         if (game == null || totalRounds <= 0) return;
         game.totalRounds = totalRounds;
+        game.awaitingAuthoritativeRoundTotal = false;
         int capacity = Math.max(game.totalRounds, game.currentRound);
         for (GtbPlayer p : game.players.values()) {
             ensurePointsCapacity(p, capacity);
@@ -1105,7 +1181,7 @@ public final class GameTracker implements GameStats.GtbHooks {
     private void ensureImplicitFirstRound() {
         if (game == null || game.currentRound > 0) return;
         if (hasLocalRejoinUncertainty()) return;
-        if (game.totalRounds <= 0) {
+        if (game.totalRounds <= 0 && !game.awaitingAuthoritativeRoundTotal) {
             game.totalRounds = Math.max(1, game.players.size());
         }
         for (GtbPlayer p : game.players.values()) {
@@ -1120,7 +1196,9 @@ public final class GameTracker implements GameStats.GtbHooks {
         game.wrongGuessesThisRound.clear();
         game.roundSkippedThisRound = false;
         clearPendingBuilderScoreMarkers();
-        game.state = GtbGame.State.ROUND_BUILD;
+        if (game.state != GtbGame.State.ROUND_PRE) {
+            game.state = GtbGame.State.ROUND_BUILD;
+        }
         snapshotRoundStartScores();
     }
 
@@ -1642,13 +1720,24 @@ public final class GameTracker implements GameStats.GtbHooks {
     }
 
     private Integer authoritativeBuilderTotal(GtbPlayer player) {
+        return authoritativeBuilderTotal(player, game);
+    }
+
+    static Integer authoritativeBuilderTotal(GtbPlayer player, GtbGame game) {
         if (game == null || game.currentRound <= 0 || player == null
-                || player.authoritativeBuilderScoreRound != game.currentRound) {
+                || player.authoritativeBuilderScoreRound != game.currentRound
+                || player.points == null || game.currentRound > player.points.length) {
             return null;
         }
-        int lo = player.totalMin();
-        int hi = player.totalMax();
-        return lo == hi ? Integer.valueOf(hi) : null;
+        PointEntry award = player.points[game.currentRound - 1];
+        if (award == null || award.kind != PointEntry.Kind.DEFINITE
+                || award.value < 1 || award.value > 3) return null;
+        Integer baseline = scoreIgnoreCase(game.roundStartTrueScore, player.name);
+        if (baseline == null && game.currentRound == 1) baseline = Integer.valueOf(0);
+        // Zero-filled historical slots do not prove a cumulative baseline.
+        // Keep the sidebar authoritative when that earlier total is unknown.
+        if (baseline == null || baseline.intValue() < 0) return null;
+        return Integer.valueOf(baseline.intValue() + award.value);
     }
 
     private boolean isEnglishRound() {
@@ -1815,25 +1904,25 @@ public final class GameTracker implements GameStats.GtbHooks {
         if (game == null || announcedTotalRounds <= 0) return;
         java.util.List<GtbPlayer> candidates = new java.util.ArrayList<GtbPlayer>();
         int notLeft = 0;
-        int plausibleUnbuiltRemoteCount = 0;
         for (GtbPlayer p : game.players.values()) {
             if (p == null || p.name == null) continue;
             if (p.leaverState == GtbPlayer.LeaverState.LEAVER) continue;
             if (GameStats.INSTANCE.isLeaver(p.name)) continue;
             notLeft++;
-            // The local client's presence is authoritative. For remotes, silence
-            // narrows the candidates but cannot eliminate another unbuilt player:
-            // that player may have left after their most recent activity.
+            // The local client is known present, and players who already built
+            // cannot explain a reduced remaining-round count. Among the remaining
+            // remotes, only the two-round-away entries are inference candidates.
             if (p.isUser || p.buildRound != 0) continue;
-            plausibleUnbuiltRemoteCount++;
             if (p.silentRoundsConsecutive >= 2) {
                 candidates.add(p);
             }
         }
         int missing = notLeft - announcedTotalRounds;
         if (missing <= 0) return;
-        if (plausibleUnbuiltRemoteCount != missing
-                || candidates.size() != plausibleUnbuiltRemoteCount) return;
+        // Promote only when the denominator drop accounts for every silent
+        // candidate exactly. Active unbuilt players (including the upcoming
+        // builder observed during ROUND_PRE) must not make this unreachable.
+        if (candidates.size() != missing) return;
         for (GtbPlayer p : candidates) {
             p.leaverState = GtbPlayer.LeaverState.LEAVER;
         }

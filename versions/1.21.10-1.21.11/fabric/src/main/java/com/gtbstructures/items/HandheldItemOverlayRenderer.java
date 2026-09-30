@@ -3,8 +3,10 @@ package com.gtbstructures.items;
 import com.gtbstructures.GtbStructuresSettings;
 import com.gtbstructures.ModernRuntimeBridge;
 import com.gtbstructures.diagnostics.RawPacketRecorder;
+import com.gtbstructures.overlay.FabricHudPose;
 import com.gtbstructures.overlay.FabricHudElementBridge;
 import com.gtbstructures.overlay.HudPosition;
+import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.scoreboard.InterfacePreview;
 import com.gtbstructures.scoreboard.PreviewLayoutEditor;
 import com.gtbstructures.scoreboard.ScoreboardLayout;
@@ -252,30 +254,36 @@ public final class HandheldItemOverlayRenderer {
                     : horizontalLayout(entries, requestedWidth,
                     requestedHeight, settings.handheldItemHorizontalNewestAtRight,
                     settings.handheldItemHorizontalNewestAtBottom);
+            float scale = HudPanelScale.normalize(settings.handheldItemScale);
+            int scaledWidth = HudPanelScale.scaledPixels(layout.width, scale);
+            int scaledHeight = HudPanelScale.scaledPixels(layout.height, scale);
             int x = HudPosition.left(settings.handheldItemPosX,
-                    screenWidth, layout.width, MARGIN);
+                    screenWidth, scaledWidth, MARGIN);
             int bottom = HudPosition.bottom(settings.handheldItemPosY,
-                    screenHeight, layout.height, MARGIN);
-            if (settings.handheldItemBackground) {
-                fill(graphics, x - 1, bottom - layout.height - 1,
-                        x + layout.width + 1, bottom + 1,
-                        ScoreboardLayout.BACKGROUND_COLOR);
-            }
+                    screenHeight, scaledHeight, MARGIN);
+            int top = bottom - scaledHeight;
             if (preview) {
-                PreviewLayoutEditor.registerWithBackground("handhelditem", x, bottom - layout.height,
-                        layout.width, layout.height, PreviewLayoutEditor.HANDHELD,
-                        (left, top, right, bottomEdge, color) ->
-                                fill(graphics, left, top, right, bottomEdge, color));
+                PreviewLayoutEditor.registerWithBackground("handhelditem", x, top,
+                        scaledWidth, scaledHeight, PreviewLayoutEditor.HANDHELD,
+                        (left, bgTop, right, bottomEdge, color) ->
+                                fill(graphics, left, bgTop, right, bottomEdge, color));
             }
-
-            int top = bottom - layout.height;
-            if (settings.handheldItemVerticalLayout) {
-                renderVertical(graphics, font, entries, x, top + layout.gridY, layout.width,
-                        settings.handheldItemVerticalNewestAtBottom);
-            } else {
-                renderHorizontal(graphics, font, entries, x, top, layout,
-                        settings.handheldItemHorizontalNewestAtRight,
-                        settings.handheldItemHorizontalNewestAtBottom);
+            FabricHudPose.Scope pose = FabricHudPose.push(graphics, x, top, scale);
+            try {
+                if (settings.handheldItemBackground) {
+                    fill(graphics, -1, -1, layout.width + 1, layout.height + 1,
+                            ScoreboardLayout.BACKGROUND_COLOR);
+                }
+                if (settings.handheldItemVerticalLayout) {
+                    renderVertical(graphics, font, entries, 0, layout.gridY, layout.width,
+                            settings.handheldItemVerticalNewestAtBottom);
+                } else {
+                    renderHorizontal(graphics, font, entries, 0, 0, layout,
+                            settings.handheldItemHorizontalNewestAtRight,
+                            settings.handheldItemHorizontalNewestAtBottom);
+                }
+            } finally {
+                pose.pop();
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
             LOGGER.warn("Unable to render GtbStructures Fabric handheld item overlay", e);

@@ -1,17 +1,23 @@
 package com.gtbstructures.commands;
 
 import com.gtbstructures.GtbStructuresSettings;
+import com.gtbstructures.sound.GuessSounds;
+import com.gtbstructures.sound.MinecraftClientSoundBridge;
 import com.gtbstructures.GtbStructuresSettings.ShortcutNonAsciiCategory;
 import com.gtbstructures.chat.ChatHeader;
 import com.gtbstructures.gtw.GtwLogic;
 import com.gtbstructures.chat.GuessChatAnnotator;
 import com.gtbstructures.items.HandheldItemTracker;
+import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.overlay.WorldEnvironmentLogic;
 import com.gtbstructures.scoreboard.InterfacePreview;
+import com.gtbstructures.scoreboard.PreviewLayoutEditor;
 import com.gtbstructures.scoreboard.ScoreboardConfig;
+import com.gtbstructures.stats.GameExporter;
 import com.gtbstructures.stats.GameStats;
 import com.gtbstructures.stats.StatsArchive;
 import com.gtbstructures.translation.CopyTranslation;
+import com.gtbstructures.translation.ShortcutLanguageGroups;
 import com.gtbstructures.translation.TranslationData;
 import com.gtbstructures.util.MinecraftFormatting;
 
@@ -20,6 +26,8 @@ import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -28,9 +36,10 @@ import java.util.Set;
 
 /** Runtime adapter for the platform-neutral /gtbs command core. */
 public final class CommandGtbRuntime {
-    private static final String[] ROOT_COMMANDS = {"gtbs", "gtbstructures", "gtb", "lrj", "copytranslation", "copyt", "gtw", "guess", "trollmode"};
+    private static final String[] ROOT_COMMANDS = {"gtbs", "gtbstructures", "gtb", "lrj", "copytranslation", "copyt", "gtw", "guess", "trollmode", "shortcutreminder", "screminder"};
     private static final String PLAY_GTB_COMMAND = "/play build_battle_guess_the_build";
-    private static final String LOBBY_BB_COMMAND = "/l";
+    private static final String LOBBY_COMMAND = "/l";
+    private static final String BYPASS_LOBBY_PROTECTION_COMMAND = "/l bb";
     private static final String REJOIN_COMMAND = "/rej";
     private static final int GTW_TICKS_PER_HINT = 240;
     private static final CommandGtb COMMAND = new CommandGtb();
@@ -38,6 +47,7 @@ public final class CommandGtbRuntime {
     private static final Services DEFAULT_SERVICES = new DefaultServices();
     private static Services services = DEFAULT_SERVICES;
     private static final GtwSession GTW = new GtwSession();
+    private static LeaveRejoinController leaveRejoin = new LeaveRejoinController();
 
     private CommandGtbRuntime() {
     }
@@ -66,10 +76,10 @@ public final class CommandGtbRuntime {
         default String accountPlayerUuid() {
             return null;
         }
-        void sendServerCommand(String command);
-        default void sendServerCommandAfterLobby(String command) {
-            sendServerCommand(command);
+        default boolean playerAvailable() {
+            return false;
         }
+        void sendServerCommand(String command);
         boolean copyToClipboard(String text);
     }
 
@@ -83,6 +93,7 @@ public final class CommandGtbRuntime {
         services = DEFAULT_SERVICES;
         SETTINGS.resetForTest();
         GTW.reset();
+        leaveRejoin = new LeaveRejoinController();
         applySettingsToRuntime();
     }
 
@@ -98,6 +109,9 @@ public final class CommandGtbRuntime {
         }
         if ("copyt".equals(normalizedRoot)) {
             normalizedRoot = "copytranslation";
+        }
+        if ("screminder".equals(normalizedRoot)) {
+            normalizedRoot = "shortcutreminder";
         }
 
         if ("gtw".equals(normalizedRoot)) {
@@ -117,18 +131,16 @@ public final class CommandGtbRuntime {
             return Result.empty();
         }
         if ("lrj".equals(normalizedRoot)) {
-            if (args.length != 0) {
-                return Result.messages(CommandGtb.head + "Usage: /lrj");
-            }
-            services.sendServerCommand(LOBBY_BB_COMMAND);
-            services.sendServerCommandAfterLobby(REJOIN_COMMAND);
-            return Result.empty();
+            return handleLeaveRejoin(args, "/lrj");
         }
         if ("copytranslation".equals(normalizedRoot)) {
             return executeGtbs(prefixedArgs("copytranslation", args));
         }
         if ("trollmode".equals(normalizedRoot)) {
             return executeGtbs(prefixedArgs("trollmode", args));
+        }
+        if ("shortcutreminder".equals(normalizedRoot)) {
+            return executeGtbs(prefixedArgs("shortcutreminder", args));
         }
 
         return Result.messages(CommandGtb.head + "Unknown command root. Usage: see /gtbs help");
@@ -139,6 +151,19 @@ public final class CommandGtbRuntime {
         messages.addAll(prefixAll(GTW.onClientTick(), CommandGtb.head));
         messages.addAll(StatsArchive.drainAsyncMessages());
         return Result.messages(messages);
+    }
+
+    /** Advances the /lrj state machine independently of the GTBS master setting. */
+    public static void onLeaveRejoinClientTick() {
+        LeaveRejoinController.Action action = leaveRejoin.tick(services.playerAvailable());
+        if (action == LeaveRejoinController.Action.REJOIN) {
+            services.sendServerCommand(REJOIN_COMMAND);
+        }
+    }
+
+    /** Keeps a pending /lrj alive and marks the next ready play connection. */
+    public static void onClientConnectionBoundary(boolean playReady) {
+        leaveRejoin.onConnectionBoundary(playReady);
     }
 
     public static void discardPendingAutonomousActions() {
@@ -154,18 +179,27 @@ public final class CommandGtbRuntime {
         if ("copyt".equals(normalizedRoot)) {
             normalizedRoot = "copytranslation";
         }
+        if ("screminder".equals(normalizedRoot)) {
+            normalizedRoot = "shortcutreminder";
+        }
 
-        if ("gtb".equals(normalizedRoot) || "lrj".equals(normalizedRoot)) {
+        if ("gtb".equals(normalizedRoot)) {
             return Collections.emptyList();
+        }
+        if ("lrj".equals(normalizedRoot)) {
+            return completeGtbsShortcut("lrj", rawArgs);
         }
         if ("copytranslation".equals(normalizedRoot)) {
             return completeCopyTranslation(rawArgs);
         }
         if ("gtw".equals(normalizedRoot)) {
-            return completeGtbsShortcut("gtw", rawArgs);
+            return completeGtw(rawArgs, false);
         }
         if ("trollmode".equals(normalizedRoot)) {
             return completeGtbsShortcut("trollmode", rawArgs);
+        }
+        if ("shortcutreminder".equals(normalizedRoot)) {
+            return completeGtbsShortcut("shortcutreminder", rawArgs);
         }
         if ("guess".equals(normalizedRoot)) {
             return Collections.emptyList();
@@ -175,6 +209,12 @@ public final class CommandGtbRuntime {
         }
 
         String[] args = parseCompletionArgs(rawArgs);
+        if (args.length > 0 && "gtw".equalsIgnoreCase(args[0])) {
+            return completeGtw(rawArgs, true);
+        }
+        if (args.length > 0 && "copytranslation".equalsIgnoreCase(args[0])) {
+            return completeCopyTranslation(rawArgs, true);
+        }
         List<String> suggestions = COMMAND.addTabCompletionOptions(null, args, null);
         if (suggestions == null || suggestions.isEmpty()) {
             return Collections.emptyList();
@@ -201,7 +241,7 @@ public final class CommandGtbRuntime {
             return execute("gtb", join(sliceFrom(args, 1)));
         }
         if ("lrj".equals(first)) {
-            return execute("lrj", join(sliceFrom(args, 1)));
+            return handleLeaveRejoin(sliceFrom(args, 1), "/gtbs lrj");
         }
         if (isHintStructureCommand(first)) {
             return handleHintStructure(sliceFrom(args, 1));
@@ -232,6 +272,11 @@ public final class CommandGtbRuntime {
         if ("stats".equals(first)) {
             return handleStats(sliceFrom(args, 1));
         }
+        if ("openstatsfolder".equals(first)) {
+            if (args.length != 1) return Result.empty();
+            GameExporter.openStatsFolderAsync(services.gameDir());
+            return Result.empty();
+        }
         if ("export".equals(first)) {
             if (args.length != 1) return Result.messages(CommandGtb.head + "Usage: /gtbs export");
             return Result.messages(CommandGtb.head + GameStats.INSTANCE.manualExport(services.gameDir()));
@@ -248,11 +293,7 @@ public final class CommandGtbRuntime {
             return Result.messages(CommandGtb.head + "Stats tracking is currently " + onOff(SETTINGS.trackingEnabled));
         }
         if ("autorequeue".equals(first)) {
-            if (args.length != 1) return Result.messages(CommandGtb.head + "Usage: /gtbs autorequeue");
-            SETTINGS.autoRequeue = !GameStats.INSTANCE.isAutoRequeue();
-            GameStats.INSTANCE.setAutoRequeue(SETTINGS.autoRequeue);
-            saveSettings();
-            return Result.messages(CommandGtb.head + "Auto-requeue is currently " + onOff(SETTINGS.autoRequeue));
+            return handleAutoRequeue(sliceFrom(args, 1));
         }
         if ("updatenotice".equals(first)) {
             if (args.length == 1) {
@@ -314,6 +355,7 @@ public final class CommandGtbRuntime {
         if ("guesspeek".equals(first)) {
             return handleGuessPeek(sliceFrom(args, 1));
         }
+        if ("guesssound".equals(first)) return handleGuessSound(sliceFrom(args, 1));
         if ("scrambleguess".equals(first)) {
             return handleScrambleGuess(sliceFrom(args, 1));
         }
@@ -366,6 +408,9 @@ public final class CommandGtbRuntime {
             return Result.messages(CommandGtb.head
                     + backgroundStatusMessage("Hint structure background", SETTINGS.hintStructureBackground));
         }
+        if ("scale".equalsIgnoreCase(args[0])) {
+            return handlePanelScale(args, "hint", "Hint structure");
+        }
         if ("setlocation".equalsIgnoreCase(args[0])) {
             return handlePosition(args, "Text", "/gtbs hintstructure setlocation <x | y> <value>",
                     SETTINGS.posX, SETTINGS.posY, (axis, value) -> {
@@ -376,7 +421,7 @@ public final class CommandGtbRuntime {
         if ("setcolor".equalsIgnoreCase(args[0])) {
             return handleHintStructureColor(args);
         }
-        return Result.messages(CommandGtb.head + "Usage: /gtbs hintstructure [setlocation|setcolor|background] ...");
+        return Result.messages(CommandGtb.head + "Usage: /gtbs hintstructure [setlocation|setcolor|background|scale] ...");
     }
 
     private static Result handleHintStructureColor(String[] args) {
@@ -433,7 +478,23 @@ public final class CommandGtbRuntime {
             return Result.messages(CommandGtb.head + "Show all matching (showEnglish) is currently "
                     + onOff(SETTINGS.showAllMatchingShowEnglish));
         }
-        return Result.messages(CommandGtb.head + "Usage: /gtbs showallmatching [showenglish <true|false>]");
+        if (args.length >= 1 && "showcount".equalsIgnoreCase(args[0])) {
+            if (args.length == 1) {
+                return Result.messages(CommandGtb.head + showAllMatchingCountStatus());
+            }
+            if (args.length == 2) {
+                Boolean enabled = parseOptionalBoolean(args[1]);
+                if (enabled != null) {
+                    SETTINGS.showAllMatchingShowCount = enabled.booleanValue();
+                    saveSettings();
+                    return Result.messages(CommandGtb.head + showAllMatchingCountStatus());
+                }
+            }
+            return Result.messages(CommandGtb.head
+                    + "Usage: /gtbs showallmatching showcount [on|off]");
+        }
+        return Result.messages(CommandGtb.head
+                + "Usage: /gtbs showallmatching [showenglish <true|false>|showcount [on|off]]");
     }
 
     private static Result handleThemePointReveal(String[] args) {
@@ -531,8 +592,211 @@ public final class CommandGtbRuntime {
                     + "[on|off|toggle|<extendedlatin|cyrillic|hanzi|japanese|hangul> [on|off|toggle]]");
         }
 
+        if ("languagegroups".equalsIgnoreCase(args[0])) {
+            return handleShortcutLanguageGroups(sliceFrom(args, 1));
+        }
+
         return Result.messages(CommandGtb.head
-                + "Usage: /gtbs shortcutreminder [shownonascii|showallshortcuts|showmultiwords] ...");
+                + "Usage: /gtbs shortcutreminder [shownonascii|showallshortcuts|showmultiwords|languagegroups] ...");
+    }
+
+    private static Result handleShortcutLanguageGroups(String[] args) {
+        if (args.length == 0) return shortcutStatus("Language group shortcuts", ShortcutLanguageGroups.isEnabled());
+        if (args.length == 1) {
+            Boolean enabled = parseToggleBoolean(args[0], ShortcutLanguageGroups.isEnabled());
+            if (enabled != null) {
+                ShortcutLanguageGroups.setEnabled(enabled.booleanValue());
+                saveSettings();
+                return shortcutStatus("Language group shortcuts", ShortcutLanguageGroups.isEnabled());
+            }
+            if ("list".equalsIgnoreCase(args[0])) return languageGroupList();
+        }
+        if ("create".equalsIgnoreCase(args[0])) {
+            if (args.length < 3) return languageGroupUsage("create <name> <lang1,lang2,...>");
+            LanguageListParse languages = parseLanguageList(args[args.length - 1]);
+            if (!languages.ok) return languageGroupValidation(ShortcutLanguageGroups.ERROR_UNKNOWN_LANGUAGE, languages.invalid);
+            ShortcutLanguageGroups.Result result = ShortcutLanguageGroups.create(join(args, 1, args.length - 1), languages.codes);
+            if (!result.success) return languageGroupValidation(result.error, result.detail);
+            saveSettings();
+            return Result.messages(CommandGtb.head + "Created shortcut language group \u00a7f" + result.group.name
+                    + "\u00a77 as group \u00a7f" + ShortcutLanguageGroups.groups().size() + "\u00a77.");
+        }
+        if ("enable".equalsIgnoreCase(args[0])) return handleLanguageGroupEnabled(args);
+        if ("rawtranslation".equalsIgnoreCase(args[0])) return handleLanguageGroupRawOption(args, false);
+        if ("lowercase".equalsIgnoreCase(args[0])) return handleLanguageGroupRawOption(args, true);
+        if ("rename".equalsIgnoreCase(args[0])) {
+            if (args.length < 3) return languageGroupUsage("rename <number> <name>");
+            Integer index = parseLanguageGroupIndex(args[1]);
+            if (index == null) return languageGroupValidation(ShortcutLanguageGroups.ERROR_GROUP_NOT_FOUND, args[1]);
+            ShortcutLanguageGroups.Result result = ShortcutLanguageGroups.rename(index.intValue(), join(args, 2, args.length));
+            if (!result.success) return languageGroupValidation(result.error, result.detail);
+            saveSettings();
+            return Result.messages(CommandGtb.head + "Shortcut language group \u00a7f" + index
+                    + "\u00a77 renamed to \u00a7f" + result.group.name + "\u00a77.");
+        }
+        if ("languages".equalsIgnoreCase(args[0])) {
+            if (args.length != 3) return languageGroupUsage("languages <number> <lang1,lang2,...>");
+            Integer index = parseLanguageGroupIndex(args[1]);
+            if (index == null) return languageGroupValidation(ShortcutLanguageGroups.ERROR_GROUP_NOT_FOUND, args[1]);
+            LanguageListParse languages = parseLanguageList(args[2]);
+            if (!languages.ok) return languageGroupValidation(ShortcutLanguageGroups.ERROR_UNKNOWN_LANGUAGE, languages.invalid);
+            ShortcutLanguageGroups.Result result = ShortcutLanguageGroups.setLanguages(index.intValue(), languages.codes);
+            if (!result.success) return languageGroupValidation(result.error, result.detail);
+            saveSettings();
+            return Result.messages(CommandGtb.head + "Shortcut language group \u00a7f" + index
+                    + "\u00a77 now contains \u00a7f" + result.group.languages.size() + "\u00a77 languages.");
+        }
+        if ("delete".equalsIgnoreCase(args[0])) {
+            if (args.length != 2) return languageGroupUsage("delete <number>");
+            Integer index = parseLanguageGroupIndex(args[1]);
+            if (index == null) return languageGroupValidation(ShortcutLanguageGroups.ERROR_GROUP_NOT_FOUND, args[1]);
+            ShortcutLanguageGroups.Result result = ShortcutLanguageGroups.delete(index.intValue());
+            if (!result.success) return languageGroupValidation(result.error, result.detail);
+            saveSettings();
+            return Result.messages(CommandGtb.head + "Deleted shortcut language group \u00a7f" + result.group.name + "\u00a77.");
+        }
+        return languageGroupUsage("[on|off|list|create|enable|rawtranslation|lowercase|rename|languages|delete] ...");
+    }
+
+    private static Result handleLanguageGroupEnabled(String[] args) {
+        if (args.length != 2 && args.length != 3) return languageGroupUsage("enable <number> [on|off]");
+        Integer index = parseLanguageGroupIndex(args[1]);
+        ShortcutLanguageGroups.Group group = index == null ? null : ShortcutLanguageGroups.groupAt(index.intValue());
+        if (group == null) return languageGroupValidation(ShortcutLanguageGroups.ERROR_GROUP_NOT_FOUND, args[1]);
+        if (args.length == 3) {
+            Boolean enabled = parseOptionalBoolean(args[2]);
+            if (enabled == null) return languageGroupUsage("enable <number> [on|off]");
+            ShortcutLanguageGroups.Result result = ShortcutLanguageGroups.setGroupEnabled(index.intValue(), enabled.booleanValue());
+            if (!result.success) return languageGroupValidation(result.error, result.detail);
+            group = result.group;
+            saveSettings();
+        }
+        return languageGroupStatus(index, group, "", group.enabled);
+    }
+
+    private static Result handleLanguageGroupRawOption(String[] args, boolean lowercase) {
+        String command = lowercase ? "lowercase" : "rawtranslation";
+        if (args.length != 2 && args.length != 3) return languageGroupUsage(command + " <number> [on|off]");
+        Integer index = parseLanguageGroupIndex(args[1]);
+        ShortcutLanguageGroups.Group group = index == null ? null : ShortcutLanguageGroups.groupAt(index.intValue());
+        if (group == null) return languageGroupValidation(ShortcutLanguageGroups.ERROR_GROUP_NOT_FOUND, args[1]);
+        if (args.length == 3) {
+            Boolean enabled = parseOptionalBoolean(args[2]);
+            if (enabled == null) return languageGroupUsage(command + " <number> [on|off]");
+            ShortcutLanguageGroups.Result result = lowercase
+                    ? ShortcutLanguageGroups.setRawTranslationAllLowercase(index.intValue(), enabled.booleanValue())
+                    : ShortcutLanguageGroups.setRawTranslation(index.intValue(), enabled.booleanValue());
+            if (!result.success) return languageGroupValidation(result.error, result.detail);
+            group = result.group;
+            saveSettings();
+        }
+        boolean enabled = lowercase ? group.rawTranslationAllLowercase : group.rawTranslation;
+        return languageGroupStatus(index, group,
+                lowercase ? "all-lowercase raw translation" : "raw translation", enabled);
+    }
+
+    private static Result languageGroupStatus(Integer index, ShortcutLanguageGroups.Group group, String label, boolean enabled) {
+        String suffix = label.isEmpty() ? "is currently " : label + " is currently ";
+        return Result.messages(CommandGtb.head + "Shortcut language group \u00a7f" + index
+                + "\u00a77 (\u00a7f" + group.name + "\u00a77) " + suffix + onOff(enabled));
+    }
+
+    private static Result languageGroupList() {
+        List<ShortcutLanguageGroups.Group> groups = ShortcutLanguageGroups.groups();
+        if (groups.isEmpty()) return Result.messages(CommandGtb.head + "No shortcut language groups are configured.");
+        ArrayList<String> messages = new ArrayList<String>();
+        messages.add(CommandGtb.head + "Shortcut language groups: \u00a7f" + groups.size() + "\u00a77 total.");
+        for (int i = 0; i < groups.size(); i++) {
+            ShortcutLanguageGroups.Group group = groups.get(i);
+            messages.add("\u00a77" + (i + 1) + ". " + onOff(group.enabled) + " \u00a7f" + group.name
+                    + "\u00a77: " + languageGroupSummary(group.languages) + " \u00a77[raw: " + onOff(group.rawTranslation)
+                    + "\u00a77, lowercase: " + onOff(group.rawTranslationAllLowercase) + "\u00a77]");
+        }
+        return Result.messages(messages);
+    }
+
+    private static String languageGroupSummary(List<String> languages) {
+        StringBuilder out = new StringBuilder();
+        for (String code : languages) {
+            if (out.length() > 0) out.append("\u00a77, ");
+            if (ShortcutLanguageGroups.isSupportedLanguage(code)) out.append("\u00a7f")
+                    .append(ShortcutLanguageGroups.languageDisplayName(code)).append("\u00a77 (").append(code).append(')');
+            else out.append("\u00a7cUnavailable\u00a77 (").append(code).append(')');
+        }
+        return out.toString();
+    }
+
+    private static Result languageGroupValidation(String error, String detail) {
+        return Result.messages(shortcutLanguageGroupValidationNotice(error, detail));
+    }
+
+    public static String shortcutLanguageGroupValidationNotice(String error, String detail) {
+        String safeDetail = detail == null ? "" : detail;
+        if (ShortcutLanguageGroups.ERROR_GROUP_NOT_FOUND.equals(error)) return CommandGtb.head + "Shortcut language group \u00a7f" + safeDetail + "\u00a77 does not exist.";
+        if (ShortcutLanguageGroups.ERROR_NAME_REQUIRED.equals(error)) return CommandGtb.head + "Shortcut language group names cannot be empty.";
+        if (ShortcutLanguageGroups.ERROR_NAME_TOO_LONG.equals(error)) return CommandGtb.head + "Shortcut language group names must be at most \u00a7f" + ShortcutLanguageGroups.MAX_NAME_CODE_POINTS + "\u00a77 characters.";
+        if (ShortcutLanguageGroups.ERROR_DUPLICATE_NAME.equals(error)) return CommandGtb.head + "A shortcut language group named \u00a7f" + safeDetail + "\u00a77 already exists.";
+        if (ShortcutLanguageGroups.ERROR_LANGUAGES_REQUIRED.equals(error)) return CommandGtb.head + "Select at least one language for the shortcut language group.";
+        if (ShortcutLanguageGroups.ERROR_UNKNOWN_LANGUAGE.equals(error)) return CommandGtb.head + "Unknown shortcut language: \u00a7f" + safeDetail + "\u00a77. Available codes: \u00a7f" + availableLanguageCodes();
+        return CommandGtb.head + "The shortcut language group change was rejected.";
+    }
+
+    private static Result languageGroupUsage(String suffix) {
+        return Result.messages(CommandGtb.head + "Usage: /gtbs shortcutreminder languagegroups " + suffix);
+    }
+
+    private static Integer parseLanguageGroupIndex(String raw) {
+        try {
+            int value = Integer.parseInt(raw);
+            return value < 1 ? null : Integer.valueOf(value);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static LanguageListParse parseLanguageList(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return LanguageListParse.error(raw);
+        String[] pieces = raw.split(",");
+        ArrayList<String> codes = new ArrayList<String>();
+        LinkedHashSet<String> seen = new LinkedHashSet<String>();
+        for (String piece : pieces) {
+            String code = CopyTranslation.resolveLanguageCode(piece);
+            if (code == null || !ShortcutLanguageGroups.isSupportedLanguage(code)) return LanguageListParse.error(piece);
+            code = ShortcutLanguageGroups.normalizeLanguageCode(code);
+            if (seen.add(code)) codes.add(code);
+        }
+        return codes.isEmpty() ? LanguageListParse.error(raw) : LanguageListParse.ok(codes);
+    }
+
+    private static String availableLanguageCodes() {
+        StringBuilder out = new StringBuilder();
+        for (String code : ShortcutLanguageGroups.supportedLanguageCodes()) {
+            if (out.length() > 0) out.append(", ");
+            out.append(code);
+        }
+        return out.toString();
+    }
+
+    private static Result handleLeaveRejoin(String[] args, String commandRoot) {
+        if (args == null || args.length == 0) {
+            leaveRejoin.start();
+            services.sendServerCommand(SETTINGS.lrjBypassLobbyProtection
+                    ? BYPASS_LOBBY_PROTECTION_COMMAND : LOBBY_COMMAND);
+            return Result.empty();
+        }
+        String usage = "Usage: " + commandRoot + " bypassprotection [on|off]";
+        if (!"bypassprotection".equalsIgnoreCase(args[0]) || args.length > 2) return Result.messages(CommandGtb.head + usage);
+        if (args.length == 2) {
+            Boolean enabled = parseOptionalBoolean(args[1]);
+            if (enabled == null) return Result.messages(CommandGtb.head + usage);
+            SETTINGS.lrjBypassLobbyProtection = enabled.booleanValue();
+            saveSettings();
+        }
+        return Result.messages(CommandGtb.head + leaveRejoinProtectionStatusMessage(SETTINGS.lrjBypassLobbyProtection));
+    }
+
+    static String leaveRejoinProtectionStatusMessage(boolean enabled) {
+        return "Bypass /l protection is currently " + onOff(enabled);
     }
 
     private static Result handleCopyTranslation(String[] args) {
@@ -552,6 +816,21 @@ public final class CommandGtbRuntime {
             return Result.messages(CommandGtb.head + "Copy translation prefix is currently "
                     + onOff(SETTINGS.copyTranslationPrefix));
         }
+        if ("caps".equalsIgnoreCase(args[0])) {
+            if (args.length > 2) {
+                return Result.messages(CommandGtb.head + "Usage: /gtbs copytranslation caps [on|off]");
+            }
+            if (args.length == 2) {
+                Boolean enabled = parseOptionalBoolean(args[1]);
+                if (enabled == null) {
+                    return Result.messages(CommandGtb.head + "Usage: /gtbs copytranslation caps [on|off]");
+                }
+                SETTINGS.copyTranslationCaps = enabled.booleanValue();
+                saveSettings();
+            }
+            return Result.messages(CommandGtb.head + "Copy translation capitalization is currently "
+                    + onOff(SETTINGS.copyTranslationCaps));
+        }
 
         CopyTranslation.Request request = CopyTranslation.parseRequest(args);
         if (request == null || request.theme == null || request.theme.isEmpty()) {
@@ -561,7 +840,7 @@ public final class CommandGtbRuntime {
             return Result.messages(CommandGtb.head + request.langError);
         }
         CopyTranslation.Result result = CopyTranslation.buildMessage(request.theme, request.langCodes,
-                SETTINGS.copyTranslationPrefix);
+                SETTINGS.copyTranslationPrefix, SETTINGS.copyTranslationCaps);
         if (!result.ok) {
             return Result.messages(CommandGtb.head + result.error);
         }
@@ -571,9 +850,25 @@ public final class CommandGtbRuntime {
 
     private static Result handleGtw(String[] args, String usageRoot) {
         if (args.length == 0) {
-            return Result.messages(CommandGtb.head + "Usage: " + usageRoot + " <start|stop|showenglish> ...");
+            return Result.messages(CommandGtb.head + "Usage: " + usageRoot
+                    + " <start|stop|showenglish|showcount|difficulty> ...");
         }
         String sub = args[0].toLowerCase(Locale.ROOT);
+        if ("difficulty".equals(sub)) {
+            if (args.length == 1) {
+                return Result.messages(CommandGtb.head + gtwDifficultyStatus());
+            }
+            if (args.length != 2) {
+                return Result.messages(CommandGtb.head + gtwDifficultyUsage());
+            }
+            String difficulty = GtwLogic.parseDifficulty(args[1]);
+            if (difficulty == null) {
+                return Result.messages(CommandGtb.head + gtwDifficultyUsage());
+            }
+            SETTINGS.gtwDifficulty = difficulty;
+            saveSettings();
+            return Result.messages(CommandGtb.head + gtwDifficultyStatus());
+        }
         if ("showenglish".equals(sub)) {
             if (args.length < 2) {
                 return Result.messages(CommandGtb.head + "Show English (in " + usageRoot + ") is currently "
@@ -586,6 +881,20 @@ public final class CommandGtbRuntime {
             saveSettings();
             return Result.messages(CommandGtb.head + "Show English (in " + usageRoot + ") is currently "
                     + onOff(SETTINGS.gtwShowEnglish));
+        }
+        if ("showcount".equals(sub)) {
+            if (args.length == 1) {
+                return Result.messages(CommandGtb.head + gtwShowCountStatus());
+            }
+            if (args.length == 2) {
+                Boolean enabled = parseOptionalBoolean(args[1]);
+                if (enabled != null) {
+                    SETTINGS.gtwShowCount = enabled.booleanValue();
+                    saveSettings();
+                    return Result.messages(CommandGtb.head + gtwShowCountStatus());
+                }
+            }
+            return Result.messages(CommandGtb.head + "Usage: /gtw showcount [on|off]");
         }
         if ("start".equals(sub)) {
             String langCode;
@@ -602,10 +911,59 @@ public final class CommandGtbRuntime {
             return Result.messages(prefixAll(GTW.start(langCode), CommandGtb.head));
         }
         if ("stop".equals(sub)) {
-            if (args.length != 1) return Result.messages(CommandGtb.head + "Usage: " + usageRoot + " <start|stop|showenglish> ...");
+            if (args.length != 1) return Result.messages(CommandGtb.head + "Usage: " + usageRoot
+                    + " <start|stop|showenglish|showcount|difficulty> ...");
             return Result.messages(prefixAll(GTW.stop(), CommandGtb.head));
         }
-        return Result.messages(CommandGtb.head + "Usage: " + usageRoot + " <start|stop|showenglish> ...");
+        return Result.messages(CommandGtb.head + "Usage: " + usageRoot
+                + " <start|stop|showenglish|showcount|difficulty> ...");
+    }
+
+    private static Result handleAutoRequeue(String[] args) {
+        if (args.length == 0) {
+            SETTINGS.autoRequeue = !GameStats.INSTANCE.isAutoRequeue();
+            GameStats.INSTANCE.setAutoRequeue(SETTINGS.autoRequeue);
+            saveSettings();
+            return Result.messages(CommandGtb.head + "Auto-requeue is currently " + onOff(SETTINGS.autoRequeue));
+        }
+        if (!"delay".equalsIgnoreCase(args[0])) {
+            return Result.messages(CommandGtb.head + "Usage: /gtbs autorequeue [delay <time>]");
+        }
+        if (args.length == 1) {
+            return Result.messages(CommandGtb.head + "Auto-requeue delay is currently \u00a7f"
+                    + GtbStructuresSettings.formatAutoRequeueDelaySeconds(SETTINGS.autoRequeueDelaySeconds)
+                    + " seconds.");
+        }
+        if (args.length != 2) {
+            return Result.messages(CommandGtb.head + "Usage: /gtbs autorequeue [delay <time>]");
+        }
+        Float delay = GtbStructuresSettings.parseAutoRequeueDelaySeconds(args[1]);
+        if (delay == null) {
+            return Result.messages(CommandGtb.head + "Please enter a time from 0.0 to 10.0 seconds.");
+        }
+        SETTINGS.autoRequeueDelaySeconds = delay.floatValue();
+        GameStats.INSTANCE.setAutoRequeueDelaySeconds(SETTINGS.autoRequeueDelaySeconds);
+        saveSettings();
+        return Result.messages(CommandGtb.head + "Auto-requeue delay set to \u00a7f"
+                + GtbStructuresSettings.formatAutoRequeueDelaySeconds(SETTINGS.autoRequeueDelaySeconds)
+                + " seconds.");
+    }
+
+    private static String gtwDifficultyStatus() {
+        return "GTW difficulty is currently: \u00a7f" + GtwLogic.normalizeDifficulty(SETTINGS.gtwDifficulty);
+    }
+
+    private static String gtwDifficultyUsage() {
+        return "Usage: /gtw difficulty <easy|medium|hard|all>";
+    }
+
+    private static String showAllMatchingCountStatus() {
+        return "Show All Matching total theme count is currently "
+                + onOff(SETTINGS.showAllMatchingShowCount);
+    }
+
+    private static String gtwShowCountStatus() {
+        return "GTW total theme count is currently " + onOff(SETTINGS.gtwShowCount);
     }
 
     private static Result handleGuess(String[] args, String usageRoot) {
@@ -614,11 +972,7 @@ public final class CommandGtbRuntime {
     }
 
     static boolean matchesAnyGtwTranslation(String guess, String englishTheme) {
-        Map<String, String> translations = TranslationData.getAllTranslations(englishTheme);
-        for (Map.Entry<String, String> entry : translations.entrySet()) {
-            if (GtwLogic.gtbMatches(guess, entry.getValue(), entry.getKey())) return true;
-        }
-        return GtwLogic.gtbMatches(guess, englishTheme, "en");
+        return TranslationData.findActiveGuessThemes(guess).contains(englishTheme);
     }
 
     private static Result handleScoreboard(String[] args) {
@@ -693,13 +1047,11 @@ public final class CommandGtbRuntime {
             return Result.messages(CommandGtb.head + scoreboardTriStateStatus(option));
         }
         if (args.length != 2) {
-            return Result.messages(CommandGtb.head + "Usage: /gtbs scoreboard " + option
-                    + " <off|expanded|on>");
+            return Result.messages(CommandGtb.head + scoreboardTriStateUsage(option));
         }
         ScoreboardConfig.DisplayOption value = ScoreboardConfig.parseOption(args[1]);
         if (value == null) {
-            return Result.messages(CommandGtb.head + "Usage: /gtbs scoreboard " + option
-                    + " <off|expanded|on>");
+            return Result.messages(CommandGtb.head + scoreboardTriStateUsage(option));
         }
         if ("showpoints".equals(option)) {
             SETTINGS.sbConfig.showPointsGainedInRound = value;
@@ -707,21 +1059,28 @@ public final class CommandGtbRuntime {
             SETTINGS.sbConfig.showPlaces = value;
         } else if ("showtitles".equals(option)) {
             SETTINGS.sbConfig.showTitles = value;
-        } else {
+        } else if ("showemblems".equals(option)) {
             SETTINGS.sbConfig.showEmblems = value;
+        } else {
+            SETTINGS.sbConfig.hypixelShowRounds = value;
         }
         saveSettings();
         return Result.messages(CommandGtb.head + scoreboardTriStateStatus(option));
     }
 
+    private static String scoreboardTriStateUsage(String option) {
+        return "Usage: /gtbs scoreboard " + option
+                + ("showrounds".equals(option) ? " [off|expanded|on]" : " <off|expanded|on>");
+    }
+
     private static Result handleScoreboardBoolean(String[] args) {
         String option = scoreboardOptionKey(args[0]);
-        boolean current = "leftlast".equals(option)
-                ? SETTINGS.sbConfig.leftPlayersAtBottom
-                : SETTINGS.sbConfig.textShadow;
-        String label = "leftlast".equals(option) ? "Place left players at bottom" : "Text shadow";
+        boolean current;
+        if ("leftlast".equals(option)) current = SETTINGS.sbConfig.leftPlayersAtBottom;
+        else if ("showbuilders".equals(option)) current = SETTINGS.sbConfig.defaultExplicitlyShowBuilders;
+        else current = SETTINGS.sbConfig.textShadow;
         if (args.length == 1) {
-            return Result.messages(CommandGtb.head + label + " is currently " + onOff(current));
+            return Result.messages(CommandGtb.head + scoreboardBooleanStatus(option));
         }
         if (args.length != 2) {
             return Result.messages(CommandGtb.head + "Usage: /gtbs scoreboard " + option + " [on|off]");
@@ -732,11 +1091,25 @@ public final class CommandGtbRuntime {
         }
         if ("leftlast".equals(option)) {
             SETTINGS.sbConfig.leftPlayersAtBottom = enabled.booleanValue();
+        } else if ("showbuilders".equals(option)) {
+            SETTINGS.sbConfig.defaultExplicitlyShowBuilders = enabled.booleanValue();
         } else {
             SETTINGS.sbConfig.textShadow = enabled.booleanValue();
         }
         saveSettings();
-        return Result.messages(CommandGtb.head + label + " is currently " + onOff(enabled.booleanValue()));
+        return Result.messages(CommandGtb.head + scoreboardBooleanStatus(option));
+    }
+
+    private static String scoreboardBooleanStatus(String option) {
+        if ("leftlast".equals(option)) {
+            return "Place left players at bottom is currently "
+                    + onOff(SETTINGS.sbConfig.leftPlayersAtBottom);
+        }
+        if ("showbuilders".equals(option)) {
+            return "Explicitly show builders is currently "
+                    + onOff(SETTINGS.sbConfig.defaultExplicitlyShowBuilders);
+        }
+        return "Text shadow is currently " + onOff(SETTINGS.sbConfig.textShadow);
     }
 
     private static String scoreboardSliderStatus(String option) {
@@ -759,9 +1132,12 @@ public final class CommandGtbRuntime {
         } else if ("showtitles".equals(option)) {
             label = "Show titles";
             value = SETTINGS.sbConfig.showTitles;
-        } else {
+        } else if ("showemblems".equals(option)) {
             label = "Show emblems";
             value = SETTINGS.sbConfig.showEmblems;
+        } else {
+            label = "Show rounds";
+            value = SETTINGS.sbConfig.hypixelShowRounds;
         }
         return label + " is currently \u00a7f" + ScoreboardConfig.displayOption(value);
     }
@@ -788,12 +1164,14 @@ public final class CommandGtbRuntime {
     private static boolean isScoreboardTriStateOption(String raw) {
         String key = scoreboardOptionKey(raw);
         return "showpoints".equals(key) || "showplaces".equals(key)
-                || "showtitles".equals(key) || "showemblems".equals(key);
+                || "showtitles".equals(key) || "showemblems".equals(key)
+                || "showrounds".equals(key);
     }
 
     private static boolean isScoreboardBooleanOption(String raw) {
         String key = scoreboardOptionKey(raw);
-        return "leftlast".equals(key) || "textshadow".equals(key);
+        return "textshadow".equals(key) || "leftlast".equals(key)
+                || "showbuilders".equals(key);
     }
 
     private static String scoreboardOptionKey(String raw) {
@@ -812,8 +1190,12 @@ public final class CommandGtbRuntime {
         if (key.equals("places") || key.equals("showplaces")) return "showplaces";
         if (key.equals("titles") || key.equals("showtitles")) return "showtitles";
         if (key.equals("emblems") || key.equals("showemblems")) return "showemblems";
-        if (key.equals("leftlast")) return "leftlast";
+        if (key.equals("builder") || key.equals("builders") || key.equals("showbuilder")
+                || key.equals("showbuilders") || key.equals("explicitlyshowbuilders")) return "showbuilders";
+        if (key.equals("round") || key.equals("rounds") || key.equals("showround")
+                || key.equals("showrounds")) return "showrounds";
         if (key.equals("shadow") || key.equals("textshadow")) return "textshadow";
+        if (key.equals("leftlast")) return "leftlast";
         return key;
     }
 
@@ -844,6 +1226,9 @@ public final class CommandGtbRuntime {
             return handleSimpleBackground(args, "Handheld item background", "/gtbs handhelditem background [on|off]",
                     SETTINGS.handheldItemBackground, value -> SETTINGS.handheldItemBackground = value);
         }
+        if ("scale".equalsIgnoreCase(args[0])) {
+            return handlePanelScale(args, "handheld", "Handheld item");
+        }
         if ("setlocation".equalsIgnoreCase(args[0])) {
             return handlePosition(args, "Handheld item", "/gtbs handhelditem setlocation <x | y> <value>",
                     SETTINGS.handheldItemPosX, SETTINGS.handheldItemPosY, (axis, value) -> {
@@ -871,7 +1256,7 @@ public final class CommandGtbRuntime {
                 return Result.messages(CommandGtb.head + "Usage: /gtbs handhelditem max <2-10>");
             }
         }
-        return Result.messages(CommandGtb.head + "Usage: /gtbs handhelditem [setlocation|max|background|captions|layout|vertical|horizontal|size] ...");
+        return Result.messages(CommandGtb.head + "Usage: /gtbs handhelditem [setlocation|max|background|captions|layout|vertical|horizontal|size|scale] ...");
     }
 
     private static Result handleHandheldCaptions(String[] args) {
@@ -999,6 +1384,9 @@ public final class CommandGtbRuntime {
             return handleSimpleBackground(args, "Environment background", "/gtbs environment background [on|off]",
                     SETTINGS.environmentBackground, value -> SETTINGS.environmentBackground = value);
         }
+        if ("scale".equalsIgnoreCase(args[0])) {
+            return handlePanelScale(args, "environment", "Environment");
+        }
         if ("setlocation".equalsIgnoreCase(args[0])) {
             return handlePosition(args, "Environment", "/gtbs environment setlocation <x | y> <value>",
                     SETTINGS.environmentPosX, SETTINGS.environmentPosY, (axis, value) -> {
@@ -1028,7 +1416,7 @@ public final class CommandGtbRuntime {
             return Result.messages(CommandGtb.head + "Environment time item preset set to \u00a7f"
                     + displayEnvironmentTimePreset(SETTINGS.environmentTimeIconPreset));
         }
-        return Result.messages(CommandGtb.head + "Usage: /gtbs environment [setlocation|weather|biome|time|timepreset|background|chatnotice] ...");
+        return Result.messages(CommandGtb.head + "Usage: /gtbs environment [setlocation|weather|biome|time|timepreset|background|chatnotice|scale] ...");
     }
 
     private static Result handleEnvironmentChatNotice(String[] args) {
@@ -1099,6 +1487,9 @@ public final class CommandGtbRuntime {
         if ("background".equalsIgnoreCase(args[0])) {
             return handleCooldownCounterBackground(args);
         }
+        if ("scale".equalsIgnoreCase(args[0])) {
+            return handlePanelScale(args, "cooldown", "Chat cooldown");
+        }
         if ("setcolor".equalsIgnoreCase(args[0])) {
             return handleCooldownCounterColor(args);
         }
@@ -1109,7 +1500,58 @@ public final class CommandGtbRuntime {
                         else SETTINGS.chatCooldownPosY = value;
                     });
         }
-        return Result.messages(CommandGtb.head + "Usage: /gtbs cooldowncounter [setlocation|setcolor|timer|bar|background] ...");
+        return Result.messages(CommandGtb.head + "Usage: /gtbs cooldowncounter [setlocation|setcolor|timer|bar|background|scale] ...");
+    }
+
+    private static Result handlePanelScale(String[] args, String panel, String label) {
+        if (args.length == 1) {
+            return Result.messages(CommandGtb.head + panelScaleStatus(label, panelScale(panel)));
+        }
+        if (args.length != 2) {
+            return Result.messages(CommandGtb.head + panelScaleUsage(panel));
+        }
+        Float requested = HudPanelScale.parse(args[1]);
+        if (requested == null) {
+            return Result.messages(CommandGtb.head + panelScaleUsage(panel));
+        }
+        PreviewLayoutEditor.INSTANCE.beginExternalScaleChange(panel);
+        try {
+            setPanelScale(panel, requested.floatValue());
+            saveSettings();
+        } finally {
+            PreviewLayoutEditor.INSTANCE.endExternalScaleChange(panel);
+        }
+        return Result.messages(CommandGtb.head + panelScaleStatus(label, panelScale(panel)));
+    }
+
+    private static String panelScaleUsage(String panel) {
+        return "Usage: /gtbs " + panelCommandName(panel) + " scale [0.5-1.5|50%-150%]";
+    }
+
+    private static String panelCommandName(String panel) {
+        if ("hint".equals(panel)) return "hintstructure";
+        if ("cooldown".equals(panel)) return "cooldowncounter";
+        if ("handheld".equals(panel)) return "handhelditem";
+        return "environment";
+    }
+
+    private static float panelScale(String panel) {
+        if ("hint".equals(panel)) return SETTINGS.hintStructureScale;
+        if ("cooldown".equals(panel)) return SETTINGS.chatCooldownScale;
+        if ("handheld".equals(panel)) return SETTINGS.handheldItemScale;
+        return SETTINGS.environmentScale;
+    }
+
+    private static void setPanelScale(String panel, float value) {
+        value = HudPanelScale.normalize(value);
+        if ("hint".equals(panel)) SETTINGS.hintStructureScale = value;
+        else if ("cooldown".equals(panel)) SETTINGS.chatCooldownScale = value;
+        else if ("handheld".equals(panel)) SETTINGS.handheldItemScale = value;
+        else SETTINGS.environmentScale = value;
+    }
+
+    private static String panelScaleStatus(String label, float value) {
+        return label + " scale is currently \u00a7f" + HudPanelScale.formatPercent(value);
     }
 
     private static Result handleCooldownCounterPart(String[] args) {
@@ -1255,6 +1697,40 @@ public final class CommandGtbRuntime {
         saveSettings();
         return Result.messages(CommandGtb.head + "Scramble guess is currently "
                 + onOff(SETTINGS.scrambleGuess));
+    }
+
+
+    private static Result handleGuessSound(String[] args) {
+        MinecraftClientSoundBridge.ensureCatalog();
+        if (args.length == 0) return Result.messages(CommandGtb.head + "Guess sounds: \u00a7a1\u00a7f: " + SETTINGS.guessSound1
+                + ", \u00a7e2\u00a7f: " + SETTINGS.guessSound2 + ", \u00a7c3\u00a7f: " + SETTINGS.guessSound3
+                + "; volume: " + GtbStructuresSettings.formatGuessSoundVolume(SETTINGS.guessSoundVolume));
+        if ("volume".equalsIgnoreCase(args[0])) {
+            if (args.length == 2) {
+                Float volume = GtbStructuresSettings.parseGuessSoundVolume(args[1]);
+                if (volume == null) return Result.messages(CommandGtb.head + "Volume must be between 0.0 and 30.0.");
+                SETTINGS.guessSoundVolume = volume; saveSettings();
+            } else if (args.length != 1) return Result.messages(CommandGtb.head + "Usage: /gtbs guesssound volume [0.0-30.0]");
+            return Result.messages(CommandGtb.head + "Guess sound volume: \u00a7f"
+                    + GtbStructuresSettings.formatGuessSoundVolume(SETTINGS.guessSoundVolume));
+        }
+        if (args.length <= 2 && (args[0].equals("1") || args[0].equals("2") || args[0].equals("3"))) {
+            int points = Integer.parseInt(args[0]);
+            if (args.length == 2) {
+                String choice = GuessSounds.normalizeChoice(args[1]);
+                if (choice == null) return Result.messages(CommandGtb.head + "Unknown Minecraft sound: \u00a7f" + args[1]);
+                SETTINGS.setGuessSound(points, choice); saveSettings();
+            }
+            return Result.messages(CommandGtb.head + "Guess sound for " + guessSoundPointColor(points)
+                    + points + "\u00a77 points: \u00a7f" + SETTINGS.guessSound(points));
+        }
+        return Result.messages(CommandGtb.head + "Usage: /gtbs guesssound <1|2|3> [sound|none|random]");
+    }
+
+    private static String guessSoundPointColor(int points) {
+        if (points == 1) return "\u00a7a";
+        if (points == 2) return "\u00a7e";
+        return "\u00a7c";
     }
 
     private static Result handleTrollMode(String[] args) {
@@ -1481,6 +1957,7 @@ public final class CommandGtbRuntime {
         CommandGtb.chatCooldownBarColor = SETTINGS.chatCooldownBarColor;
         CommandGtb.chatCooldownTimerColor = SETTINGS.chatCooldownTimerColor;
         GameStats.INSTANCE.setTrackingEnabled(SETTINGS.trackingEnabled);
+        GameStats.INSTANCE.setAutoRequeueDelaySeconds(SETTINGS.autoRequeueDelaySeconds);
         GameStats.INSTANCE.setAutoRequeue(SETTINGS.autoRequeue);
     }
 
@@ -1497,16 +1974,55 @@ public final class CommandGtbRuntime {
     }
 
     private static List<String> completeCopyTranslation(String rawArgs) {
+        return completeCopyTranslation(rawArgs, false);
+    }
+
+    private static List<String> completeCopyTranslation(String rawArgs, boolean forwarded) {
         String[] args = parseCompletionArgs(rawArgs);
+        int offset = forwarded ? 1 : 0;
+        if (args.length <= offset) return Collections.emptyList();
+        String[] copyArgs = sliceFrom(args, offset);
         ArrayList<String> suggestions = new ArrayList<String>();
-        if (args.length == 1 && "prefix".startsWith(args[0].toLowerCase(Locale.ROOT))) {
-            suggestions.add("prefix");
-        } else if (args.length == 2 && "prefix".equalsIgnoreCase(args[0])) {
-            String prefix = args[1].toLowerCase(Locale.ROOT);
+        if (copyArgs.length == 1) {
+            addMatching(suggestions, copyArgs[0], "caps", "prefix");
+        } else if (copyArgs.length == 2 && "prefix".equalsIgnoreCase(copyArgs[0])) {
+            String prefix = copyArgs[1].toLowerCase(Locale.ROOT);
             if ("true".startsWith(prefix)) suggestions.add("true");
             if ("false".startsWith(prefix)) suggestions.add("false");
+        } else if (copyArgs.length == 2 && "caps".equalsIgnoreCase(copyArgs[0])) {
+            addMatching(suggestions, copyArgs[1], "on", "off");
         }
         return replaceLastArgument(rawArgs, suggestions);
+    }
+
+    private static List<String> completeGtw(String rawArgs, boolean forwarded) {
+        String[] args = parseCompletionArgs(rawArgs);
+        int offset = forwarded ? 1 : 0;
+        if (args.length <= offset) return Collections.emptyList();
+        String[] gtwArgs = sliceFrom(args, offset);
+        ArrayList<String> suggestions = new ArrayList<String>();
+        if (gtwArgs.length == 1) {
+            addMatching(suggestions, gtwArgs[0], "start", "stop", "showenglish", "showcount", "difficulty");
+        } else if (gtwArgs.length == 2 && "start".equalsIgnoreCase(gtwArgs[0])) {
+            for (String option : GtwLogic.languageCompletionOptions()) {
+                if (option.startsWith(gtwArgs[1].toLowerCase(Locale.ROOT))) suggestions.add(option);
+            }
+        } else if (gtwArgs.length == 2 && "difficulty".equalsIgnoreCase(gtwArgs[0])) {
+            addMatching(suggestions, gtwArgs[1], "easy", "medium", "hard", "all");
+        } else if (gtwArgs.length == 2 && "showenglish".equalsIgnoreCase(gtwArgs[0])) {
+            addMatching(suggestions, gtwArgs[1], "true", "false", "toggle");
+        } else if (gtwArgs.length == 2 && "showcount".equalsIgnoreCase(gtwArgs[0])) {
+            addMatching(suggestions, gtwArgs[1], "on", "off");
+        }
+        return suggestions.isEmpty() ? Collections.<String>emptyList()
+                : replaceLastArgument(rawArgs, suggestions);
+    }
+
+    private static void addMatching(List<String> out, String prefix, String... options) {
+        String normalized = prefix == null ? "" : prefix.toLowerCase(Locale.ROOT);
+        for (String option : options) {
+            if (option.startsWith(normalized)) out.add(option);
+        }
     }
 
     private static List<String> completeGtbsShortcut(String command, String rawArgs) {
@@ -1616,6 +2132,15 @@ public final class CommandGtbRuntime {
         return out.toString();
     }
 
+    private static String join(String[] args, int start, int endExclusive) {
+        StringBuilder out = new StringBuilder();
+        for (int i = start; i < endExclusive; i++) {
+            if (i > start) out.append(' ');
+            out.append(args[i]);
+        }
+        return out.toString().trim();
+    }
+
     private static String colorList() {
         String[] colors = {"0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f"};
         StringBuilder out = new StringBuilder();
@@ -1672,6 +2197,7 @@ public final class CommandGtbRuntime {
         private String langCode;
         private String englishTheme;
         private String displayedTheme;
+        private String difficulty;
         private String[] hints;
         private int hintLevel;
         private int ticksToNext;
@@ -1698,7 +2224,9 @@ public final class CommandGtbRuntime {
             if (!TranslationData.isLoaded()) {
                 return Collections.singletonList("Translation data isn't loaded yet — try again in a moment.");
             }
-            String pickedEnglish = TranslationData.pickRandomEnglishTheme(rng);
+            String capturedDifficulty = GtwLogic.normalizeDifficulty(SETTINGS.gtwDifficulty);
+            String pickedEnglish = GtwLogic.pickEnglishThemeByDifficulty(
+                    TranslationData.getEnglishThemes(), capturedDifficulty, rng);
             if (pickedEnglish == null) return Collections.singletonList("No themes available.");
             String displayed = TranslationData.getDisplayedTheme(requestedLangCode, pickedEnglish);
             if (displayed == null || displayed.isEmpty()) {
@@ -1708,6 +2236,7 @@ public final class CommandGtbRuntime {
             langCode = requestedLangCode;
             englishTheme = pickedEnglish;
             displayedTheme = displayed;
+            difficulty = capturedDifficulty;
             hints = GtwLogic.buildProgressiveHints(displayed, 3, rng);
             hintLevel = 0;
             ticksToNext = GTW_TICKS_PER_HINT;
@@ -1718,6 +2247,8 @@ public final class CommandGtbRuntime {
             }
             ArrayList<String> messages = new ArrayList<String>();
             messages.add("Starting a Guess The Wordhint game...");
+            messages.add("Selected language: \u00a7f" + GtwLogic.languageDisplayName(requestedLangCode)
+                    + "\u00a77; difficulty: " + GtwLogic.difficultyDisplay(difficulty));
             messages.add("Hint 1: \u00a7f" + hints[0] + " \u00a77( " + GtwLogic.structureNotation(displayed) + " )");
             return messages;
         }
@@ -1743,6 +2274,7 @@ public final class CommandGtbRuntime {
             langCode = null;
             englishTheme = null;
             displayedTheme = null;
+            difficulty = null;
             hints = null;
             hintLevel = 0;
             ticksToNext = 0;
@@ -1762,11 +2294,21 @@ public final class CommandGtbRuntime {
             Map<String, Set<String>> matches = TranslationData.findMatchingDisplayedThemes(langCode, hints[0]);
             if (matches == null || matches.isEmpty()) return;
 
+            Map<String, Set<String>> filteredMatches = new LinkedHashMap<String, Set<String>>();
+            for (Map.Entry<String, Set<String>> entry : matches.entrySet()) {
+                Set<String> filteredOrigins = new LinkedHashSet<String>();
+                for (String english : entry.getValue()) {
+                    if (GtwLogic.difficultyMatches(english, difficulty)) filteredOrigins.add(english);
+                }
+                if (!filteredOrigins.isEmpty()) filteredMatches.put(entry.getKey(), filteredOrigins);
+            }
+            if (filteredMatches.isEmpty()) return;
+
             boolean isPirate = "pirate".equalsIgnoreCase(langCode);
             StringBuilder sb = new StringBuilder();
             sb.append("All themes matching the initial hint: ");
             boolean first = true;
-            for (Map.Entry<String, Set<String>> entry : matches.entrySet()) {
+            for (Map.Entry<String, Set<String>> entry : filteredMatches.entrySet()) {
                 if (!first) sb.append("\u00a77, ");
                 first = false;
                 sb.append("\u00a7f").append(entry.getKey());
@@ -1780,6 +2322,9 @@ public final class CommandGtbRuntime {
                     }
                     sb.append(")");
                 }
+            }
+            if (SETTINGS.gtwShowCount) {
+                sb.append(" \u00a77(\u00a7e").append(filteredMatches.size()).append("\u00a77)");
             }
             messages.add(sb.toString());
         }
@@ -1821,6 +2366,26 @@ public final class CommandGtbRuntime {
 
         public List<String> messages() {
             return messages;
+        }
+    }
+
+    private static final class LanguageListParse {
+        final boolean ok;
+        final List<String> codes;
+        final String invalid;
+
+        private LanguageListParse(boolean ok, List<String> codes, String invalid) {
+            this.ok = ok;
+            this.codes = codes;
+            this.invalid = invalid;
+        }
+
+        static LanguageListParse ok(List<String> codes) {
+            return new LanguageListParse(true, codes, null);
+        }
+
+        static LanguageListParse error(String invalid) {
+            return new LanguageListParse(false, null, invalid == null ? "" : invalid.trim());
         }
     }
 }

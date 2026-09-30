@@ -41,6 +41,18 @@ public final class CustomScoreboard {
     private static final float ROW_HIGHLIGHT_Y_SHIFT = -0.5f;
     private static long lastRenderProbeMs;
 
+    static final class MetadataRow {
+        final String kind;
+        final String left;
+        final String right;
+
+        MetadataRow(String kind, String left, String right) {
+            this.kind = kind;
+            this.left = left;
+            this.right = right;
+        }
+    }
+
     @SubscribeEvent
     public void onRenderText(RenderGameOverlayEvent.Post event) {
         if (event.type != RenderGameOverlayEvent.ElementType.CHAT) return;
@@ -77,14 +89,9 @@ public final class CustomScoreboard {
         boolean isPrePhase   = (st == GameStats.TrackingState.ROUND_PRE);
 
         // ── Header lines ──
-        int displayRound = g.currentRound;
-        if (isPrePhase) displayRound = Math.max(1, g.currentRound + 1);
-
         String headerLeft  = "§7Round";
-        String roundDigits = g.roundCountUnknown ? "?"
-                : (displayRound > 0 ? String.valueOf(displayRound) : "?");
-        String totalDigits = g.totalRounds > 0 ? String.valueOf(g.totalRounds) : "?";
-        String headerRight = "§a" + roundDigits + "§7/§a" + totalDigits;
+        String headerRight = roundProgressForScoreboard(
+                g, isPrePhase);
 
         String timerLabel;
         switch (st) {
@@ -97,6 +104,11 @@ public final class CustomScoreboard {
         String timerValue = (g.currentTimer == null || g.currentTimer.isEmpty())
                 ? "0:00" : trimLeadingChar(g.currentTimer);
         String timerRight = "§a" + timerValue;
+        GtbPlayer displayedBuilder = displayedBuilder(g);
+        String builderName = displayedBuilder == null ? null : displayedBuilder.name;
+        List<MetadataRow> metadataRows = defaultMetadataRowsForScoreboard(
+                headerLeft, headerRight, timerLeft, timerRight,
+                GtbStructures.sbConfig.defaultExplicitlyShowBuilders, builderName);
 
         String themeLabel;
         String themeValueLine;
@@ -144,7 +156,7 @@ public final class CustomScoreboard {
         int[] densePlaces = densePlaces(rows, g);
         for (int i = 0; i < rows.size(); i++) {
             GtbPlayer pl = rows.get(i);
-            boolean isBuilder = (pl == g.currentBuilder);
+            boolean isBuilder = (pl == displayedBuilder);
             boolean leaver = isLeaver(pl);
             boolean inactive = isInactive(pl);
             builderRows[i] = isBuilder;
@@ -181,8 +193,10 @@ public final class CustomScoreboard {
         }
         List<RawPacketRecorder.ScoreboardLine> snapshotRows =
                 new ArrayList<RawPacketRecorder.ScoreboardLine>();
-        snapshotRows.add(new RawPacketRecorder.ScoreboardLine("header", headerLeft, headerRight));
-        snapshotRows.add(new RawPacketRecorder.ScoreboardLine("timer", timerLeft, timerRight));
+        for (MetadataRow metadata : metadataRows) {
+            snapshotRows.add(new RawPacketRecorder.ScoreboardLine(
+                    metadata.kind, metadata.left, metadata.right));
+        }
         for (int i = 0; i < rows.size(); i++) {
             snapshotRows.add(new RawPacketRecorder.ScoreboardLine("player",
                     leftParts[i], rightParts[i]));
@@ -192,8 +206,10 @@ public final class CustomScoreboard {
         RawPacketRecorder.INSTANCE.captureCustomScoreboard("default", snapshotRows);
         // ── Measure widest line ──
         int contentWidth = 0;
-        contentWidth = Math.max(contentWidth, measurePair(fr, headerLeft, headerRight));
-        contentWidth = Math.max(contentWidth, measurePair(fr, timerLeft, timerRight));
+        for (MetadataRow metadata : metadataRows) {
+            contentWidth = Math.max(contentWidth,
+                    measurePair(fr, metadata.left, metadata.right));
+        }
         contentWidth = Math.max(contentWidth, fr.getStringWidth(themeLabel));
         contentWidth = Math.max(contentWidth, fr.getStringWidth(themeValueLine));
         for (int i = 0; i < rows.size(); i++) {
@@ -205,19 +221,19 @@ public final class CustomScoreboard {
         contentWidth += 6;  // outer gap
         if (contentWidth < 80) contentWidth = 80;
 
-        // Lines: header + timer + sep + N players + sep + theme label + theme value
+        // Lines: metadata + sep + N players + sep + theme label + theme value
         int playerLines = rows.size();
-        int lineCount = 2 + 1 + Math.max(playerLines, 0) + 1 + 2;
+        int lineCount = metadataRows.size() + 1 + Math.max(playerLines, 0) + 1 + 2;
         ScoreboardLayout.Placement p = ScoreboardLayout.place(
                 sr, fr, contentWidth, lineCount, GtbStructures.sbConfig.heightOffset);
 
         Gui.drawRect(p.bgX1, p.bgY1, p.bgX2, p.bgY2, GtbStructures.sbConfig.backgroundColor());
 
         int y = p.y;
-        drawPair(fr, headerLeft, headerRight, p.x, y, contentWidth, textShadow);
-        y += ScoreboardLayout.LINE_HEIGHT;
-        drawPair(fr, timerLeft, timerRight, p.x, y, contentWidth, textShadow);
-        y += ScoreboardLayout.LINE_HEIGHT;
+        for (MetadataRow metadata : metadataRows) {
+            drawPair(fr, metadata.left, metadata.right, p.x, y, contentWidth, textShadow);
+            y += ScoreboardLayout.LINE_HEIGHT;
+        }
         Gui.drawRect(p.x - 1, y + 3, p.x + contentWidth + 1, y + 4, 0x60AAAAAA);
         y += ScoreboardLayout.LINE_HEIGHT;
 
@@ -273,14 +289,57 @@ public final class CustomScoreboard {
         drawText(fr, themeValueLine, p.x + spaceWidth, y, textShadow);
     }
 
+    static String roundProgressForScoreboard(int currentRound, int totalRounds,
+                                             boolean roundCountUnknown, boolean prePhase) {
+        int displayRound = prePhase ? Math.max(1, currentRound + 1) : currentRound;
+        return formatRoundProgress(displayRound, totalRounds, roundCountUnknown);
+    }
+
+    static String roundProgressForScoreboard(GtbGame game, boolean prePhase) {
+        if (game == null) return formatRoundProgress(0, 0, false);
+        // A builder/scoreboard row can implicitly establish round 1 before the
+        // authoritative Round: 1/Y chat arrives. Keep that startup pre-round at
+        // 1; once round 1 is confirmed, a pre-round means the upcoming round.
+        boolean implicitInitialRound = prePhase && game.currentRound == 1
+                && !game.initialRoundHeaderConfirmed && game.lastCompletedRound == 0;
+        int displayRound = prePhase && !implicitInitialRound
+                ? Math.max(1, game.currentRound + 1) : game.currentRound;
+        return formatRoundProgress(displayRound, game.totalRounds, game.roundCountUnknown);
+    }
+
+    private static String formatRoundProgress(int displayRound, int totalRounds,
+                                              boolean roundCountUnknown) {
+        String roundDigits = roundCountUnknown || displayRound <= 0
+                ? "?" : String.valueOf(displayRound);
+        String totalDigits = totalRounds > 0 ? String.valueOf(totalRounds) : "?";
+        return "\u00a7a" + roundDigits + "\u00a77/\u00a7a" + totalDigits;
+    }
+
+    static List<MetadataRow> defaultMetadataRowsForScoreboard(
+            String headerLeft, String headerRight, String timerLeft, String timerRight,
+            boolean explicitlyShowBuilder, String builderName) {
+        List<MetadataRow> rows = new ArrayList<MetadataRow>();
+        rows.add(new MetadataRow("header", headerLeft, headerRight));
+        if (explicitlyShowBuilder) {
+            rows.add(new MetadataRow("builder", "\u00a77Builder",
+                    builderValueForScoreboard(builderName)));
+        }
+        rows.add(new MetadataRow("timer", timerLeft, timerRight));
+        return rows;
+    }
+
+    static String builderValueForScoreboard(String builderName) {
+        if (builderName == null || builderName.isEmpty()) return "\u00a7c???";
+        return rankColor(builderName) + builderName;
+    }
+
     /** Hypixel rank → name color code. Defaults to §f (white) for unranked /
      *  unknown so we don't dim regular players to gray indiscriminately. */
     static String rankColor(String ign) {
         if (ign == null) return "§f";
-        // Lobby-harvested § color is the most reliable source on Hypixel BB —
-        // info.getDisplayName() is null in-game and the BB scoreboard team has
-        // an empty prefix. The lobby sidebar painted each waiting player in
-        // their network rank color; we cached that.
+        // Sidebar-harvested § color is the most reliable source on Hypixel BB.
+        // Lobby rows provide the initial roster colors, while in-game roster
+        // rows can supply colors for identities introduced after a nick change.
         String harvested = PlayerMetaCache.INSTANCE.getRankColor(ign);
         if (harvested != null) return harvested;
         PlayerMetaCache.RankInfo info = PlayerMetaCache.INSTANCE.byIgn(ign);
@@ -402,9 +461,15 @@ public final class CustomScoreboard {
     }
 
     static int buildSlotIcon(GtbPlayer pl, GtbGame g, boolean isBuildPhase, boolean isPrePhase) {
-        boolean isBuilder = (pl == g.currentBuilder);
+        boolean isBuilder = (pl == displayedBuilder(g));
         boolean wasBuilder = (pl.buildRound > 0 && !isBuilder);
         return BuilderIcons.buildProgressIconFor(isBuilder, wasBuilder, isBuildPhase, isPrePhase);
+    }
+
+    static GtbPlayer displayedBuilder(GtbGame g) {
+        if (g == null) return null;
+        return g.state == GtbGame.State.ROUND_END && g.roundEndBuilder != null
+                ? g.roundEndBuilder : g.currentBuilder;
     }
 
     static int statusIcon(GtbPlayer pl) {
@@ -561,12 +626,12 @@ public final class CustomScoreboard {
         if (pl == null || g == null || observed == null) return null;
         if (g.roundCountUnknown) return null;
 
+        Integer builderTotal = GameTracker.authoritativeBuilderTotal(pl, g);
+        if (builderTotal != null) return builderTotal;
+
         int lo = pl.totalMin();
         int hi = pl.totalMax();
         if (lo != hi) return null;
-        if (pl.authoritativeBuilderScoreRound == g.currentRound) {
-            return Integer.valueOf(hi);
-        }
         if (hi <= observed.intValue()) return null;
         return Integer.valueOf(hi);
     }

@@ -24,7 +24,12 @@ public final class GtbGame {
     public final Map<String, GtbPlayer> players = new LinkedHashMap<String, GtbPlayer>();
 
     public int currentRound = 0;
+    /** Highest round whose end boundary has been observed in this game. */
+    public int lastCompletedRound = 0;
     public int totalRounds = 0;
+    /** Direct mid-game bootstrap has no authoritative lobby roster; keep the
+     *  denominator unknown until the next Round: X/Y header arrives. */
+    public boolean awaitingAuthoritativeRoundTotal;
     /** True after the authoritative initial "Round: 1/x" header is parsed. */
     public boolean initialRoundHeaderConfirmed;
     public String currentTheme = "";
@@ -32,6 +37,8 @@ public final class GtbGame {
     public String currentTimer = "";
     public String currentLangCode = "en";  // active at most-recent ROUND_BUILD start
     public GtbPlayer currentBuilder;
+    /** Builder retained only for Default-scoreboard presentation during ROUND_END. */
+    public GtbPlayer roundEndBuilder;
     public int correctGuessesThisRound = 0;
     public boolean oneSecondAlertReached;
     public boolean userRoundSkipped;

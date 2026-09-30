@@ -131,7 +131,11 @@ public final class HypixelSkinScoreboardLogic {
         for (int i = 0; i < vanillaRows.size(); i++) {
             if (replacementRows[i]) continue;
             String line = vanillaRows.get(i);
-            Row vanilla = new Row(null, line, "", -1, -1, false);
+            String clean = ModernRuntimeBridge.cleanText(line);
+            String right = showsHypixelRounds(config, expanded)
+                    && LangPatterns.isScoreboardBuilderLabel(clean)
+                    ? CustomScoreboardLogic.formatRoundProgress(game) : "";
+            Row vanilla = new Row(null, line, right, -1, -1, false);
             if (insertionIndex < 0 || i < insertionIndex) lowerVanilla.add(vanilla);
             else upperVanilla.add(vanilla);
         }
@@ -301,6 +305,14 @@ public final class HypixelSkinScoreboardLogic {
         if (index + 1 >= rows.size()) return false;
         String next = ModernRuntimeBridge.cleanText(rows.get(index + 1));
         return LangPatterns.isScoreboardBuilderLabel(next);
+    }
+
+    private static boolean showsHypixelRounds(ScoreboardConfig config, boolean expanded) {
+        if (config == null) return false;
+        ScoreboardConfig.DisplayOption option =
+                ScoreboardConfig.normalizeOption(config.hypixelShowRounds);
+        return option == ScoreboardConfig.DisplayOption.ON
+                || (option == ScoreboardConfig.DisplayOption.EXPANDED && expanded);
     }
 
     private static List<String> expandCanonicalThemeRow(List<String> rows, String canonicalTheme) {

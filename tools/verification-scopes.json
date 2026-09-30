@@ -1,0 +1,467 @@
+{
+  "schemaVersion": 1,
+  "targets": [
+    {
+      "id": "1.8.9-forge",
+      "aliases": ["1.8.9", "legacy"],
+      "root": "versions/1.8.9/forge",
+      "java": 8,
+      "artifact": "build/libs/GtbStructures-1.1.1.jar",
+      "releaseTasks": [
+        "clean",
+        "build",
+        "runBuilderLeaderboardFallbackSmoke",
+        "runChatAssistSmoke",
+        "runCommandGtbHelpSmoke",
+        "runUpdateCheckerSmoke",
+        "runCopyTranslationParserSmoke",
+        "runEnvironmentChangeNotifierSmoke",
+        "runGameExporterHandheldSmoke",
+        "runGameExporterTranslationHistorySmoke",
+        "runGameStatsAutoRequeueSmoke",
+        "runGameStatsChatChannelGuardSmoke",
+        "runGameStatsPendingCurrentSmoke",
+        "runGameStatsRejoinMessageSmoke",
+        "runGameStatsRosterGateSmoke",
+        "runGameStatsSidebarDropLeaverSyncSmoke",
+        "runGameStatsThemeEvidenceSmoke",
+        "runGtbStructuresDefaultsSmoke",
+        "runGtwDifficultySmoke",
+        "runGuessChatAnnotatorSmoke",
+        "runGuessSoundsSmoke",
+        "runGuessSoundControllerSmoke",
+        "runGuessSoundChatSmoke",
+        "runGuessSoundsUiLogicSmoke",
+        "runCommandGtbGuessSoundSmoke",
+        "runGuessSoundsConfigSmoke",
+        "runGameStatsNickBuilderScoreSmoke",
+        "runHandheldItemTrackerSmoke",
+        "runInterfacePreviewSmoke",
+        "runLangPatternsSmoke",
+        "runLangPatternsTitleCacheSmoke",
+        "runLeaderboardRowClassifierSmoke",
+        "runLeaveRejoinSmoke",
+        "runModernEquipmentRenderPatchSmoke",
+        "runModernSpawnEggItemRenderPatchSmoke",
+        "runPlayerMetaCacheRankHarvestSmoke",
+        "runPreviewLayoutEditorSmoke",
+        "runRawPacketRecorderSmoke",
+        "runScoreboardBoundNotationSmoke",
+        "runScoreboardBuilderRoundsSmoke",
+        "runScoreboardVisibleTextSmoke",
+        "runScrambleGuessSmoke",
+        "runShortcutLanguageGroupsSmoke",
+        "runShortcutReminderSmoke",
+        "runShowAllMatchingSmoke",
+        "runStatsArchiveSmoke",
+        "runThemePointRevealSmoke",
+        "runTranslationHistorySmoke",
+        "runTrollModeSmoke",
+        "runVanillaScoreboardRelocationSmoke",
+        "runWorldEnvironmentOverlaySmoke"
+      ]
+    },
+    {
+      "id": "1.21-fabric",
+      "aliases": ["1.21.10-fabric", "1.21.11-fabric"],
+      "root": "versions/1.21.10-1.21.11/fabric",
+      "java": 21,
+      "artifact": "build/libs/gtbstructures-fabric-1.21.10-1.21.11-1.1.1.jar",
+      "releaseTasks": ["clean", "build", "runSmokeTests"]
+    },
+    {
+      "id": "1.21-forge",
+      "aliases": ["1.21.10-forge", "1.21.11-forge"],
+      "root": "versions/1.21.10-1.21.11/forge",
+      "java": 21,
+      "artifact": "build/libs/gtbstructures-forge-1.21.10-1.21.11-1.1.1.jar",
+      "releaseTasks": ["clean", "build", "runSmokeTests"]
+    },
+    {
+      "id": "26.1-fabric",
+      "aliases": [],
+      "root": "versions/26.1/fabric",
+      "java": 25,
+      "artifact": "build/libs/gtbstructures-fabric-26.1-1.1.1.jar",
+      "releaseTasks": ["clean", "build", "runSmokeTests"]
+    },
+    {
+      "id": "26.1-forge",
+      "aliases": [],
+      "root": "versions/26.1/forge",
+      "java": 25,
+      "artifact": "build/libs/gtbstructures-forge-26.1-1.1.1.jar",
+      "releaseTasks": ["clean", "build", "runSmokeTests"]
+    },
+    {
+      "id": "26.2-fabric",
+      "aliases": [],
+      "root": "versions/26.2/fabric",
+      "java": 25,
+      "artifact": "build/libs/gtbstructures-fabric-26.2-1.1.1.jar",
+      "releaseTasks": ["clean", "build", "runSmokeTests"]
+    },
+    {
+      "id": "26.2-forge",
+      "aliases": [],
+      "root": "versions/26.2/forge",
+      "java": 25,
+      "artifact": "build/libs/gtbstructures-forge-26.2-1.1.1.jar",
+      "releaseTasks": ["clean", "build", "runSmokeTests"]
+    }
+  ],
+  "areas": {
+    "preview": {
+      "targets": {
+        "1.8.9-forge": [
+          "runInterfacePreviewSmoke",
+          "runPreviewLayoutEditorSmoke",
+          "runVanillaScoreboardRelocationSmoke",
+          "runGtbStructuresDefaultsSmoke"
+        ],
+        "1.21-fabric": [
+          "runFabricPreviewScreenControllerSmoke",
+          "runInterfacePreviewSmoke",
+          "runPreviewLayoutEditorSmoke",
+          "runHudPositionSmoke"
+        ],
+        "1.21-forge": [
+          "runInterfacePreviewSmoke",
+          "runPreviewLayoutEditorSmoke",
+          "runHudPositionSmoke"
+        ],
+        "26.1-fabric": [
+          "runFabricPreviewScreenControllerSmoke",
+          "runInterfacePreviewSmoke",
+          "runPreviewLayoutEditorSmoke",
+          "runHudPositionSmoke"
+        ],
+        "26.1-forge": [
+          "runInterfacePreviewSmoke",
+          "runPreviewLayoutEditorSmoke",
+          "runHudPositionSmoke"
+        ],
+        "26.2-fabric": [
+          "runFabricPreviewScreenControllerSmoke",
+          "runInterfacePreviewSmoke",
+          "runPreviewLayoutEditorSmoke",
+          "runHudPositionSmoke"
+        ],
+        "26.2-forge": [
+          "runInterfacePreviewSmoke",
+          "runPreviewLayoutEditorSmoke",
+          "runHudPositionSmoke"
+        ]
+      }
+    },
+    "scoreboard": {
+      "targets": {
+        "1.8.9-forge": [
+          "runGameStatsChatChannelGuardSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameStatsSidebarDropLeaverSyncSmoke",
+          "runGameTrackerPreRoundLeaverSmoke",
+          "runScoreboardBuilderRoundsSmoke",
+          "runScoreboardVisibleTextSmoke"
+        ],
+        "1.21-fabric": [
+          "runCustomScoreboardLogicSmoke",
+          "runCustomScoreboardOverlayRendererSmoke",
+          "runGameStatsChatChannelGuardSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameTrackerPreRoundLeaverSmoke",
+          "runScoreboardStateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runHypixelSkinScoreboardLogicSmoke",
+          "runScoreboardFloorStabilitySmoke",
+          "runScoreboardScoreRetentionSmoke"
+        ],
+        "1.21-forge": [
+          "runCustomScoreboardLogicSmoke",
+          "runCustomScoreboardOverlayRendererSmoke",
+          "runGameStatsChatChannelGuardSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameTrackerPreRoundLeaverSmoke",
+          "runScoreboardStateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runHypixelSkinScoreboardLogicSmoke",
+          "runScoreboardFloorStabilitySmoke",
+          "runScoreboardScoreRetentionSmoke"
+        ],
+        "26.1-fabric": [
+          "runCustomScoreboardLogicSmoke",
+          "runCustomScoreboardOverlayRendererSmoke",
+          "runGameStatsChatChannelGuardSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameTrackerPreRoundLeaverSmoke",
+          "runScoreboardStateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runHypixelSkinScoreboardLogicSmoke",
+          "runScoreboardFloorStabilitySmoke",
+          "runScoreboardScoreRetentionSmoke"
+        ],
+        "26.1-forge": [
+          "runCustomScoreboardLogicSmoke",
+          "runCustomScoreboardOverlayRendererSmoke",
+          "runGameStatsChatChannelGuardSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameTrackerPreRoundLeaverSmoke",
+          "runScoreboardStateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runHypixelSkinScoreboardLogicSmoke",
+          "runScoreboardFloorStabilitySmoke",
+          "runScoreboardScoreRetentionSmoke"
+        ],
+        "26.2-fabric": [
+          "runCustomScoreboardLogicSmoke",
+          "runCustomScoreboardOverlayRendererSmoke",
+          "runGameStatsChatChannelGuardSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameTrackerPreRoundLeaverSmoke",
+          "runScoreboardStateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runHypixelSkinScoreboardLogicSmoke",
+          "runScoreboardFloorStabilitySmoke",
+          "runScoreboardScoreRetentionSmoke"
+        ],
+        "26.2-forge": [
+          "runCustomScoreboardLogicSmoke",
+          "runCustomScoreboardOverlayRendererSmoke",
+          "runGameStatsChatChannelGuardSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameTrackerPreRoundLeaverSmoke",
+          "runScoreboardStateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runHypixelSkinScoreboardLogicSmoke",
+          "runScoreboardFloorStabilitySmoke",
+          "runScoreboardScoreRetentionSmoke"
+        ]
+      }
+    },
+    "translation": {
+      "targets": {
+        "1.8.9-forge": [
+          "runTranslationHistorySmoke",
+          "runGtwDifficultySmoke",
+          "runCopyTranslationParserSmoke",
+          "runShowAllMatchingSmoke",
+          "runShortcutLanguageGroupsSmoke",
+          "runShortcutReminderSmoke",
+          "runThemePointRevealSmoke"
+        ],
+        "1.21-fabric": [
+          "runTranslationDataSmoke",
+          "runTranslationHistorySmoke",
+          "runGtwLogicSmoke",
+          "runCopyTranslationSmoke",
+          "runShowAllMatchingSmoke",
+          "runShortcutLanguageGroupsSmoke",
+          "runShortcutReminderSmoke",
+          "runThemePointRevealSmoke"
+        ],
+        "1.21-forge": [
+          "runTranslationDataSmoke",
+          "runTranslationHistorySmoke",
+          "runGtwLogicSmoke",
+          "runCopyTranslationSmoke",
+          "runShowAllMatchingSmoke",
+          "runShortcutLanguageGroupsSmoke",
+          "runShortcutReminderSmoke",
+          "runThemePointRevealSmoke"
+        ],
+        "26.1-fabric": [
+          "runTranslationDataSmoke",
+          "runTranslationHistorySmoke",
+          "runGtwLogicSmoke",
+          "runCopyTranslationSmoke",
+          "runShowAllMatchingSmoke",
+          "runShortcutLanguageGroupsSmoke",
+          "runShortcutReminderSmoke",
+          "runThemePointRevealSmoke"
+        ],
+        "26.1-forge": [
+          "runTranslationDataSmoke",
+          "runTranslationHistorySmoke",
+          "runGtwLogicSmoke",
+          "runCopyTranslationSmoke",
+          "runShowAllMatchingSmoke",
+          "runShortcutLanguageGroupsSmoke",
+          "runShortcutReminderSmoke",
+          "runThemePointRevealSmoke"
+        ],
+        "26.2-fabric": [
+          "runTranslationDataSmoke",
+          "runTranslationHistorySmoke",
+          "runGtwLogicSmoke",
+          "runCopyTranslationSmoke",
+          "runShowAllMatchingSmoke",
+          "runShortcutLanguageGroupsSmoke",
+          "runShortcutReminderSmoke",
+          "runThemePointRevealSmoke"
+        ],
+        "26.2-forge": [
+          "runTranslationDataSmoke",
+          "runTranslationHistorySmoke",
+          "runGtwLogicSmoke",
+          "runCopyTranslationSmoke",
+          "runShowAllMatchingSmoke",
+          "runShortcutLanguageGroupsSmoke",
+          "runShortcutReminderSmoke",
+          "runThemePointRevealSmoke"
+        ]
+      }
+    },
+    "lrj": {
+      "targets": {
+        "1.8.9-forge": [
+          "runLeaveRejoinSmoke",
+          "runGameStatsRejoinMessageSmoke",
+          "runGameStatsRosterGateSmoke"
+        ],
+        "1.21-fabric": [
+          "runLeaveRejoinSmoke",
+          "runGameStatsRejoinMessageSmoke",
+          "runGameTrackerRejoinScoreSmoke",
+          "runGameStatsRosterGateSmoke"
+        ],
+        "1.21-forge": [
+          "runLeaveRejoinSmoke",
+          "runGameStatsRejoinMessageSmoke",
+          "runGameTrackerRejoinScoreSmoke",
+          "runGameStatsRosterGateSmoke"
+        ],
+        "26.1-fabric": [
+          "runLeaveRejoinSmoke",
+          "runGameStatsRejoinMessageSmoke",
+          "runGameTrackerRejoinScoreSmoke",
+          "runGameStatsRosterGateSmoke"
+        ],
+        "26.1-forge": [
+          "runLeaveRejoinSmoke",
+          "runGameStatsRejoinMessageSmoke",
+          "runGameTrackerRejoinScoreSmoke",
+          "runGameStatsRosterGateSmoke"
+        ],
+        "26.2-fabric": [
+          "runLeaveRejoinSmoke",
+          "runGameStatsRejoinMessageSmoke",
+          "runGameTrackerRejoinScoreSmoke",
+          "runGameStatsRosterGateSmoke"
+        ],
+        "26.2-forge": [
+          "runLeaveRejoinSmoke",
+          "runGameStatsRejoinMessageSmoke",
+          "runGameTrackerRejoinScoreSmoke",
+          "runGameStatsRosterGateSmoke"
+        ]
+      }
+    },
+    "guesspeek": {
+      "targets": {
+        "1.8.9-forge": ["runGuessChatAnnotatorSmoke"],
+        "1.21-fabric": ["runGuessChatAnnotatorSmoke", "runModernRuntimeBridgeSmoke"],
+        "1.21-forge": ["runGuessChatAnnotatorSmoke", "runModernRuntimeBridgeSmoke"],
+        "26.1-fabric": ["runGuessChatAnnotatorSmoke", "runModernRuntimeBridgeSmoke"],
+        "26.1-forge": ["runGuessChatAnnotatorSmoke", "runModernRuntimeBridgeSmoke"],
+        "26.2-fabric": ["runGuessChatAnnotatorSmoke", "runModernRuntimeBridgeSmoke"],
+        "26.2-forge": ["runGuessChatAnnotatorSmoke", "runModernRuntimeBridgeSmoke"]
+      }
+    },
+    "autorequeue": {
+      "targets": {
+        "1.8.9-forge": ["runGameStatsAutoRequeueSmoke", "runPreviewLayoutEditorSmoke"],
+        "1.21-fabric": ["runGameStatsAutoRequeueSmoke", "runCommandGtbRuntimeSmoke", "runPreviewLayoutEditorSmoke"],
+        "1.21-forge": ["runGameStatsAutoRequeueSmoke", "runCommandGtbRuntimeSmoke", "runPreviewLayoutEditorSmoke"],
+        "26.1-fabric": ["runGameStatsAutoRequeueSmoke", "runCommandGtbRuntimeSmoke", "runPreviewLayoutEditorSmoke"],
+        "26.1-forge": ["runGameStatsAutoRequeueSmoke", "runCommandGtbRuntimeSmoke", "runPreviewLayoutEditorSmoke"],
+        "26.2-fabric": ["runGameStatsAutoRequeueSmoke", "runCommandGtbRuntimeSmoke", "runPreviewLayoutEditorSmoke"],
+        "26.2-forge": ["runGameStatsAutoRequeueSmoke", "runCommandGtbRuntimeSmoke", "runPreviewLayoutEditorSmoke"]
+      }
+    },
+    "identity": {
+      "targets": {
+        "1.8.9-forge": [
+          "runPlayerMetaCacheRankHarvestSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runGameStatsRejoinMessageSmoke"
+        ],
+        "1.21-fabric": [
+          "runPlayerMetaCacheRankHarvestSmoke",
+          "runModernPlayerListLogicSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runGameStatsRejoinMessageSmoke"
+        ],
+        "1.21-forge": [
+          "runPlayerMetaCacheRankHarvestSmoke",
+          "runModernPlayerListLogicSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runGameStatsRejoinMessageSmoke"
+        ],
+        "26.1-fabric": [
+          "runPlayerMetaCacheRankHarvestSmoke",
+          "runModernPlayerListLogicSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runGameStatsRejoinMessageSmoke"
+        ],
+        "26.1-forge": [
+          "runPlayerMetaCacheRankHarvestSmoke",
+          "runModernPlayerListLogicSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runGameStatsRejoinMessageSmoke"
+        ],
+        "26.2-fabric": [
+          "runPlayerMetaCacheRankHarvestSmoke",
+          "runModernPlayerListLogicSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runGameStatsRejoinMessageSmoke"
+        ],
+        "26.2-forge": [
+          "runPlayerMetaCacheRankHarvestSmoke",
+          "runModernPlayerListLogicSmoke",
+          "runGameStatsRosterGateSmoke",
+          "runGameStatsNickBuilderScoreSmoke",
+          "runGameStatsRejoinMessageSmoke"
+        ]
+      }
+    },
+    "commands": {
+      "targets": {
+        "1.8.9-forge": ["runCommandGtbHelpSmoke", "runGtbStructuresDefaultsSmoke"],
+        "1.21-fabric": ["runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke", "runModernCommandRegistrationSmoke"],
+        "1.21-forge": ["runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke", "runModernCommandRegistrationSmoke"],
+        "26.1-fabric": ["runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke", "runModernCommandRegistrationSmoke"],
+        "26.1-forge": ["runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke", "runModernCommandRegistrationSmoke"],
+        "26.2-fabric": ["runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke", "runModernCommandRegistrationSmoke"],
+        "26.2-forge": ["runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke", "runModernCommandRegistrationSmoke"]
+      }
+    },
+    "guesssounds": {
+      "targets": {
+        "1.8.9-forge": ["runGuessSoundsSmoke", "runGuessSoundControllerSmoke", "runGuessSoundChatSmoke", "runGuessSoundsUiLogicSmoke", "runCommandGtbGuessSoundSmoke", "runGuessSoundsConfigSmoke", "runGameStatsNickBuilderScoreSmoke", "runCommandGtbHelpSmoke"],
+        "1.21-fabric": ["runGuessSoundsModernSmoke", "runMinecraftClientSoundBridgeSmoke", "runGuessSoundsChatModernSmoke", "runGuessSoundsUiStateSmoke", "runSoundIconMappingSmoke", "runGuessSoundsConfigModernSmoke", "runGameStatsNickBuilderScoreSmoke", "runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke"],
+        "1.21-forge": ["runGuessSoundsModernSmoke", "runMinecraftClientSoundBridgeSmoke", "runGuessSoundsChatModernSmoke", "runGuessSoundsUiStateSmoke", "runSoundIconMappingSmoke", "runGuessSoundsConfigModernSmoke", "runGameStatsNickBuilderScoreSmoke", "runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke"],
+        "26.1-fabric": ["runGuessSoundsModernSmoke", "runMinecraftClientSoundBridgeSmoke", "runGuessSoundsChatModernSmoke", "runGuessSoundsUiStateSmoke", "runSoundIconMappingSmoke", "runGuessSoundsConfigModernSmoke", "runGameStatsNickBuilderScoreSmoke", "runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke"],
+        "26.1-forge": ["runGuessSoundsModernSmoke", "runMinecraftClientSoundBridgeSmoke", "runGuessSoundsChatModernSmoke", "runGuessSoundsUiStateSmoke", "runSoundIconMappingSmoke", "runGuessSoundsConfigModernSmoke", "runGameStatsNickBuilderScoreSmoke", "runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke"],
+        "26.2-fabric": ["runGuessSoundsModernSmoke", "runMinecraftClientSoundBridgeSmoke", "runGuessSoundsChatModernSmoke", "runGuessSoundsUiStateSmoke", "runSoundIconMappingSmoke", "runGuessSoundsConfigModernSmoke", "runGameStatsNickBuilderScoreSmoke", "runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke"],
+        "26.2-forge": ["runGuessSoundsModernSmoke", "runMinecraftClientSoundBridgeSmoke", "runGuessSoundsChatModernSmoke", "runGuessSoundsUiStateSmoke", "runSoundIconMappingSmoke", "runGuessSoundsConfigModernSmoke", "runGameStatsNickBuilderScoreSmoke", "runCommandGtbHelpSmoke", "runCommandGtbRuntimeSmoke"]
+      }
+    },
+    "resources": {
+      "targets": {
+        "1.8.9-forge": [],
+        "1.21-fabric": [],
+        "1.21-forge": [],
+        "26.1-fabric": [],
+        "26.1-forge": [],
+        "26.2-fabric": [],
+        "26.2-forge": []
+      }
+    }
+  }
+}

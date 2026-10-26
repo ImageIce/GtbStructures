@@ -11,7 +11,7 @@ buildscript {
 
 apply plugin: 'net.minecraftforge.gradle.forge'
 
-version = "1.1.1"
+version = "1.2.0"
 group = "com.example.gtbstructures"
 archivesBaseName = "GtbStructures"
 
@@ -87,6 +87,14 @@ task runGameStatsRosterGateSmoke(type: JavaExec) {
     dependsOn testClasses
     classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
     main = 'com.gtbstructures.stats.GameStatsRosterGateSmoke'
+}
+
+task runGameStatsStartupHandoffSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Checks first-round headers and roster continuity across a lobby/sidebar handoff.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.GameStatsStartupHandoffSmoke'
 }
 
 task runGameStatsChatChannelGuardSmoke(type: JavaExec) {
@@ -299,6 +307,22 @@ task runLangPatternsSmoke(type: JavaExec) {
     main = 'com.gtbstructures.stats.LangPatternsSmoke'
 }
 
+task runLobbyLanguageFallbackSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Verifies localized MVP lobby join messages and language fallback guards.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.stats.LobbyLanguageFallbackSmoke'
+}
+
+task runBbRankDisplayRepairSmoke(type: JavaExec) {
+    group = 'verification'
+    description = 'Verifies localized Build Battle rank prefix repair.'
+    dependsOn testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    main = 'com.gtbstructures.player.BbRankDisplayRepairSmoke'
+}
+
 task runInterfacePreviewSmoke(type: JavaExec) {
     group = 'verification'
     description = 'Runs the legacy preview scoreboard localization smoke test.'
@@ -406,6 +430,10 @@ task runGameStatsNickBuilderScoreSmoke(type: JavaExec) {
 
 [
     GuessSoundController: 'com.gtbstructures.sound.GuessSoundControllerSmoke',
+    EndGameFireworkController: 'com.gtbstructures.sound.EndGameFireworkControllerSmoke',
+    HypixelGuessChat: 'com.gtbstructures.translation.HypixelGuessChatSmoke',
+    GameTrackerPendingBuilderFork: 'com.gtbstructures.scoreboard.GameTrackerPendingBuilderForkSmoke',
+    StatsThemeResolution: 'com.gtbstructures.stats.StatsThemeResolutionSmoke',
     GuessSoundChat: 'com.gtbstructures.sound.GuessSoundChatSmoke',
     GuessSoundsUiLogic: 'com.gtbstructures.scoreboard.GuessSoundsUiLogicSmoke',
     CommandGtbGuessSound: 'com.gtbstructures.commands.CommandGtbGuessSoundSmoke',
@@ -413,7 +441,7 @@ task runGameStatsNickBuilderScoreSmoke(type: JavaExec) {
 ].each { name, smokeClass ->
     tasks.create(name: "run${name}Smoke", type: JavaExec) {
         group = 'verification'
-        description = "Checks legacy guess sound ${name} behavior."
+        description = "Checks legacy ${name} behavior."
         dependsOn testClasses
         classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
         main = smokeClass

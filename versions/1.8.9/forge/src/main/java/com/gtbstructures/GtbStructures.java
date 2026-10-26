@@ -84,9 +84,10 @@ public class GtbStructures {
 
     public static final String MODID = "gtbstructures";
     public static final String NAME = "GtbStructures";
-    public static final String VERSION = "1.1";
+    public static final String VERSION = UpdateChecker.CURRENT_VERSION;
     public static final float DEFAULT_AUTO_REQUEUE_DELAY_SECONDS = 5.0F;
     public static final float MAX_AUTO_REQUEUE_DELAY_SECONDS = 10.0F;
+    public static final float DEFAULT_LRJ_DELAY_SECONDS = 0.0F;
 
     private static final Logger LOGGER = LogManager.getLogger("GtbStructures");
 
@@ -96,8 +97,10 @@ public class GtbStructures {
     public static boolean trackingEnabled = true;
     public static boolean autoRequeue = false;
     public static float autoRequeueDelaySeconds = DEFAULT_AUTO_REQUEUE_DELAY_SECONDS;
+    public static float lrjDelaySeconds = DEFAULT_LRJ_DELAY_SECONDS;
     public static boolean lrjBypassLobbyProtection = true;
     public static boolean updateNoticeEnabled = true;
+    public static boolean endGameFireworkSounds = true;
     public static boolean showAllMatching = false;
     public static boolean showAllMatchingShowEnglish = false;
     public static boolean showAllMatchingShowCount = true;
@@ -145,6 +148,8 @@ public class GtbStructures {
     public static boolean chatCooldownCounter = false;
     public static boolean chatCooldownTimerEnabled = true;
     public static boolean chatCooldownBarEnabled = false;
+    public static boolean chatCooldownSfxEnabled = true;
+    public static boolean chatCooldownProgressBeats = false;
     public static boolean chatCooldownBackground = true;
     public static boolean chatCooldownBarBackground = false;
     public static boolean gtwShowEnglish = false;
@@ -282,10 +287,15 @@ public class GtbStructures {
                     "autoRequeueDelaySeconds", Configuration.CATEGORY_GENERAL,
                     DEFAULT_AUTO_REQUEUE_DELAY_SECONDS, 0F, MAX_AUTO_REQUEUE_DELAY_SECONDS,
                     "Seconds after the first final GTB roster capture before auto-requeueing (0.0-10.0)"));
+            lrjDelaySeconds = normalizeLrjDelaySeconds(config.getFloat(
+                    "lrjDelaySeconds", Configuration.CATEGORY_GENERAL,
+                    DEFAULT_LRJ_DELAY_SECONDS, 0F, MAX_AUTO_REQUEUE_DELAY_SECONDS,
+                    "Seconds to wait after /lrj is ready to rejoin (0.0-10.0)"));
             lrjBypassLobbyProtection = config.getBoolean("lrjBypassLobbyProtection",
                     Configuration.CATEGORY_GENERAL, true,
                     "Whether /lrj retries once after Hypixel's translated /l protection prompt");
             updateNoticeEnabled = config.getBoolean("updateNoticeEnabled", Configuration.CATEGORY_GENERAL, true, "Whether to check GitHub and show a notice when a newer GTBS version is available");
+            endGameFireworkSounds = config.getBoolean("endGameFireworkSounds", Configuration.CATEGORY_GENERAL, true, "Whether to play vanilla game-end firework sounds");
             showAllMatching = config.getBoolean("showAllMatching", Configuration.CATEGORY_GENERAL, false, "Whether to show all themes matching the effective initial hint after a round resolves");
             showAllMatchingShowEnglish = config.getBoolean("showAllMatchingShowEnglish", Configuration.CATEGORY_GENERAL, false, "When showAllMatching is on and the language is not English, also show the English theme(s) next to each translation");
             showAllMatchingShowCount = config.getBoolean("showAllMatchingShowCount", Configuration.CATEGORY_GENERAL, true, "Whether Show All Matching output ends with the total number of displayed themes");
@@ -345,6 +355,8 @@ public class GtbStructures {
             chatCooldownCounter = config.getBoolean("chatCooldownCounter", Configuration.CATEGORY_GENERAL, false, "Whether to show a GTB chat cooldown counter after accepted outbound chat packets");
             chatCooldownTimerEnabled = config.getBoolean("chatCooldownTimerEnabled", Configuration.CATEGORY_GENERAL, true, "Whether the GTB chat cooldown counter shows timer text");
             chatCooldownBarEnabled = config.getBoolean("chatCooldownBarEnabled", Configuration.CATEGORY_GENERAL, false, "Whether the GTB chat cooldown counter shows the progress bar");
+            chatCooldownSfxEnabled = config.getBoolean("chatCooldownSfxEnabled", Configuration.CATEGORY_GENERAL, true, "Whether to play a sound when the GTB chat cooldown ends");
+            chatCooldownProgressBeats = config.getBoolean("chatCooldownProgressBeats", Configuration.CATEGORY_GENERAL, false, "Whether cooldown SFX includes quieter beats at the elapsed 1s and 2s marks");
             chatCooldownBackground = config.getBoolean("chatCooldownBackground", Configuration.CATEGORY_GENERAL, true, "Whether to draw a scoreboard-style background behind the chat cooldown timer text");
             chatCooldownBarBackground = config.getBoolean("chatCooldownBarBackground", Configuration.CATEGORY_GENERAL, false, "Whether to draw a scoreboard-style background behind the chat cooldown progress bar");
             handheldItemPosX = config.getFloat("handheldItemPosX", Configuration.CATEGORY_GENERAL, 0.0f, 0f, 1f, "Horizontal center of the builder handheld item overlay (0-1)");
@@ -456,9 +468,13 @@ public class GtbStructures {
             autoRequeueDelaySeconds = normalizeAutoRequeueDelaySeconds(autoRequeueDelaySeconds);
             config.get(Configuration.CATEGORY_GENERAL, "autoRequeueDelaySeconds",
                     DEFAULT_AUTO_REQUEUE_DELAY_SECONDS).set(autoRequeueDelaySeconds);
+            lrjDelaySeconds = normalizeLrjDelaySeconds(lrjDelaySeconds);
+            config.get(Configuration.CATEGORY_GENERAL, "lrjDelaySeconds",
+                    DEFAULT_LRJ_DELAY_SECONDS).set(lrjDelaySeconds);
             config.get(Configuration.CATEGORY_GENERAL, "lrjBypassLobbyProtection", true)
                     .set(lrjBypassLobbyProtection);
             config.get(Configuration.CATEGORY_GENERAL, "updateNoticeEnabled", true).set(updateNoticeEnabled);
+            config.get(Configuration.CATEGORY_GENERAL, "endGameFireworkSounds", true).set(endGameFireworkSounds);
             config.get(Configuration.CATEGORY_GENERAL, "showAllMatching", showAllMatching).set(showAllMatching);
             config.get(Configuration.CATEGORY_GENERAL, "showAllMatchingShowEnglish", showAllMatchingShowEnglish).set(showAllMatchingShowEnglish);
             config.get(Configuration.CATEGORY_GENERAL, "showAllMatchingShowCount", true).set(showAllMatchingShowCount);
@@ -511,6 +527,8 @@ public class GtbStructures {
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownCounter", false).set(chatCooldownCounter);
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownTimerEnabled", true).set(chatCooldownTimerEnabled);
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownBarEnabled", false).set(chatCooldownBarEnabled);
+            config.get(Configuration.CATEGORY_GENERAL, "chatCooldownSfxEnabled", true).set(chatCooldownSfxEnabled);
+            config.get(Configuration.CATEGORY_GENERAL, "chatCooldownProgressBeats", false).set(chatCooldownProgressBeats);
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownBackground", true).set(chatCooldownBackground);
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownBarBackground", false).set(chatCooldownBarBackground);
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemPosX", handheldItemPosX).set(handheldItemPosX);
@@ -654,6 +672,33 @@ public class GtbStructures {
     public static String formatAutoRequeueDelaySeconds(float value) {
         return String.format(java.util.Locale.ROOT, "%.1f",
                 Float.valueOf(normalizeAutoRequeueDelaySeconds(value)));
+    }
+
+    public static Float parseLrjDelaySeconds(String raw) {
+        if (raw == null) return null;
+        try {
+            float value = Float.parseFloat(raw.trim());
+            if (Float.isNaN(value) || Float.isInfinite(value)
+                    || value < 0F || value > MAX_AUTO_REQUEUE_DELAY_SECONDS) {
+                return null;
+            }
+            return Float.valueOf(normalizeLrjDelaySeconds(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    public static float normalizeLrjDelaySeconds(float value) {
+        if (Float.isNaN(value) || Float.isInfinite(value)
+                || value < 0F || value > MAX_AUTO_REQUEUE_DELAY_SECONDS) {
+            return DEFAULT_LRJ_DELAY_SECONDS;
+        }
+        return Math.round(value * 10F) / 10F;
+    }
+
+    public static String formatLrjDelaySeconds(float value) {
+        return String.format(java.util.Locale.ROOT, "%.1f",
+                Float.valueOf(normalizeLrjDelaySeconds(value)));
     }
 
     public static void setShortcutReminderShowNonAscii(boolean enabled) {
@@ -932,6 +977,9 @@ public class GtbStructures {
                     public void run() {
                         if (!updateNoticeEnabled || mc.thePlayer == null) return;
                         mc.thePlayer.addChatMessage(buildUpdateNoticeMessage(update));
+                        for (String line : update.getChangelogLines()) {
+                            mc.thePlayer.addChatMessage(new ChatComponentText("\u00a77" + line));
+                        }
                     }
                 });
             }

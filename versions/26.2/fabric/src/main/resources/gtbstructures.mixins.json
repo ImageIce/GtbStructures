@@ -5,6 +5,7 @@
   "client": [
     "ClientEquipmentPacket26Mixin",
     "ClientSoundPacketMixin",
+    "SoundManagerGuessSound26Mixin",
     "ClientPlayerTeamPacketMixin",
     "ClassicBitmapGlyph26Mixin",
     "SpawnEggItemModel26Mixin",

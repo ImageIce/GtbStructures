@@ -91,6 +91,12 @@ public final class GtbGame {
             new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
     /** Unique visible wrong guesses seen this round. Applied only for ambiguous displayed themes. */
     public final Set<String> wrongGuessesThisRound = new LinkedHashSet<String>();
+    /** Actual submitted answers acknowledged by the server, including hidden duplicate-correct replies. */
+    public final List<String> acceptedGuessTextsThisRound = new ArrayList<String>();
+    /** Builder deltas derived only from real sidebar observations, never synthesized theme totals. */
+    public final Map<String, Integer> scoreboardBuilderPointsThisRound = new HashMap<String, Integer>();
+    /** First post-round snapshot could not prove these players' new-round baseline. */
+    public final Set<GtbPlayer> uncertainBuilderBaselinesThisRound = new LinkedHashSet<GtbPlayer>();
 
     /** Legacy layout cache. Current renderers measure visible content each
      *  frame so transient fork chips can expand and then shrink normally. */

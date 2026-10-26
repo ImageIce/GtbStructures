@@ -1,6 +1,7 @@
 package com.gtbstructures.scoreboard;
 
 import com.gtbstructures.GtbStructuresSettings;
+import com.gtbstructures.chat.ModernChatCooldownCounter;
 import com.gtbstructures.chat.ChatHeader;
 import com.gtbstructures.commands.CommandGtb;
 import com.gtbstructures.commands.CommandGtbRuntime;
@@ -63,11 +64,13 @@ public final class PreviewLayoutEditor {
     private static final int HEADER_ROW_HEIGHT = 20;
     private static final int AUTO_REQUEUE_DELAY_EDITOR_WIDTH = 24;
     private static final String AUTO_REQUEUE_DELAY_LABEL = "Requeue Delay";
+    private static final String LRJ_DELAY_LABEL = "LRJ Delay";
     private static final int LABELS_SCROLL_STEP = ROW_HEIGHT * 3;
     private static final int CHECK_SIZE = 10;
     private static final int LANGUAGE_GROUP_BUTTON_HEIGHT = 20;
     private static final int CLOSE_SIZE = 11;
     private static final int BACKGROUND_COLUMN_OFFSET = 64;
+    private static int cooldownMeasuredPanelWidth = 170;
     private static final int CHILD_ROW_INDENT = CHECK_SIZE + 5;
     private static final int SECTION_MARGIN_Y = 3;
     private static final int SECTION_TEXT_HEIGHT = 9;
@@ -158,6 +161,7 @@ public final class PreviewLayoutEditor {
     private boolean sliderDirty;
     private boolean headerEditing;
     private boolean autoRequeueDelayEditing;
+    private boolean lrjDelayEditing;
     private boolean sliderValueEditing;
     private String sliderValueEditingId = "";
     private String sliderValueInitialText = "";
@@ -201,6 +205,8 @@ public final class PreviewLayoutEditor {
     }
 
     public static void render(EditorRenderer renderer, InputState input, int screenWidth, int screenHeight) {
+        if (renderer != null) cooldownMeasuredPanelWidth = cooldownPanelWidth(renderer.textWidth("Scale"),
+                renderer.textWidth("Background"), renderer.textWidth("Progress Beats"));
         if (!InterfacePreview.isActive()) {
             INSTANCE.reset();
             return;
@@ -598,11 +604,16 @@ public final class PreviewLayoutEditor {
     }
 
     private void recordUndo() {
-        recordUndo(ConfigSnapshot.capture());
+        // Immediate edits capture before mutation, so the snapshot still matches.
+        appendUndo(ConfigSnapshot.capture());
     }
 
     private void recordUndo(ConfigSnapshot snapshot) {
         if (snapshot == null || snapshot.matchesCurrent()) return;
+        appendUndo(snapshot);
+    }
+
+    private void appendUndo(ConfigSnapshot snapshot) {
         undoStack.add(snapshot);
         if (undoStack.size() > HISTORY_LIMIT) undoStack.remove(0);
         redoStack.clear();
@@ -682,7 +693,7 @@ public final class PreviewLayoutEditor {
             GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
             recordUndo();
             applyCooldownState(toggleCooldownLabelState(settings.chatCooldownCounter,
-                    settings.chatCooldownTimerEnabled, settings.chatCooldownBarEnabled));
+                    settings.chatCooldownTimerEnabled, settings.chatCooldownBarEnabled, settings.chatCooldownSfxEnabled));
             settings.save();
             if (!settings.chatCooldownCounter) clearPanelForTarget("cooldown");
             return true;
@@ -749,6 +760,10 @@ public final class PreviewLayoutEditor {
             recordUndo();
             settings.lrjBypassLobbyProtection = !settings.lrjBypassLobbyProtection;
             settings.save();
+            return true;
+        }
+        y += ROW_HEIGHT;
+        if (handleLrjDelayRowClick(renderer, panel, x + CHILD_ROW_INDENT, y, mouseX, mouseY)) {
             return true;
         }
         y += ROW_HEIGHT;
@@ -960,6 +975,13 @@ public final class PreviewLayoutEditor {
             return true;
         }
         if (settings.trollMode) y += ROW_HEIGHT;
+        if (toggleHit(renderer, x, y, "End-Game Firework Sounds", mouseX, mouseY)) {
+            recordUndo();
+            settings.endGameFireworkSounds = !settings.endGameFireworkSounds;
+            settings.save();
+            return true;
+        }
+        y += ROW_HEIGHT;
         if (new Rect(x + CHECK_SIZE + 5, y, panel.x2 - PANEL_PAD, y + ROW_HEIGHT).contains(mouseX, mouseY)) {
             MinecraftClientSoundBridge.ensureCatalog(); guessSoundPanel.open(); return true;
         }
@@ -1026,6 +1048,11 @@ public final class PreviewLayoutEditor {
             commitAutoRequeueDelay(requested);
             return;
         }
+        if (lrjDelayEditing) {
+            lrjDelayEditing = false;
+            commitLrjDelay(requested);
+            return;
+        }
         if (sliderValueEditing) {
             String sliderId = sliderValueEditingId;
             sliderValueEditing = false;
@@ -1063,6 +1090,7 @@ public final class PreviewLayoutEditor {
 
     private Rect headerInputRect(EditorRenderer renderer, Rect panel) {
         if (autoRequeueDelayEditing) return autoRequeueDelayInputRect(renderer, panel);
+        if (lrjDelayEditing) return lrjDelayInputRect(renderer, panel);
         if (sliderValueEditing) return sliderValueInputRect(renderer, panel);
         int x = panel.x1 + PANEL_PAD;
         int y = labelsBodyY(panel) - labelsScrollOffset;
@@ -1083,6 +1111,15 @@ public final class PreviewLayoutEditor {
         y = menuSectionYAfter(y);
         y += ROW_HEIGHT * 2;
         return autoRequeueDelayValueRect(renderer, x + CHILD_ROW_INDENT, y);
+    }
+
+    private Rect lrjDelayInputRect(EditorRenderer renderer, Rect panel) {
+        int x = panel.x1 + PANEL_PAD;
+        int y = labelsBodyY(panel) - labelsScrollOffset;
+        y += ROW_HEIGHT + sectionBlockHeight() + HEADER_ROW_HEIGHT + sectionBlockHeight();
+        y += ROW_HEIGHT * 5 + sectionBlockHeight();
+        y += ROW_HEIGHT * (3 + (GtbStructuresSettings.INSTANCE.autoRequeue ? 1 : 0));
+        return lrjDelayValueRect(renderer, x + CHILD_ROW_INDENT, y);
     }
 
     private void draw(EditorRenderer renderer, InputState input, int screenWidth, int screenHeight) {
@@ -1170,7 +1207,7 @@ public final class PreviewLayoutEditor {
             y = drawMenuSection(renderer, x, y, "Labels");
             drawToggleRow(renderer, x, y, "Cooldown Counter",
                     cooldownLabelChecked(settings.chatCooldownCounter,
-                            settings.chatCooldownTimerEnabled, settings.chatCooldownBarEnabled));
+                            settings.chatCooldownTimerEnabled, settings.chatCooldownBarEnabled, settings.chatCooldownSfxEnabled));
             y += ROW_HEIGHT;
             drawToggleRow(renderer, x, y, "Environment", environmentLabelVisible(settings));
             y += ROW_HEIGHT;
@@ -1191,6 +1228,8 @@ public final class PreviewLayoutEditor {
             }
             drawToggleRow(renderer, x, y, "Bypass /l Protection For /lrj",
                     settings.lrjBypassLobbyProtection);
+            y += ROW_HEIGHT;
+            drawLrjDelayRow(renderer, panel, x + CHILD_ROW_INDENT, y);
             y += ROW_HEIGHT;
             y = drawMenuSection(renderer, x, y, "Chat");
             drawToggleRow(renderer, x, y, "Guess Peek", settings.guessPeek);
@@ -1296,6 +1335,8 @@ public final class PreviewLayoutEditor {
                         settings.trollModeAutoDisable);
                 y += ROW_HEIGHT;
             }
+            drawToggleRow(renderer, x, y, "End-Game Firework Sounds", settings.endGameFireworkSounds);
+            y += ROW_HEIGHT;
             int soundTextX = x + CHECK_SIZE + 5;
             Rect soundLink = new Rect(soundTextX, y, panel.x2 - PANEL_PAD, y + ROW_HEIGHT);
             boolean soundHovered = soundLink.contains(drawMouseX, drawMouseY);
@@ -1890,7 +1931,7 @@ public final class PreviewLayoutEditor {
     private void drawHeaderRow(EditorRenderer renderer, Rect panel, int x, int y) {
         int textY = y + (HEADER_ROW_HEIGHT - renderer.fontHeight()) / 2;
         int valueX = headerValueX(renderer, x);
-        if (headerEditing && !autoRequeueDelayEditing && !sliderValueEditing) {
+        if (headerEditing && !autoRequeueDelayEditing && !lrjDelayEditing && !sliderValueEditing) {
             Rect field = headerInputRect(renderer, panel);
             PreviewScreenController.positionHeaderEditor(field.x1, field.y1,
                     field.width(), field.height());
@@ -1918,6 +1959,21 @@ public final class PreviewLayoutEditor {
                 value.x1, textY, PANEL_MUTED, true);
     }
 
+    private void drawLrjDelayRow(EditorRenderer renderer, Rect panel, int x, int y) {
+        int textY = toggleTextY(y, renderer.fontHeight());
+        renderer.drawString(LRJ_DELAY_LABEL, x, textY, PANEL_TEXT, true);
+        if (lrjDelayEditing) {
+            Rect field = lrjDelayInputRect(renderer, panel);
+            PreviewScreenController.positionHeaderEditor(field.x1, field.y1,
+                    field.width(), field.height());
+            return;
+        }
+        Rect value = lrjDelayValueRect(renderer, x, y);
+        renderer.drawString("\u00a77" + GtbStructuresSettings.formatLrjDelaySeconds(
+                        GtbStructuresSettings.INSTANCE.lrjDelaySeconds) + "s",
+                value.x1, textY, PANEL_MUTED, true);
+    }
+
     private boolean handleAutoRequeueDelayRowClick(EditorRenderer renderer, Rect panel, int x, int y,
                                                     int mouseX, int mouseY) {
         Rect value = autoRequeueDelayValueRect(renderer, x, y);
@@ -1930,8 +1986,24 @@ public final class PreviewLayoutEditor {
         return true;
     }
 
+    private boolean handleLrjDelayRowClick(EditorRenderer renderer, Rect panel, int x, int y,
+                                           int mouseX, int mouseY) {
+        if (!lrjDelayValueRect(renderer, x, y).contains(mouseX, mouseY)) return false;
+        if (lrjDelayEditing) return true;
+        headerEditing = true;
+        lrjDelayEditing = true;
+        PreviewScreenController.beginHeaderEditing(GtbStructuresSettings.formatLrjDelaySeconds(
+                GtbStructuresSettings.INSTANCE.lrjDelaySeconds));
+        return true;
+    }
+
     private static Rect autoRequeueDelayValueRect(EditorRenderer renderer, int x, int y) {
         int left = x + renderer.textWidth(AUTO_REQUEUE_DELAY_LABEL) + 5;
+        return new Rect(left, y - 1, left + AUTO_REQUEUE_DELAY_EDITOR_WIDTH, y + ROW_HEIGHT + 1);
+    }
+
+    private static Rect lrjDelayValueRect(EditorRenderer renderer, int x, int y) {
+        int left = x + renderer.textWidth(LRJ_DELAY_LABEL) + 5;
         return new Rect(left, y - 1, left + AUTO_REQUEUE_DELAY_EDITOR_WIDTH, y + ROW_HEIGHT + 1);
     }
 
@@ -1948,6 +2020,22 @@ public final class PreviewLayoutEditor {
         ConfigSnapshot before = ConfigSnapshot.capture();
         settings.autoRequeueDelaySeconds = delay.floatValue();
         GameStats.INSTANCE.setAutoRequeueDelaySeconds(settings.autoRequeueDelaySeconds);
+        recordUndo(before);
+        settings.save();
+    }
+
+    private void commitLrjDelay(String requested) {
+        if (requested == null) return;
+        Float delay = GtbStructuresSettings.parseLrjDelaySeconds(requested);
+        if (delay == null) {
+            GameStats.INSTANCE.queueNotificationMessage(CommandGtb.head
+                    + "Please enter a time from 0.0 to 10.0 seconds.");
+            return;
+        }
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        if (Float.compare(settings.lrjDelaySeconds, delay.floatValue()) == 0) return;
+        ConfigSnapshot before = ConfigSnapshot.capture();
+        settings.lrjDelaySeconds = delay.floatValue();
         recordUndo(before);
         settings.save();
     }
@@ -2055,13 +2143,22 @@ public final class PreviewLayoutEditor {
         } else if ("cooldown".equals(key)) {
             drawSliderRow(renderer, x, y, COOLDOWN_SCALE_SLIDER);
             y += SLIDER_ROW_HEIGHT;
-            drawSection(renderer, x, y, "Shown Parts");
+            drawSection(renderer, x, y, "Toggled Parts");
+            Rect test = cooldownTestRect(panel, y, renderer.textWidth("Test"));
+            renderer.drawString(cooldownTestCaption(test.contains(drawMouseX, drawMouseY)),
+                    test.x1, y, PANEL_TEXT, true);
             y += ROW_HEIGHT;
             drawToggleRow(renderer, x, y, "Timer", settings.chatCooldownTimerEnabled, true,
                     settings.chatCooldownTimerEnabled, settings.chatCooldownBackground);
             y += ROW_HEIGHT;
             drawToggleRow(renderer, x, y, "Bar", settings.chatCooldownBarEnabled, true,
                     settings.chatCooldownBarEnabled, settings.chatCooldownBarBackground);
+            y += ROW_HEIGHT;
+            drawToggleRow(renderer, x, y, "SFX", settings.chatCooldownSfxEnabled, true, false);
+            if (settings.chatCooldownSfxEnabled) {
+                drawToggleRow(renderer, x + BACKGROUND_COLUMN_OFFSET, y, "Progress Beats",
+                        settings.chatCooldownProgressBeats, true, false);
+            }
             y += ROW_HEIGHT + 2;
             drawSection(renderer, x, y, "Color Target");
             y += ROW_HEIGHT;
@@ -2330,6 +2427,10 @@ public final class PreviewLayoutEditor {
         } else if ("cooldown".equals(key)) {
             if (handleSliderRowClick(renderer, COOLDOWN_SCALE_SLIDER, x, y, mouseX, mouseY)) return true;
             y += SLIDER_ROW_HEIGHT;
+            if (cooldownTestRect(panel, y, renderer.textWidth("Test")).contains(mouseX, mouseY)) {
+                if (settings.modEnabled && settings.chatCooldownCounter) ModernChatCooldownCounter.startPreviewTest();
+                return true;
+            }
             y += ROW_HEIGHT;
             boolean timerBackground = settings.chatCooldownTimerEnabled
                     && toggleHit(renderer, x + BACKGROUND_COLUMN_OFFSET, y, "Background", mouseX, mouseY);
@@ -2339,7 +2440,8 @@ public final class PreviewLayoutEditor {
                     settings.chatCooldownBackground = !settings.chatCooldownBackground;
                 } else {
                     applyCooldownState(toggleCooldownPartState(settings.chatCooldownCounter,
-                            settings.chatCooldownTimerEnabled, settings.chatCooldownBarEnabled, true));
+                            settings.chatCooldownTimerEnabled, settings.chatCooldownBarEnabled,
+                            settings.chatCooldownSfxEnabled, "timer"));
                 }
                 settings.save();
                 if (!settings.chatCooldownCounter) clearPanelForTarget("cooldown");
@@ -2354,10 +2456,21 @@ public final class PreviewLayoutEditor {
                     settings.chatCooldownBarBackground = !settings.chatCooldownBarBackground;
                 } else {
                     applyCooldownState(toggleCooldownPartState(settings.chatCooldownCounter,
-                            settings.chatCooldownTimerEnabled, settings.chatCooldownBarEnabled, false));
+                            settings.chatCooldownTimerEnabled, settings.chatCooldownBarEnabled,
+                            settings.chatCooldownSfxEnabled, "bar"));
                 }
                 settings.save();
                 if (!settings.chatCooldownCounter) clearPanelForTarget("cooldown");
+                return true;
+            }
+            y += ROW_HEIGHT;
+            if (toggleHit(renderer, x, y, "SFX", mouseX, mouseY)) {
+                toggleCooldownSfx();
+                return true;
+            }
+            if (cooldownProgressBeatsHit(x, y, renderer.textWidth("Progress Beats"),
+                    settings.chatCooldownSfxEnabled, mouseX, mouseY)) {
+                toggleCooldownProgressBeats();
                 return true;
             }
             y += ROW_HEIGHT + 2 + ROW_HEIGHT;
@@ -3051,7 +3164,7 @@ public final class PreviewLayoutEditor {
         if (!settings.modEnabled) return collapsedLabelsPanelHeight();
         int rows = 6;
         rows += 2 + (settings.autoRequeue ? 1 : 0);
-        rows += 1;
+        rows += 2;
         rows += 1 + (settings.guessPeek ? 4 : 0);
         rows += 1 + (settings.showAllMatching ? 2 : 0);
         rows += 1 + (settings.themePointReveal ? 1 : 0);
@@ -3063,7 +3176,7 @@ public final class PreviewLayoutEditor {
         }
         // These language-group controls remain present when Shortcut Reminder is disabled.
         rows += 2;
-        rows += 3 + (settings.scrambleGuess ? 1 : 0) + (settings.trollMode ? 1 : 0);
+        rows += 4 + (settings.scrambleGuess ? 1 : 0) + (settings.trollMode ? 1 : 0);
         rows += 1; // Keep the final Guess Sounds link clear of the viewport scissor edge.
         return PANEL_PAD * 2 + TITLE_HEIGHT + 4
                 + rows * ROW_HEIGHT
@@ -3500,11 +3613,13 @@ public final class PreviewLayoutEditor {
     }
 
     private static int settingsPanelWidth(Label label) {
+        if ("cooldown".equals(label.target.key)) return cooldownMeasuredPanelWidth;
         return settingsPanelWidthForKey(label.target.key);
     }
 
     private static int settingsPanelWidthForKey(String key) {
-        if ("scoreboard".equals(key) || "hint".equals(key) || "cooldown".equals(key)
+        if ("cooldown".equals(key)) return 170;
+        if ("scoreboard".equals(key) || "hint".equals(key)
                 || "handheld".equals(key) || "environment".equals(key)
                 || (key != null && key.startsWith("environment_"))) return 230;
         return 128;
@@ -3517,7 +3632,7 @@ public final class PreviewLayoutEditor {
             return GtbStructuresSettings.INSTANCE.handheldItemVerticalLayout ? 283 : 259;
         }
         if ("environment".equals(key) || key.startsWith("environment_")) return 178;
-        if ("cooldown".equals(key)) return 142;
+        if ("cooldown".equals(key)) return 154;
         if ("scoreboard".equals(key)) {
             return scoreboardSettingsPanelHeight(GtbStructuresSettings.INSTANCE.sbConfig.skin);
         }
@@ -3567,7 +3682,7 @@ public final class PreviewLayoutEditor {
 
     static int settingsPanelHeightForTest(String key, boolean handheldVerticalLayout) {
         if ("hint".equals(key)) return 154;
-        if ("cooldown".equals(key)) return 142;
+        if ("cooldown".equals(key)) return 154;
         if ("handheld".equals(key)) return handheldVerticalLayout ? 283 : 259;
         if ("environment".equals(key)) return 178;
         return 0;
@@ -3621,6 +3736,7 @@ public final class PreviewLayoutEditor {
         settings.chatCooldownCounter = state.counter;
         settings.chatCooldownTimerEnabled = state.timer;
         settings.chatCooldownBarEnabled = state.bar;
+        settings.chatCooldownSfxEnabled = state.sfx;
     }
 
     private static boolean environmentLabelVisible(GtbStructuresSettings settings) {
@@ -3734,6 +3850,98 @@ public final class PreviewLayoutEditor {
                 MARGIN, Math.max(MARGIN, screenWidth - panelWidth - MARGIN));
     }
 
+    public static boolean cooldownLabelChecked(boolean counter, boolean timer, boolean bar, boolean sfx) {
+        return counter && (timer || bar || sfx);
+    }
+
+    public static CooldownState toggleCooldownLabelState(boolean counter, boolean timer, boolean bar, boolean sfx) {
+        if (cooldownLabelChecked(counter, timer, bar, sfx)) return new CooldownState(false, timer, bar, sfx);
+        if (!timer && !bar && !sfx) return new CooldownState(true, true, true, true);
+        return new CooldownState(true, timer, bar, sfx);
+    }
+
+    public static CooldownState toggleCooldownPartState(boolean counter, boolean timer, boolean bar,
+                                                       boolean sfx, String part) {
+        boolean targetEnabled = "timer".equals(part) ? timer : "bar".equals(part) ? bar : sfx;
+        int enabledParts = (timer ? 1 : 0) + (bar ? 1 : 0) + (sfx ? 1 : 0);
+        if (targetEnabled && enabledParts == 1) return new CooldownState(false, timer, bar, sfx);
+        return new CooldownState(counter, "timer".equals(part) ? !timer : timer,
+                "bar".equals(part) ? !bar : bar, "sfx".equals(part) ? !sfx : sfx);
+    }
+
+    private void toggleCooldownSfx() {
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        recordUndo();
+        applyCooldownState(toggleCooldownPartState(settings.chatCooldownCounter, settings.chatCooldownTimerEnabled,
+                settings.chatCooldownBarEnabled, settings.chatCooldownSfxEnabled, "sfx"));
+        settings.save();
+        if (!settings.chatCooldownCounter) clearPanelForTarget("cooldown");
+    }
+
+    private void toggleCooldownProgressBeats() {
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        if (!settings.chatCooldownSfxEnabled) return;
+        recordUndo();
+        settings.chatCooldownProgressBeats = !settings.chatCooldownProgressBeats;
+        settings.save();
+    }
+
+    static int cooldownPanelWidth(int scaleCaptionWidth, int backgroundWidth, int beatsWidth) {
+        int captionRight = BACKGROUND_COLUMN_OFFSET + CHECK_SIZE + 5 + Math.max(backgroundWidth, beatsWidth);
+        int sliderRight = sliderValueFieldRect(0, 0, scaleCaptionWidth).x2;
+        return Math.max(170, PANEL_PAD * 2 + Math.max(captionRight, sliderRight));
+    }
+
+    static String cooldownTestCaption(boolean hovered) {
+        return (hovered ? "\u00a7f\u00a7n" : "\u00a77") + "Test";
+    }
+
+    private static Rect cooldownTestRect(Rect panel, int sectionY, int textWidth) {
+        int right = panel.x2 - PANEL_PAD;
+        return new Rect(right - textWidth, sectionY, right, sectionY + ROW_HEIGHT);
+    }
+
+    static int[] cooldownTestBoundsForTest(int panelX, int panelWidth, int sectionY, int textWidth) {
+        Rect bounds = cooldownTestRect(new Rect(panelX, 0, panelX + panelWidth, 200), sectionY, textWidth);
+        return new int[] {bounds.x1, bounds.y1, bounds.x2, bounds.y2};
+    }
+
+    static boolean cooldownProgressBeatsHit(int x, int y, int textWidth, boolean sfxEnabled,
+                                            int mouseX, int mouseY) {
+        return sfxEnabled && toggleRect(x + BACKGROUND_COLUMN_OFFSET, y, textWidth).contains(mouseX, mouseY);
+    }
+
+    static boolean cooldownSoundSnapshotUndoRedoRoundTripForTest() {
+        ConfigSnapshot original = ConfigSnapshot.capture();
+        PreviewLayoutEditor editor = new PreviewLayoutEditor();
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        try {
+            settings.chatCooldownCounter = true;
+            settings.chatCooldownTimerEnabled = true;
+            settings.chatCooldownBarEnabled = false;
+            settings.chatCooldownSfxEnabled = true;
+            settings.chatCooldownProgressBeats = false;
+            editor.toggleCooldownProgressBeats();
+            if (!settings.chatCooldownProgressBeats) return false;
+            editor.toggleCooldownSfx();
+            if (settings.chatCooldownSfxEnabled || !settings.chatCooldownProgressBeats) return false;
+            editor.undoConfigChange();
+            if (!settings.chatCooldownSfxEnabled || !settings.chatCooldownProgressBeats) return false;
+            editor.undoConfigChange();
+            if (settings.chatCooldownProgressBeats) return false;
+            editor.redoConfigChange();
+            editor.redoConfigChange();
+            ConfigSnapshot changed = ConfigSnapshot.capture();
+            settings.chatCooldownSfxEnabled = true;
+            settings.chatCooldownProgressBeats = false;
+            if (changed.matchesCurrent()) return false;
+            changed.apply();
+            return changed.matchesCurrent() && !settings.chatCooldownSfxEnabled && settings.chatCooldownProgressBeats;
+        } finally {
+            original.apply();
+        }
+    }
+
     public static boolean cooldownLabelChecked(boolean counter, boolean timer, boolean bar) {
         return counter && (timer || bar);
     }
@@ -3814,7 +4022,7 @@ public final class PreviewLayoutEditor {
                                         boolean showMultiwords, boolean themePointReveal,
                                         boolean trollMode, boolean autoRequeue) {
         int rows = 6;
-        rows += 3 + (autoRequeue ? 1 : 0);
+        rows += 4 + (autoRequeue ? 1 : 0);
         rows += 1 + (guessPeek ? 4 : 0);
         rows += 1 + (showMatching ? 2 : 0);
         rows += 1 + (themePointReveal ? 1 : 0);
@@ -3826,7 +4034,7 @@ public final class PreviewLayoutEditor {
         }
         // Language Group Shortcuts and Manage Language Groups are always present.
         rows += 2;
-        rows += 3 + (trollMode ? 1 : 0);
+        rows += 4 + (trollMode ? 1 : 0);
         rows += 1; // Bottom scroll clearance for the final Guess Sounds link.
         return PANEL_PAD * 2 + TITLE_HEIGHT + 4
                 + rows * ROW_HEIGHT
@@ -3874,7 +4082,11 @@ public final class PreviewLayoutEditor {
     }
 
     static int experimentalRowsForTest(boolean scrambleGuess, boolean trollMode) {
-        return 3 + (scrambleGuess ? 1 : 0) + (trollMode ? 1 : 0);
+        return 4 + (scrambleGuess ? 1 : 0) + (trollMode ? 1 : 0);
+    }
+
+    static int lrjDelayRowOffsetForTest(boolean autoRequeue) {
+        return 3 + (autoRequeue ? 1 : 0);
     }
 
     public static void setShortcutReminderShowNonAscii(ShortcutReminder.Options options, boolean enabled) {
@@ -4606,11 +4818,17 @@ public final class PreviewLayoutEditor {
         public final boolean counter;
         public final boolean timer;
         public final boolean bar;
+        public final boolean sfx;
 
         CooldownState(boolean counter, boolean timer, boolean bar) {
+            this(counter, timer, bar, false);
+        }
+
+        CooldownState(boolean counter, boolean timer, boolean bar, boolean sfx) {
             this.counter = counter;
             this.timer = timer;
             this.bar = bar;
+            this.sfx = sfx;
         }
     }
 
@@ -4642,6 +4860,8 @@ public final class PreviewLayoutEditor {
         private final boolean chatCooldownCounter;
         private final boolean chatCooldownTimerEnabled;
         private final boolean chatCooldownBarEnabled;
+        private final boolean chatCooldownSfxEnabled;
+        private final boolean chatCooldownProgressBeats;
         private final boolean chatCooldownBackground;
         private final boolean chatCooldownBarBackground;
         private final boolean scoreboardEnabled;
@@ -4663,6 +4883,8 @@ public final class PreviewLayoutEditor {
         private final boolean autoRequeue;
         private final boolean lrjBypassLobbyProtection;
         private final float autoRequeueDelaySeconds;
+        private final float lrjDelaySeconds;
+        private final boolean endGameFireworkSounds;
         private final boolean guessPeek;
         private final boolean guessPeekShowLangCodes;
         private final String guessPeekDisplay;
@@ -4741,6 +4963,8 @@ public final class PreviewLayoutEditor {
             chatCooldownCounter = settings.chatCooldownCounter;
             chatCooldownTimerEnabled = settings.chatCooldownTimerEnabled;
             chatCooldownBarEnabled = settings.chatCooldownBarEnabled;
+            chatCooldownSfxEnabled = settings.chatCooldownSfxEnabled;
+            chatCooldownProgressBeats = settings.chatCooldownProgressBeats;
             chatCooldownBackground = settings.chatCooldownBackground;
             chatCooldownBarBackground = settings.chatCooldownBarBackground;
             scoreboardEnabled = settings.sbConfig.isCustomEnabled();
@@ -4762,6 +4986,8 @@ public final class PreviewLayoutEditor {
             autoRequeue = settings.autoRequeue;
             lrjBypassLobbyProtection = settings.lrjBypassLobbyProtection;
             autoRequeueDelaySeconds = settings.autoRequeueDelaySeconds;
+            lrjDelaySeconds = settings.lrjDelaySeconds;
+            endGameFireworkSounds = settings.endGameFireworkSounds;
             guessPeek = settings.guessPeek;
             guessPeekShowLangCodes = settings.guessPeekShowLangCodes;
             guessPeekDisplay = settings.guessPeekDisplay;
@@ -4845,6 +5071,8 @@ public final class PreviewLayoutEditor {
             settings.chatCooldownCounter = chatCooldownCounter;
             settings.chatCooldownTimerEnabled = chatCooldownTimerEnabled;
             settings.chatCooldownBarEnabled = chatCooldownBarEnabled;
+            settings.chatCooldownSfxEnabled = chatCooldownSfxEnabled;
+            settings.chatCooldownProgressBeats = chatCooldownProgressBeats;
             settings.chatCooldownBackground = chatCooldownBackground;
             settings.chatCooldownBarBackground = chatCooldownBarBackground;
             if (scoreboardEnabled && !"vanilla".equals(ScoreboardConfig.normalizeSkin(scoreboardSkin))) {
@@ -4870,6 +5098,8 @@ public final class PreviewLayoutEditor {
             settings.autoRequeue = autoRequeue;
             settings.lrjBypassLobbyProtection = lrjBypassLobbyProtection;
             settings.autoRequeueDelaySeconds = autoRequeueDelaySeconds;
+            settings.lrjDelaySeconds = lrjDelaySeconds;
+            settings.endGameFireworkSounds = endGameFireworkSounds;
             settings.guessPeek = guessPeek;
             settings.guessPeekShowLangCodes = guessPeekShowLangCodes;
             settings.guessPeekDisplay = guessPeekDisplay;
@@ -4952,6 +5182,8 @@ public final class PreviewLayoutEditor {
                     && chatCooldownCounter == settings.chatCooldownCounter
                     && chatCooldownTimerEnabled == settings.chatCooldownTimerEnabled
                     && chatCooldownBarEnabled == settings.chatCooldownBarEnabled
+                    && chatCooldownSfxEnabled == settings.chatCooldownSfxEnabled
+                    && chatCooldownProgressBeats == settings.chatCooldownProgressBeats
                     && chatCooldownBackground == settings.chatCooldownBackground
                     && chatCooldownBarBackground == settings.chatCooldownBarBackground
                     && scoreboardEnabled == settings.sbConfig.isCustomEnabled()
@@ -4974,6 +5206,8 @@ public final class PreviewLayoutEditor {
                     && autoRequeue == settings.autoRequeue
                     && lrjBypassLobbyProtection == settings.lrjBypassLobbyProtection
                     && Float.compare(autoRequeueDelaySeconds, settings.autoRequeueDelaySeconds) == 0
+                    && Float.compare(lrjDelaySeconds, settings.lrjDelaySeconds) == 0
+                    && endGameFireworkSounds == settings.endGameFireworkSounds
                     && guessPeek == settings.guessPeek
                     && guessPeekShowLangCodes == settings.guessPeekShowLangCodes
                     && guessPeekDisplay.equals(settings.guessPeekDisplay)

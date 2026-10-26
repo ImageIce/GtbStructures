@@ -604,6 +604,14 @@ tasks.register('runInterfacePreviewSmoke', JavaExec) {
     mainClass = 'com.gtbstructures.scoreboard.InterfacePreviewSmoke'
 }
 
+tasks.register('runFabricInputBridgeSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Checks shared Fabric input semantics across GLFW and SDL clients.'
+    dependsOn tasks.testClasses
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+    mainClass = 'com.gtbstructures.util.FabricInputBridgeSmoke'
+}
+
 tasks.register('runFabricPreviewScreenControllerSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the GTBS Fabric preview screen-controller source smoke test.'
@@ -777,6 +785,7 @@ tasks.register('runSmokeTests') {
             tasks.named('runDisallowedItemHiderSmoke'),
             tasks.named('runHypixelSkinScoreboardLogicSmoke'),
             tasks.named('runFabricModMetadataSmoke'),
+            tasks.named('runFabricInputBridgeSmoke'),
             tasks.named('runFabricPreviewScreenControllerSmoke'),
             tasks.named('runGameTrackerEmptyRosterSmoke'),
             tasks.named('runGameTrackerFirstRoundZeroSmoke'),
@@ -861,4 +870,24 @@ guessSoundMigrationSmokes.each { smokeClass ->
 }
 tasks.named('runSmokeTests') {
     dependsOn guessSoundMigrationSmokes.collect { 'run' + it.substring(it.lastIndexOf('.') + 1) }
+}
+
+// Version-neutral development regressions are inherited and discovered by 26.x.
+def development120Smokes = [
+        'com.gtbstructures.stats.GameStatsStartupHandoffSmoke',
+        'com.gtbstructures.stats.LobbyLanguageFallbackSmoke',
+        'com.gtbstructures.sound.EndGameFireworkControllerSmoke',
+        'com.gtbstructures.translation.HypixelGuessChatSmoke',
+]
+development120Smokes.each { smokeClass ->
+    def taskName = 'run' + smokeClass.substring(smokeClass.lastIndexOf('.') + 1)
+    tasks.register(taskName, JavaExec) {
+        group = 'verification'
+        dependsOn tasks.testClasses
+        classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+        mainClass = smokeClass
+    }
+}
+tasks.named('runSmokeTests') {
+    dependsOn development120Smokes.collect { 'run' + it.substring(it.lastIndexOf('.') + 1) }
 }

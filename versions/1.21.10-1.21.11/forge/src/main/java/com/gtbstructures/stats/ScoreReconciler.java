@@ -90,7 +90,8 @@ public final class ScoreReconciler {
         if (round == null || round.builder == null || round.builder.isEmpty()) return;
         if (round.theme == null || round.theme.isEmpty()) return;
 
-        if (round.correctGuesses == null || round.correctGuesses.isEmpty()) {
+        if ((round.correctGuesses == null || round.correctGuesses.isEmpty())
+                && round.acceptedGuessTexts.isEmpty()) {
             round.scoreDeltas.put(round.builder, ScoreDelta.definite(0, "no_correct_guesses"));
             return;
         }
@@ -108,7 +109,8 @@ public final class ScoreReconciler {
             }
         }
 
-        Set<Integer> options = TranslationData.lookupBuilderPoints(round.langCode, round.theme);
+        Set<Integer> options = TranslationData.lookupBuilderPoints(round.langCode, round.theme,
+                GameExporter.ruledOutEnglishThemes(round.guesses, round.builder), round.acceptedGuessTexts);
         if (options.isEmpty()) return;
         round.scoreDeltas.put(round.builder, ScoreDelta.fork(options, "builder"));
     }

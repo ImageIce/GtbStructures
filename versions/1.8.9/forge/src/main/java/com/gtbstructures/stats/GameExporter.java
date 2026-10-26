@@ -97,10 +97,11 @@ public class GameExporter {
             String languageCode = r.langCode != null ? r.langCode
                     : LangPatterns.codeFromDisplayName(r.language);
             ScoreDelta builderDelta = findScoreDelta(r.scoreDeltas, r.builder);
-            Set<String> ruledOutEnglishThemes = ruledOutEnglishThemes(r.guesses);
+            Set<String> ruledOutEnglishThemes = ruledOutEnglishThemes(r.guesses, r.builder);
             List<String> englishThemes =
                     TranslationData.resolveEnglishThemes(
-                            languageCode, r.theme, builderDelta, ruledOutEnglishThemes);
+                            languageCode, r.theme, builderDelta, ruledOutEnglishThemes,
+                            r.acceptedGuessTexts);
             themeDifficulty.addEnglishThemes(englishThemes);
             sb.append("    {\n");
             sb.append("      \"round\": ").append(formatRoundNum(r.roundNumber)).append(",\n");
@@ -109,6 +110,7 @@ public class GameExporter {
             sb.append("      \"roundEnd\": ").append(r.roundEnd).append(",\n");
             sb.append("      \"builder\": ").append(jsonStr(r.builder)).append(",\n");
             sb.append("      \"theme\": ").append(jsonStr(r.theme)).append(",\n");
+            sb.append("      \"acceptedGuessTexts\": ").append(jsonStrArr(r.acceptedGuessTexts)).append(",\n");
             sb.append("      \"themeCharCount\": ").append(r.themeCharCount).append(",\n");
             sb.append("      \"language\": ").append(jsonStr(r.language)).append(",\n");
             sb.append("      \"languageCode\": ").append(jsonStr(languageCode)).append(",\n");
@@ -290,16 +292,21 @@ public class GameExporter {
 
     static synchronized Set<String> ruledOutEnglishThemes(
             List<GameStats.GuessEntry> guesses) {
+        return ruledOutEnglishThemes(guesses, null);
+    }
+
+    static synchronized Set<String> ruledOutEnglishThemes(
+            List<GameStats.GuessEntry> guesses, String builder) {
         if (guesses == null || guesses.isEmpty()) return Collections.emptySet();
         String translationDataHash = TranslationData.getCurrentDataHash();
         GuessRuleOutCache cached = RULED_OUT_GUESS_LIST_CACHE.get(guesses);
         if (cached != null
                 && Objects.equals(cached.translationDataHash, translationDataHash)
-                && guessTextsMatch(cached.guessTexts, guesses)) {
+                && guessTextsMatch(cached.guessTexts, guesses, builder)) {
             return cached.englishThemes;
         }
 
-        List<String> guessTexts = snapshotGuessTexts(guesses);
+        List<String> guessTexts = snapshotGuessTexts(guesses, builder);
         Set<String> englishThemes = Collections.unmodifiableSet(
                 TranslationData.ruledOutEnglishThemesFromGuesses(guessTexts));
         if (cached == null && RULED_OUT_GUESS_LIST_CACHE.size()
@@ -317,22 +324,27 @@ public class GameExporter {
         return englishThemes;
     }
 
-    private static List<String> snapshotGuessTexts(List<GameStats.GuessEntry> guesses) {
+    private static List<String> snapshotGuessTexts(List<GameStats.GuessEntry> guesses, String builder) {
         List<String> out = new ArrayList<String>(guesses.size());
         for (GameStats.GuessEntry guess : guesses) {
-            out.add(guess == null ? null : guess.text);
+            out.add(negativeGuessText(guess, builder));
         }
         return Collections.unmodifiableList(out);
     }
 
     private static boolean guessTextsMatch(List<String> snapshot,
-                                           List<GameStats.GuessEntry> guesses) {
+                                           List<GameStats.GuessEntry> guesses, String builder) {
         if (snapshot.size() != guesses.size()) return false;
         for (int i = 0; i < snapshot.size(); i++) {
             GameStats.GuessEntry guess = guesses.get(i);
-            if (!Objects.equals(snapshot.get(i), guess == null ? null : guess.text)) return false;
+            if (!Objects.equals(snapshot.get(i), negativeGuessText(guess, builder))) return false;
         }
         return true;
+    }
+
+    private static String negativeGuessText(GameStats.GuessEntry guess, String builder) {
+        return guess == null || (builder != null && builder.equalsIgnoreCase(guess.ign))
+                ? null : guess.text;
     }
 
     static synchronized void resetRuledOutGuessCacheForTest() {

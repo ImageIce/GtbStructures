@@ -118,7 +118,7 @@ public final class ModernHudOverlayRenderer {
                     InterfacePreview.previewHintStructure(lang), 255, true);
         }
         renderCooldown(graphics, font, screenWidth, screenHeight, settings,
-                3000L, true);
+                ModernChatCooldownCounter.previewRemainingMs(System.currentTimeMillis()), true);
     }
 
     private static void renderLive(Object graphics, Object font, int screenWidth, int screenHeight,
@@ -212,16 +212,20 @@ public final class ModernHudOverlayRenderer {
         if (!settings.chatCooldownCounter) return;
         boolean showTimer = settings.chatCooldownTimerEnabled;
         boolean showBar = settings.chatCooldownBarEnabled;
-        if (!showTimer && !showBar) return;
+        String previewText = preview
+                ? InterfacePreview.cooldownPreviewText(showTimer, showBar, settings.chatCooldownSfxEnabled, remaining)
+                : showTimer ? ChatCooldownLogic.displayRemaining(remaining) : "";
+        boolean showLabel = !previewText.isEmpty();
+        if (!showLabel && !showBar) return;
 
         int fontHeight = intField(font, 9, "fontHeight", "lineHeight", "field_2000");
         String label = MinecraftFormatting.normalizeMinecraftColorCode(settings.chatCooldownTimerColor, "\u00a7f")
-                + ChatCooldownLogic.displayRemaining(remaining);
-        int labelWidth = showTimer ? textWidth(font, label) : 0;
+                + previewText;
+        int labelWidth = showLabel ? textWidth(font, label) : 0;
         int barWidth = ChatCooldownLogic.barWidth();
         int widgetWidth = Math.max(showBar ? barWidth : 0, labelWidth);
-        int widgetHeight = (showTimer ? fontHeight : 0)
-                + (showTimer && showBar ? TIMER_BAR_GAP : 0)
+        int widgetHeight = (showLabel ? fontHeight : 0)
+                + (showLabel && showBar ? TIMER_BAR_GAP : 0)
                 + (showBar ? BAR_HEIGHT : 0);
         float scale = HudPanelScale.normalize(settings.chatCooldownScale);
         int scaledWidgetWidth = HudPanelScale.scaledPixels(widgetWidth, scale);
@@ -232,7 +236,7 @@ public final class ModernHudOverlayRenderer {
         int labelX = centerX - labelWidth / 2;
         int labelY = 0;
         int barX = centerX - barWidth / 2;
-        int barY = showTimer ? fontHeight + TIMER_BAR_GAP : 0;
+        int barY = showLabel ? fontHeight + TIMER_BAR_GAP : 0;
         if (preview) {
             PreviewLayoutEditor.registerWithBackground("cooldown", widgetLeft, widgetTop,
                     scaledWidgetWidth, scaledWidgetHeight,
@@ -253,11 +257,12 @@ public final class ModernHudOverlayRenderer {
                 fill(graphics, barX, barY, barX + barWidth, barY + BAR_HEIGHT, 0x66000000);
             }
             if (showBar) {
-                int fill = ChatCooldownLogic.fillWidth(barWidth, remaining);
+                int fill = preview ? InterfacePreview.cooldownPreviewFillWidth(remaining)
+                        : ChatCooldownLogic.fillWidth(barWidth, remaining);
                 fill(graphics, barX, barY, barX + fill, barY + BAR_HEIGHT,
                         MinecraftFormatting.minecraftColorArgb(settings.chatCooldownBarColor, 0xCC));
             }
-            if (showTimer) {
+            if (showLabel) {
                 drawText(graphics, font, label, labelX, labelY, 0xFFFFFF);
             }
         } finally {

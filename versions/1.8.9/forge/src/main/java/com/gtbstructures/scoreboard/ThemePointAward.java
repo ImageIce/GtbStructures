@@ -32,7 +32,25 @@ public final class ThemePointAward {
 
     public static PointEntry compute(String displayedTheme, String langCode,
                                      Collection<String> ruledOutEnglishThemes) {
+        return compute(displayedTheme, langCode, ruledOutEnglishThemes,
+                Collections.<String>emptyList());
+    }
+
+    public static PointEntry compute(String displayedTheme, String langCode,
+                                     Collection<String> ruledOutEnglishThemes,
+                                     Collection<String> acceptedGuessTexts) {
+        return compute(displayedTheme, langCode, ruledOutEnglishThemes, acceptedGuessTexts, null);
+    }
+
+    public static PointEntry compute(String displayedTheme, String langCode,
+                                     Collection<String> ruledOutEnglishThemes,
+                                     Collection<String> acceptedGuessTexts,
+                                     Integer scoreboardPoint) {
         if (displayedTheme == null || displayedTheme.isEmpty()) return PointEntry.zero();
+        if (scoreboardPoint != null && scoreboardPoint.intValue() >= 1
+                && scoreboardPoint.intValue() <= 3) {
+            return PointEntry.definite(scoreboardPoint.intValue());
+        }
 
         // Path 1: English / unknown lang — direct length bucket. Pirate is a
         // translated language in the source data and follows the reverse lookup.
@@ -44,7 +62,7 @@ public final class ThemePointAward {
         // Path 2: non-English — reverse lookup. Already handles fallback when
         // the translation isn't in the table (returns lengthBucket of displayed).
         Set<Integer> candidates = TranslationData.lookupBuilderPoints(
-                langCode, displayedTheme, ruledOutEnglishThemes);
+                langCode, displayedTheme, ruledOutEnglishThemes, acceptedGuessTexts);
         if (candidates == null || candidates.isEmpty()) {
             return PointEntry.definite(awardForEnglishLength(displayedTheme));
         }

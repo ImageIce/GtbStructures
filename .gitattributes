@@ -1,0 +1,5 @@
+# Keep upstream snapshots and their checksum manifests byte-exact on checkout.
+versions/**/src/main/resources/translations-data.json -text
+versions/**/src/main/resources/translation-history-seed.json -text
+versions/**/src/main/resources/translation-history-snapshots.bin -text
+versions/**/src/main/resources/translation-approval-history.json.gz -text

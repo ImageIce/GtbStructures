@@ -8,6 +8,10 @@
   "authors": [
     "_iqcx"
   ],
+  "contact": {
+    "homepage": "https://github.com/ImageIce/GtbStructures",
+    "sources": "https://github.com/ImageIce/GtbStructures"
+  },
   "license": "MIT",
   "environment": "client",
   "entrypoints": {

@@ -24,6 +24,7 @@ public final class GtbStructuresSettings {
     public static final float DEFAULT_HANDHELD_PANEL_HEIGHT_RATIO = 0.3323263F;
     public static final float DEFAULT_AUTO_REQUEUE_DELAY_SECONDS = 5.0F;
     public static final float MAX_AUTO_REQUEUE_DELAY_SECONDS = 10.0F;
+    public static final float DEFAULT_LRJ_DELAY_SECONDS = 0.0F;
 
     private File configFile;
     private int legacyHandheldItemPanelWidth = -1;
@@ -40,6 +41,8 @@ public final class GtbStructuresSettings {
     public boolean autoRequeue = false;
     /** Missing configs intentionally use the legacy-enabled lobby-protection bypass. */
     public boolean lrjBypassLobbyProtection = true;
+    public float lrjDelaySeconds = DEFAULT_LRJ_DELAY_SECONDS;
+    public boolean endGameFireworkSounds = true;
     public float autoRequeueDelaySeconds = DEFAULT_AUTO_REQUEUE_DELAY_SECONDS;
     public boolean updateNoticeEnabled = true;
     public boolean showAllMatching = false;
@@ -83,6 +86,8 @@ public final class GtbStructuresSettings {
     public boolean chatCooldownCounter = false;
     public boolean chatCooldownTimerEnabled = true;
     public boolean chatCooldownBarEnabled = false;
+    public boolean chatCooldownSfxEnabled = true;
+    public boolean chatCooldownProgressBeats = false;
     public boolean chatCooldownBackground = true;
     public boolean chatCooldownBarBackground = false;
     public boolean gtwShowEnglish = false;
@@ -185,6 +190,9 @@ public final class GtbStructuresSettings {
         trackingEnabled = bool(p, "trackingEnabled", trackingEnabled);
         autoRequeue = bool(p, "autoRequeue", autoRequeue);
         lrjBypassLobbyProtection = bool(p, "lrjBypassLobbyProtection", true);
+        lrjDelaySeconds = normalizeLrjDelaySeconds(
+                flt(p, "lrjDelaySeconds", DEFAULT_LRJ_DELAY_SECONDS));
+        endGameFireworkSounds = bool(p, "endGameFireworkSounds", true);
         autoRequeueDelaySeconds = normalizeAutoRequeueDelaySeconds(
                 flt(p, "autoRequeueDelaySeconds", DEFAULT_AUTO_REQUEUE_DELAY_SECONDS));
         updateNoticeEnabled = bool(p, "updateNoticeEnabled", updateNoticeEnabled);
@@ -233,6 +241,8 @@ public final class GtbStructuresSettings {
         chatCooldownCounter = bool(p, "chatCooldownCounter", chatCooldownCounter);
         chatCooldownTimerEnabled = bool(p, "chatCooldownTimerEnabled", chatCooldownTimerEnabled);
         chatCooldownBarEnabled = bool(p, "chatCooldownBarEnabled", chatCooldownBarEnabled);
+        chatCooldownSfxEnabled = bool(p, "chatCooldownSfxEnabled", true);
+        chatCooldownProgressBeats = bool(p, "chatCooldownProgressBeats", false);
         chatCooldownBackground = bool(p, "chatCooldownBackground", chatCooldownBackground);
         chatCooldownBarBackground = bool(p, "chatCooldownBarBackground", chatCooldownBarBackground);
         gtwShowEnglish = bool(p, "gtwShowEnglish", gtwShowEnglish);
@@ -330,6 +340,8 @@ public final class GtbStructuresSettings {
         put(p, "trackingEnabled", trackingEnabled);
         put(p, "autoRequeue", autoRequeue);
         put(p, "lrjBypassLobbyProtection", lrjBypassLobbyProtection);
+        p.setProperty("lrjDelaySeconds", formatLrjDelaySeconds(lrjDelaySeconds));
+        put(p, "endGameFireworkSounds", endGameFireworkSounds);
         p.setProperty("autoRequeueDelaySeconds", formatAutoRequeueDelaySeconds(autoRequeueDelaySeconds));
         put(p, "updateNoticeEnabled", updateNoticeEnabled);
         put(p, "showAllMatching", showAllMatching);
@@ -379,6 +391,8 @@ public final class GtbStructuresSettings {
         put(p, "chatCooldownCounter", chatCooldownCounter);
         put(p, "chatCooldownTimerEnabled", chatCooldownTimerEnabled);
         put(p, "chatCooldownBarEnabled", chatCooldownBarEnabled);
+        put(p, "chatCooldownSfxEnabled", chatCooldownSfxEnabled);
+        put(p, "chatCooldownProgressBeats", chatCooldownProgressBeats);
         put(p, "chatCooldownBackground", chatCooldownBackground);
         put(p, "chatCooldownBarBackground", chatCooldownBarBackground);
         put(p, "gtwShowEnglish", gtwShowEnglish);
@@ -462,6 +476,8 @@ public final class GtbStructuresSettings {
         trackingEnabled = true;
         autoRequeue = false;
         lrjBypassLobbyProtection = true;
+        lrjDelaySeconds = DEFAULT_LRJ_DELAY_SECONDS;
+        endGameFireworkSounds = true;
         autoRequeueDelaySeconds = DEFAULT_AUTO_REQUEUE_DELAY_SECONDS;
         updateNoticeEnabled = true;
         showAllMatching = false;
@@ -506,6 +522,8 @@ public final class GtbStructuresSettings {
         chatCooldownCounter = false;
         chatCooldownTimerEnabled = true;
         chatCooldownBarEnabled = false;
+        chatCooldownSfxEnabled = true;
+        chatCooldownProgressBeats = false;
         chatCooldownBackground = true;
         chatCooldownBarBackground = false;
         gtwShowEnglish = false;
@@ -611,6 +629,7 @@ public final class GtbStructuresSettings {
         guessSound3 = normalizeGuessSoundChoice(guessSound3);
         guessSoundVolume = normalizeGuessSoundVolume(guessSoundVolume);
         autoRequeueDelaySeconds = normalizeAutoRequeueDelaySeconds(autoRequeueDelaySeconds);
+        lrjDelaySeconds = normalizeLrjDelaySeconds(lrjDelaySeconds);
         fontMode = normalizeFontMode(fontMode);
         guessPeekDisplay = normalizeGuessPeekDisplay(guessPeekDisplay);
         spawnEggSkin = MinecraftFormatting.normalizeSpawnEggSkin(spawnEggSkin);
@@ -721,6 +740,28 @@ public final class GtbStructuresSettings {
 
     public static String formatAutoRequeueDelaySeconds(float value) {
         return String.format(Locale.ROOT, "%.1f", normalizeAutoRequeueDelaySeconds(value));
+    }
+
+    public static Float parseLrjDelaySeconds(String raw) {
+        if (raw == null) return null;
+        try {
+            float value = Float.parseFloat(raw.trim());
+            if (!Float.isFinite(value) || value < 0F || value > MAX_AUTO_REQUEUE_DELAY_SECONDS) return null;
+            return Float.valueOf(normalizeLrjDelaySeconds(value));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    public static float normalizeLrjDelaySeconds(float value) {
+        if (!Float.isFinite(value) || value < 0F || value > MAX_AUTO_REQUEUE_DELAY_SECONDS) {
+            return DEFAULT_LRJ_DELAY_SECONDS;
+        }
+        return Math.round(value * 10F) / 10F;
+    }
+
+    public static String formatLrjDelaySeconds(float value) {
+        return String.format(Locale.ROOT, "%.1f", normalizeLrjDelaySeconds(value));
     }
 
     public static int handheldPanelWidthPixels(float ratio, int scaledScreenWidth) {

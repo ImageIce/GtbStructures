@@ -2,6 +2,7 @@ package com.gtbstructures.commands;
 
 import com.gtbstructures.chat.GuessChatAnnotator;
 import com.gtbstructures.chat.ChatHeader;
+import com.gtbstructures.chat.TrollMode;
 import com.gtbstructures.GtbStructures;
 import com.gtbstructures.gtw.GtwGame;
 import com.gtbstructures.items.HandheldItemTracker;
@@ -38,8 +39,8 @@ public class CommandGtb extends CommandBase {
 
     private static final String[] SUBCOMMANDS = {
         "hintstructure", "hs", "toggle", "setlocation", "setcolor", "colorlist", "stats", "export", "exportraw", "tracking", "autorequeue", "updatenotice",
-        "haveibuilt", "whohasbuilt", "showallmatching", "themepointreveal", "shortcutreminder", "copytranslation", "gtw", "guess", "scoreboard",
-        "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guesspeek", "guesssound", "scrambleguess", "trollmode", "header", "preview", "overlay", "gtb", "lrj", "help"
+        "haveibuilt", "whohasbuilt", "showallmatching", "themepointreveal", "shortcutreminder", "copytranslation", "gtw", "guess", "scoreboard", "fireworks",
+        "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guesspeek", "guesssound", "scrambleguess", "trollmode", "troll", "header", "preview", "overlay", "gtb", "lrj", "help", "search"
     };
     private static final String PLAY_GTB_COMMAND = "/play build_battle_guess_the_build";
     private static final String LOBBY_COMMAND = "/l";
@@ -65,6 +66,7 @@ public class CommandGtb extends CommandBase {
         ClientCommandHandler.instance.registerCommand(new CommandCopyTranslation());
         ClientCommandHandler.instance.registerCommand(new CommandShortcutReminder());
         ClientCommandHandler.instance.registerCommand(new CommandTrollMode());
+        ClientCommandHandler.instance.registerCommand(new CommandTroll());
     }
 
     @Override
@@ -87,10 +89,11 @@ public class CommandGtb extends CommandBase {
         if (args.length == 1) {
             return getListOfStringsMatchingLastWord(args, SUBCOMMANDS);
         }
+        if (args[0].equalsIgnoreCase("search")) return Collections.emptyList();
         if (args.length == 2) {
             if (args[0].equalsIgnoreCase("help")) {
                 return getListOfStringsMatchingLastWord(args,
-                        "tracking", "hints", "scoreboard", "items", "environment", "game", "chat", "experimental", "copy", "gtw", "all");
+                        "tracking", "hints", "scoreboard", "items", "environment", "game", "chat", "experimental", "copy", "gtw", "all", "search");
             }
             if (args[0].equalsIgnoreCase("stats")) {
                 return getListOfStringsMatchingLastWord(args, "session", "theme");
@@ -99,7 +102,7 @@ public class CommandGtb extends CommandBase {
                 return getListOfStringsMatchingLastWord(args, "delay");
             }
             if (args[0].equalsIgnoreCase("lrj")) {
-                return getListOfStringsMatchingLastWord(args, "bypassprotection");
+                return getListOfStringsMatchingLastWord(args, "bypassprotection", "delay");
             }
             if (isHintStructureCommand(args[0])) {
                 return getListOfStringsMatchingLastWord(args,
@@ -135,7 +138,7 @@ public class CommandGtb extends CommandBase {
                 return getListOfStringsMatchingLastWord(args, "setlocation", "weather", "biome", "time", "timepreset", "background", "chatnotice", "scale");
             }
             if (args[0].equalsIgnoreCase("cooldowncounter")) {
-                return getListOfStringsMatchingLastWord(args, "setlocation", "setcolor", "timer", "bar", "background", "scale");
+                return getListOfStringsMatchingLastWord(args, "setlocation", "setcolor", "timer", "bar", "sfx", "background", "scale");
             }
             if (args[0].equalsIgnoreCase("guesspeek")) {
                 return getListOfStringsMatchingLastWord(args, "showlangcodes", "display");
@@ -150,6 +153,9 @@ public class CommandGtb extends CommandBase {
                 return getListOfStringsMatchingLastWord(args, "autodisable", "on", "off");
             }
             if (args[0].equalsIgnoreCase("updatenotice")) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "toggle");
+            }
+            if (args[0].equalsIgnoreCase("fireworks")) {
                 return getListOfStringsMatchingLastWord(args, "on", "off", "toggle");
             }
         }
@@ -198,6 +204,10 @@ public class CommandGtb extends CommandBase {
         if (args.length == 3 && args[0].equalsIgnoreCase("lrj")
                 && args[1].equalsIgnoreCase("bypassprotection")) {
             return getListOfStringsMatchingLastWord(args, "on", "off");
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("lrj")
+                && args[1].equalsIgnoreCase("delay")) {
+            return getListOfStringsMatchingLastWord(args, "0.0", "5.0", "10.0");
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("showallmatching")
                 && args[1].equalsIgnoreCase("showenglish")) {
@@ -271,6 +281,7 @@ public class CommandGtb extends CommandBase {
             return getListOfStringsMatchingLastWord(args, "on", "off");
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("help")) {
+            if (args[1].equalsIgnoreCase("search")) return Collections.emptyList();
             return getListOfStringsMatchingLastWord(args, "1", "2", "3", "4", "5");
         }
         if (args[0].equalsIgnoreCase("gtw")) {
@@ -367,6 +378,13 @@ public class CommandGtb extends CommandBase {
             return null;
         }
         if (args[0].equalsIgnoreCase("cooldowncounter")) {
+            if (args.length == 3 && args[1].equalsIgnoreCase("sfx")) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "true", "false", "toggle", "progressbeats");
+            }
+            if (args.length == 4 && args[1].equalsIgnoreCase("sfx")
+                    && args[2].equalsIgnoreCase("progressbeats")) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "true", "false", "toggle");
+            }
             if (args.length == 3 && args[1].equalsIgnoreCase("scale")) {
                 return getListOfStringsMatchingLastWord(args, "0.5", "0.75", "1", "1.25", "1.5", "50%", "100%", "150%");
             }
@@ -739,9 +757,18 @@ public class CommandGtb extends CommandBase {
             sendHelp(sender, sliceFrom(args, 1));
             return;
         }
+        if (args[0].equalsIgnoreCase("search")) {
+            sendHelp(sender, args);
+            return;
+        }
 
         if (args[0].equalsIgnoreCase("guesssound")) {
             handleGuessSound(sender, sliceFrom(args, 1));
+            return;
+        }
+
+        if (args[0].equalsIgnoreCase("fireworks")) {
+            handleFireworks(sender, sliceFrom(args, 1));
             return;
         }
 
@@ -972,6 +999,11 @@ public class CommandGtb extends CommandBase {
             return;
         }
 
+        else if (args[0].equalsIgnoreCase("troll")) {
+            handleTroll(sender, sliceFrom(args, 1), "/gtbs troll");
+            return;
+        }
+
         else if (args[0].equalsIgnoreCase("header")) {
             handleHeader(sender, sliceFrom(args, 1));
             return;
@@ -1033,6 +1065,38 @@ public class CommandGtb extends CommandBase {
         GtbStructures.updateNoticeEnabled = next;
         GtbStructures.saveConfig();
         sender.addChatMessage(new ChatComponentText(head + "Update notice is currently "
+                + (next ? "\u00a7aON" : "\u00a7cOFF")));
+    }
+
+    private static void handleFireworks(ICommandSender sender, String[] args) {
+        if (args.length > 1) {
+            sender.addChatMessage(new ChatComponentText(head
+                    + "Usage: /gtbs fireworks [on|off|toggle]"));
+            return;
+        }
+
+        if (args.length == 0) {
+            sender.addChatMessage(new ChatComponentText(head + "End-game firework sounds are currently "
+                    + (GtbStructures.endGameFireworkSounds ? "\u00a7aON" : "\u00a7cOFF")));
+            return;
+        }
+
+        boolean next;
+        if (args[0].equalsIgnoreCase("toggle")) {
+            next = !GtbStructures.endGameFireworkSounds;
+        } else if (args[0].equalsIgnoreCase("on")) {
+            next = true;
+        } else if (args[0].equalsIgnoreCase("off")) {
+            next = false;
+        } else {
+            sender.addChatMessage(new ChatComponentText(head
+                    + "Usage: /gtbs fireworks [on|off|toggle]"));
+            return;
+        }
+
+        GtbStructures.endGameFireworkSounds = next;
+        GtbStructures.saveConfig();
+        sender.addChatMessage(new ChatComponentText(head + "End-game firework sounds are currently "
                 + (next ? "\u00a7aON" : "\u00a7cOFF")));
     }
 
@@ -1863,6 +1927,11 @@ public class CommandGtb extends CommandBase {
             return;
         }
 
+        if (args[0].equalsIgnoreCase("sfx")) {
+            handleCooldownCounterSfx(sender, args);
+            return;
+        }
+
         if (args[0].equalsIgnoreCase("setcolor")) {
             handleCooldownCounterSetColor(sender, args);
             return;
@@ -1903,7 +1972,26 @@ public class CommandGtb extends CommandBase {
         }
 
         sender.addChatMessage(new ChatComponentText(head
-                + "Usage: /gtbs cooldowncounter [setlocation|setcolor|timer|bar|background|scale] ..."));
+                + "Usage: /gtbs cooldowncounter [setlocation|setcolor|timer|bar|sfx|background|scale] ..."));
+    }
+
+    private static void handleCooldownCounterSfx(ICommandSender sender, String[] args) {
+        boolean progressBeats = args.length >= 2 && args[1].equalsIgnoreCase("progressbeats");
+        String[] options = progressBeats ? sliceFrom(args, 1) : args;
+        boolean current = progressBeats
+                ? GtbStructures.chatCooldownProgressBeats : GtbStructures.chatCooldownSfxEnabled;
+        String label = progressBeats ? "Chat cooldown progress beats" : "Chat cooldown SFX";
+        String usage = "/gtbs cooldowncounter sfx"
+                + (progressBeats ? " progressbeats" : "") + " [on|off|toggle]";
+        Boolean next = parseBackgroundArgs(sender, options, usage, current);
+        if (next == null) {
+            if (options.length == 1) sendBackgroundStatus(sender, label, current);
+            return;
+        }
+        if (progressBeats) GtbStructures.chatCooldownProgressBeats = next.booleanValue();
+        else GtbStructures.chatCooldownSfxEnabled = next.booleanValue();
+        GtbStructures.saveConfig();
+        sendBackgroundStatus(sender, label, next.booleanValue());
     }
 
     private static void handleCooldownCounterBackground(ICommandSender sender, String[] args) {
@@ -2256,6 +2344,20 @@ public class CommandGtb extends CommandBase {
     private static void sendTrollModeAutoDisableStatus(ICommandSender sender) {
         sender.addChatMessage(new ChatComponentText(head + "Troll mode auto-disable is currently "
                 + (GtbStructures.trollModeAutoDisable ? "\u00a7aON" : "\u00a7cOFF")));
+    }
+
+    private void handleTroll(ICommandSender sender, String[] args, String usage) {
+        String message = TrollMode.prepareOneShot(joinArgs(args));
+        if (message == null) {
+            sender.addChatMessage(new ChatComponentText(head + "Usage: " + usage
+                    + " <message> (1-99 characters)"));
+            return;
+        }
+        sendTrollMessage(message);
+    }
+
+    protected void sendTrollMessage(String message) {
+        sendServerCommand(message);
     }
 
     private static void handleHeader(ICommandSender sender, String[] args) {
@@ -2950,6 +3052,8 @@ public class CommandGtb extends CommandBase {
                     HelpLine.command("/gtbs cooldowncounter", "Toggles the chat cooldown indicator while guessing."),
                     HelpLine.command("/gtbs cooldowncounter scale [0.5-1.5|50%-150%]", "Shows or sets the cooldown panel scale."),
                     HelpLine.command("/gtbs cooldowncounter <timer|bar> [on|off|toggle]", "Shows or hides the cooldown timer text or progress bar."),
+                    HelpLine.command("/gtbs cooldowncounter sfx [on|off|toggle]", "Shows or sets the cooldown-ready sound (default ON)."),
+                    HelpLine.command("/gtbs cooldowncounter sfx progressbeats [on|off|toggle]", "Shows or sets quieter beats at the elapsed 1s and 2s marks (default OFF; requires SFX)."),
                     HelpLine.command("/gtbs cooldowncounter background <timer|bar> [on|off|toggle]", "Shows or hides timer or bar backgrounds."),
                     HelpLine.command("/gtbs cooldowncounter setcolor <bar|timer> [color]", "Shows or sets cooldown bar or timer text color."),
                     HelpLine.command("/gtbs cooldowncounter setlocation <x|y> [value]", "Shows or sets cooldown counter position. Value is 0.0-1.0."),
@@ -2979,14 +3083,17 @@ public class CommandGtb extends CommandBase {
                     HelpLine.command("/gtbs scrambleguess fancy [on|off]", "Toggles randomized text changes on the replacement guess."),
                     HelpLine.command("/gtbs trollmode [on|off]", "Toggles whether to change a valid guess into a visually similar invalid guess. Shortcut: /trollmode [on|off]."),
                     HelpLine.command("/gtbs trollmode autodisable [on|off]", "Controls whether Troll Mode turns off when a GTB game starts. Shortcut: /trollmode autodisable [on|off]."),
+                    HelpLine.command("/gtbs troll <message>", "Sends one message with the Troll Mode marker without changing settings. Shortcut: /troll <message>."),
                     HelpLine.command("/gtbs guesssound [1|2|3] [id|none|random]", "Shows or sets the sound for a correct guess by point value."),
-                    HelpLine.command("/gtbs guesssound volume [0-30]", "Shows or sets the global correct-guess sound volume.")
+                    HelpLine.command("/gtbs guesssound volume [0-30]", "Shows or sets the global correct-guess sound volume."),
+                    HelpLine.command("/gtbs fireworks [on|off|toggle]", "Toggles or sets vanilla firework sounds at the end of a game.")
             }),
             new HelpCategory("game", "GAME", "Queue controls, builder checks, and preview", new HelpLine[] {
                     HelpLine.command("/gtbs toggle", "Toggles all GTBS features without changing their individual settings."),
                     HelpLine.command("/gtbs gtb", "Joins Guess the Build. Shortcut: /gtb."),
                     HelpLine.command("/gtbs lrj", "Leaves to lobby, then rejoins. Shortcut: /lrj."),
                     HelpLine.command("/gtbs lrj bypassprotection [on|off]", "Retries /lrj when Hypixel requires confirmation before leaving. Shortcut: /lrj bypassprotection [on|off]."),
+                    HelpLine.command("/gtbs lrj delay [time]", "Shows or sets the wait after /lrj is ready to rejoin. Accepted value: 0.0-10.0 seconds. Shortcut: /lrj delay [time]."),
                     HelpLine.command("/gtbs preview", "Toggles the session-only GUI for previewing and configuring interface features."),
                     HelpLine.command("/gtbs autorequeue", "Toggles auto-requeue after a game ends."),
                     HelpLine.command("/gtbs autorequeue delay [time]", "Shows or sets the wait before rejoining after a game ends. Accepted value: 0.0-10.0 seconds."),
@@ -3011,11 +3118,12 @@ public class CommandGtb extends CommandBase {
             })
     };
     private static final HelpCategory ALL_HELP_CATEGORY = buildAllHelpCategory();
+    private static final HelpSearch HELP_SEARCH = buildHelpSearch();
 
     private static void sendHelp(ICommandSender sender, String[] args) {
         if (sender == null) return;
-        for (String line : buildHelpMessages(args)) {
-            sender.addChatMessage(new ChatComponentText(line));
+        for (IChatComponent component : buildHelpComponents(args)) {
+            sender.addChatMessage(component);
         }
         if (!GtbStructures.previewQuickstartRan) {
             sender.addChatMessage(new ChatComponentText(head
@@ -3024,30 +3132,49 @@ public class CommandGtb extends CommandBase {
     }
 
     static List<String> buildHelpMessages(String[] args) {
-        ArrayList<String> out = new ArrayList<String>();
+        return buildHelpOutput(args).lines;
+    }
+
+    static List<IChatComponent> buildHelpComponents(String[] args) {
+        HelpOutput output = buildHelpOutput(args);
+        List<IChatComponent> components = new ArrayList<IChatComponent>();
+        for (int i = 0; i < output.lines.size(); i++) {
+            components.add(i == 1 && output.header != null
+                    ? output.header : new ChatComponentText(output.lines.get(i)));
+        }
+        return components;
+    }
+
+    private static HelpOutput buildHelpOutput(String[] args) {
+        HelpOutput output = new HelpOutput();
+        List<String> out = output.lines;
         if (args == null || args.length == 0) {
             appendHelpIndex(out);
-            return out;
+            return output;
         }
 
         String requested = args[0];
+        if (requested.equalsIgnoreCase("search")) {
+            appendHelpSearch(output, sliceFrom(args, 1));
+            return output;
+        }
         if (isInteger(requested)) {
-            appendHelpCategory(out, ALL_HELP_CATEGORY, parseHelpPage(args, 0));
-            return out;
+            appendHelpCategory(output, ALL_HELP_CATEGORY, parseHelpPage(args, 0));
+            return output;
         }
 
         if (requested.equalsIgnoreCase("all")) {
-            appendHelpCategory(out, ALL_HELP_CATEGORY, parseHelpPage(args, 1));
-            return out;
+            appendHelpCategory(output, ALL_HELP_CATEGORY, parseHelpPage(args, 1));
+            return output;
         }
 
         HelpCategory category = findHelpCategory(requested);
         if (category == null) {
-            appendUnknownHelpCategory(out, requested);
-            return out;
+            appendUnknownHelpCategory(out, joinArgs(args));
+            return output;
         }
-        appendHelpCategory(out, category, parseHelpPage(args, 1));
-        return out;
+        appendHelpCategory(output, category, parseHelpPage(args, 1));
+        return output;
     }
 
     private static void appendHelpIndex(List<String> out) {
@@ -3056,19 +3183,87 @@ public class CommandGtb extends CommandBase {
             appendHelpLine(out, HelpLine.command("/gtbs help " + category.key, category.summary));
         }
         appendHelpLine(out, HelpLine.command("/gtbs help all [page]", "Display every command."));
+        appendHelpLine(out, HelpLine.command("/gtbs help search <query> [--page <number>]",
+                "Search command names and descriptions; most relevant first. Shortcut: /gtbs search <query>."));
         out.add(helpBanner());
     }
 
-    private static void appendHelpCategory(List<String> out, HelpCategory category, int requestedPage) {
+    private static HelpSearch buildHelpSearch() {
+        List<HelpSearch.Entry> entries = new ArrayList<HelpSearch.Entry>();
+        for (HelpCategory category : HELP_CATEGORIES) {
+            for (HelpLine line : category.lines) {
+                if (line.command != null) {
+                    entries.add(new HelpSearch.Entry(line.command, line.description,
+                            category.key, category.title + " " + category.summary));
+                }
+            }
+        }
+        return new HelpSearch(entries);
+    }
+
+    private static void appendHelpSearch(HelpOutput output, String[] args) {
+        List<String> out = output.lines;
+        int requestedPage = 1;
+        int queryEnd = args.length;
+        if (args.length >= 2 && args[args.length - 2].equalsIgnoreCase("--page")) {
+            try {
+                requestedPage = Integer.parseInt(args[args.length - 1]);
+                if (requestedPage < 1) throw new NumberFormatException();
+            } catch (NumberFormatException invalid) {
+                appendHelpSearchUsage(out);
+                return;
+            }
+            queryEnd -= 2;
+        } else if (args.length > 0 && args[args.length - 1].equalsIgnoreCase("--page")) {
+            appendHelpSearchUsage(out);
+            return;
+        }
+        String query = joinArgs(Arrays.copyOf(args, queryEnd)).trim();
+        if (query.codePoints().allMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c))) {
+            appendHelpSearchUsage(out);
+            return;
+        }
+        List<HelpSearch.Entry> matches = HELP_SEARCH.search(query);
+        if (matches.isEmpty()) {
+            out.add(head + "No commands matched: \u00a7f" + query);
+            out.add("\u00a77Try a command name, a short keyword, or fewer search terms.");
+            return;
+        }
+        int pages = pageCount(matches.size());
+        int page = Math.min(requestedPage, pages);
+        String headerPrefix = "\u00a76Search: \u00a77" + query + "\u00a76, Page: ";
+        String headerSuffix = "\u00a76, Matches: \u00a77" + matches.size() + "\u00a78 (most relevant first)";
+        output.header = HelpPageNavigation.build(headerPrefix, page, pages,
+                targetPage -> "/gtbs help search " + query + " --page " + targetPage, headerSuffix);
+        int start = firstLineForPage(matches.size(), pages, page);
+        int end = start + lineCountForPage(matches.size(), pages, page);
+        out.add(helpBanner());
+        out.add(headerPrefix + "\u00a77" + page + "/" + pages + headerSuffix);
+        for (int i = start; i < end; i++) {
+            HelpSearch.Entry entry = matches.get(i);
+            appendHelpLine(out, HelpLine.command(entry.usage, entry.description));
+        }
+        out.add(helpBanner());
+    }
+
+    private static void appendHelpSearchUsage(List<String> out) {
+        out.add(head + "Usage: /gtbs help search <query> [--page <number>]");
+    }
+
+    private static void appendHelpCategory(HelpOutput output, HelpCategory category, int requestedPage) {
+        List<String> out = output.lines;
         int lineCount = category.lines.length;
         int pageCount = pageCount(lineCount);
         int page = Math.max(1, Math.min(requestedPage, pageCount));
+        String headerPrefix = "\u00a76Category: \u00a77" + category.title + "\u00a76, Page: ";
+        output.header = HelpPageNavigation.build(headerPrefix, page, pageCount,
+                targetPage -> "/gtbs help " + category.key + " " + targetPage, "");
         int linesOnPage = lineCountForPage(lineCount, pageCount, page);
         int startLine = firstLineForPage(lineCount, pageCount, page);
         int endLine = startLine + linesOnPage;
 
         out.add(helpBanner());
-        out.add("\u00a76Category: \u00a77" + category.title + "\u00a76, Page: \u00a77" + page + "/" + pageCount);
+        out.add(headerPrefix + "\u00a77" + page + "/" + pageCount);
         for (int i = startLine; i < endLine; i++) {
             appendHelpLine(out, category.lines[i]);
         }
@@ -3158,10 +3353,16 @@ public class CommandGtb extends CommandBase {
 
     private static void appendUnknownHelpCategory(List<String> out, String requested) {
         out.add(head + "\u00a77Unknown help category:\u00a7f " + requested);
-        String suggestion = suggestHelpCategory(requested);
-        if (suggestion != null) {
-            out.add("\u00a77Did you mean: \u00a7f/gtbs help " + suggestion + "\u00a77 ?");
+        List<HelpSearch.Entry> matches = HELP_SEARCH.search(requested);
+        List<String> categories = new ArrayList<String>();
+        for (HelpSearch.Entry match : matches) {
+            if (categories.contains(match.category)) continue;
+            categories.add(match.category);
+            out.add("\u00a77Did you mean: \u00a7f/gtbs help " + match.category + "\u00a77 ?");
+            if (categories.size() == 3) break;
         }
+        out.add("\u00a77Search commands: \u00a7f/gtbs help search "
+                + (matches.isEmpty() ? "<query>" : requested));
     }
 
     private static boolean isInteger(String raw) {
@@ -3174,71 +3375,9 @@ public class CommandGtb extends CommandBase {
         }
     }
 
-    private static String suggestHelpCategory(String requested) {
-        if (requested == null) return null;
-        String raw = requested.trim().toLowerCase(Locale.ROOT);
-        if (raw.isEmpty()) return null;
-
-        String bestKey = null;
-        int bestDistance = Integer.MAX_VALUE;
-        for (HelpCategory category : HELP_CATEGORIES) {
-            int keyDistance = helpTokenDistance(raw, category.key);
-            if (keyDistance < bestDistance) {
-                bestDistance = keyDistance;
-                bestKey = category.key;
-            }
-            int titleDistance = helpTokenDistance(raw, category.title.toLowerCase(Locale.ROOT).replace(" ", ""));
-            if (titleDistance < bestDistance) {
-                bestDistance = titleDistance;
-                bestKey = category.key;
-            }
-            for (HelpLine line : category.lines) {
-                String token = firstCommandToken(line.command);
-                if (token == null) continue;
-                int commandDistance = helpTokenDistance(raw, token);
-                if (commandDistance < bestDistance) {
-                    bestDistance = commandDistance;
-                    bestKey = category.key;
-                }
-            }
-        }
-
-        int threshold = raw.length() <= 4 ? 1 : (raw.length() <= 8 ? 2 : 3);
-        return bestDistance <= threshold ? bestKey : null;
-    }
-
-    private static String firstCommandToken(String command) {
-        if (command == null || !command.startsWith("/gtbs ")) return null;
-        String rest = command.substring("/gtbs ".length()).trim().toLowerCase(Locale.ROOT);
-        int space = rest.indexOf(' ');
-        return space < 0 ? rest : rest.substring(0, space);
-    }
-
-    private static int helpTokenDistance(String raw, String token) {
-        if (token == null || token.isEmpty()) return Integer.MAX_VALUE;
-        String normalizedToken = token.toLowerCase(Locale.ROOT);
-        int distance = levenshtein(raw, normalizedToken);
-        if (raw.startsWith(normalizedToken) || normalizedToken.startsWith(raw)) {
-            distance = Math.min(distance, Math.abs(raw.length() - normalizedToken.length()));
-        }
-        return distance;
-    }
-
-    private static int levenshtein(String a, String b) {
-        int[] prev = new int[b.length() + 1];
-        int[] curr = new int[b.length() + 1];
-        for (int j = 0; j <= b.length(); j++) prev[j] = j;
-        for (int i = 1; i <= a.length(); i++) {
-            curr[0] = i;
-            for (int j = 1; j <= b.length(); j++) {
-                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
-                curr[j] = Math.min(Math.min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
-            }
-            int[] tmp = prev;
-            prev = curr;
-            curr = tmp;
-        }
-        return prev[b.length()];
+    private static final class HelpOutput {
+        final List<String> lines = new ArrayList<String>();
+        IChatComponent header;
     }
 
     private static final class HelpCategory {
@@ -3280,7 +3419,7 @@ public class CommandGtb extends CommandBase {
     private static void leaveRejoin(ICommandSender sender) {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc == null || mc.theWorld == null || mc.thePlayer == null) return;
-        LEAVE_REJOIN.start();
+        LEAVE_REJOIN.start(Math.round(GtbStructures.lrjDelaySeconds * 1000F));
         sendServerCommand(GtbStructures.lrjBypassLobbyProtection
                 ? BYPASS_LOBBY_PROTECTION_COMMAND : LOBBY_COMMAND);
     }
@@ -3291,8 +3430,17 @@ public class CommandGtb extends CommandBase {
             leaveRejoin(sender);
             return;
         }
+        if (args[0].equalsIgnoreCase("delay")) {
+            handleLrjDelay(sender, sliceFrom(args, 1), commandRoot);
+            return;
+        }
         String usage = "Usage: " + commandRoot + " bypassprotection [on|off]";
-        if (!args[0].equalsIgnoreCase("bypassprotection") || args.length > 2) {
+        if (!args[0].equalsIgnoreCase("bypassprotection")) {
+            sender.addChatMessage(new ChatComponentText(head + "Usage: " + commandRoot
+                    + " [bypassprotection [on|off]|delay [time]]"));
+            return;
+        }
+        if (args.length > 2) {
             sender.addChatMessage(new ChatComponentText(head + usage));
             return;
         }
@@ -3308,6 +3456,31 @@ public class CommandGtb extends CommandBase {
         sender.addChatMessage(new ChatComponentText(head
                 + leaveRejoinProtectionStatusMessage(
                 GtbStructures.lrjBypassLobbyProtection)));
+    }
+
+    private static void handleLrjDelay(ICommandSender sender, String[] args,
+                                       String commandRoot) {
+        String usage = "Usage: " + commandRoot + " delay [time]";
+        if (args == null || args.length > 1) {
+            sender.addChatMessage(new ChatComponentText(head + usage));
+            return;
+        }
+        if (args.length == 0) {
+            sender.addChatMessage(new ChatComponentText(head + "LRJ delay is currently \u00a7f"
+                    + GtbStructures.formatLrjDelaySeconds(GtbStructures.lrjDelaySeconds)
+                    + " seconds."));
+            return;
+        }
+        Float delay = GtbStructures.parseLrjDelaySeconds(args[0]);
+        if (delay == null) {
+            sender.addChatMessage(new ChatComponentText(head
+                    + usage + " (0.0-10.0 seconds)"));
+            return;
+        }
+        GtbStructures.lrjDelaySeconds = delay.floatValue();
+        GtbStructures.saveConfig();
+        sender.addChatMessage(new ChatComponentText(head + "LRJ delay set to \u00a7f"
+                + GtbStructures.formatLrjDelaySeconds(delay.floatValue()) + " seconds."));
     }
 
     static String leaveRejoinProtectionStatusMessage(boolean enabled) {
@@ -3744,6 +3917,28 @@ public class CommandGtb extends CommandBase {
         }
     }
 
+    public static final class CommandTroll extends CommandBase {
+        private final CommandGtb handler;
+
+        public CommandTroll() { this(new CommandGtb()); }
+
+        CommandTroll(CommandGtb handler) { this.handler = handler; }
+
+        @Override
+        public String getCommandName() { return "troll"; }
+
+        @Override
+        public String getCommandUsage(ICommandSender sender) { return "/troll <message>"; }
+
+        @Override
+        public void processCommand(ICommandSender sender, String[] args) {
+            handler.handleTroll(sender, args, "/troll");
+        }
+
+        @Override
+        public int getRequiredPermissionLevel() { return 0; }
+    }
+
     public static final class CommandTrollMode extends CommandBase {
         @Override
         public String getCommandName() {
@@ -3805,7 +4000,7 @@ public class CommandGtb extends CommandBase {
 
         @Override
         public String getCommandUsage(ICommandSender sender) {
-            return "/lrj [bypassprotection [on|off]]";
+            return "/lrj [bypassprotection [on|off]|delay [time]]";
         }
 
         @Override

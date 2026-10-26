@@ -98,6 +98,9 @@ public final class GuessSoundController {
         return confirmedPoints;
     }
 
+    /** Prevents the end-game filter from muting locally selected preview playback. */
+    public synchronized boolean isPlayingReplacement() { return playingReplacement; }
+
     private boolean tokenLive(long now) {
         if (tokenUntil == 0L || now > tokenUntil) {
             clearToken();

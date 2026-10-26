@@ -1,6 +1,7 @@
 package com.gtbstructures.scoreboard;
 
 import com.gtbstructures.translation.ShortcutLanguageGroups;
+import com.gtbstructures.util.FabricInputBridge;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -92,8 +93,11 @@ final class ShortcutLanguageGroupPreviewManager {
     void finishInlineField() { syncInlineField(); if (field != Field.NONE) PreviewScreenController.finishHeaderEditing(); field = Field.NONE; }
     void cancelInlineField() { if (field != Field.NONE) PreviewScreenController.cancelHeaderEditing(); field = Field.NONE; }
     boolean handleKey(int keyCode) {
-        if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) { cancelInlineField(); back(); return true; }
-        if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER) { finishInlineField(); return true; }
+        if (FabricInputBridge.isKeyCode(keyCode, FabricInputBridge.Key.ESCAPE)) { cancelInlineField(); back(); return true; }
+        if (FabricInputBridge.isKeyCode(keyCode, FabricInputBridge.Key.ENTER)
+                || FabricInputBridge.isKeyCode(keyCode, FabricInputBridge.Key.NUMPAD_ENTER)) {
+            finishInlineField(); return true;
+        }
         return false;
     }
 

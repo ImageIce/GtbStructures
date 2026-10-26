@@ -58,6 +58,8 @@ public class TranslationData {
         final Map<String, String> englishThemes;
         /** Shortcut metadata keyed by lowercased English theme. */
         final Map<String, ShortcutThemeData> shortcutThemes;
+        /** Coarse candidate buckets used only for received guess chat. */
+        final Map<String, Set<String>> receivedGuessThemes;
         /** Per-language first-20-character prefix -> full localized display candidates. */
         final Map<String, Map<String, List<String>>> displayPrefixIndex;
         /**
@@ -84,10 +86,12 @@ public class TranslationData {
                  Map<String, Map<Integer, Map<String, Set<String>>>> indexByLen,
                  Map<Integer, List<String>> englishByLen,
                  Map<String, Set<String>> coveredEnglishByLang,
-                 ActiveGuessIndex activeGuessIndex) {
+                 ActiveGuessIndex activeGuessIndex,
+                 Map<String, Set<String>> receivedGuessThemes) {
             this.index = index;
             this.englishThemes = englishThemes;
             this.shortcutThemes = shortcutThemes;
+            this.receivedGuessThemes = receivedGuessThemes;
             this.displayPrefixIndex = displayPrefixIndex;
             this.indexByLen = indexByLen;
             this.englishByLen = englishByLen;
@@ -103,7 +107,8 @@ public class TranslationData {
                 Collections.<String, Map<Integer, Map<String, Set<String>>>>emptyMap(),
                 Collections.<Integer, List<String>>emptyMap(),
                 Collections.<String, Set<String>>emptyMap(),
-                ActiveGuessIndex.EMPTY);
+                ActiveGuessIndex.EMPTY,
+                Collections.<String, Set<String>>emptyMap());
     }
 
     private static final class ActiveGuessIndex {
@@ -395,6 +400,7 @@ public class TranslationData {
         }
         ActiveGuessIndex activeGuessIndex = buildActiveGuessIndex(
                 index, guessIndex, englishThemes);
+        Map<String, Set<String>> receivedGuessThemes = buildReceivedGuessIndex(shortcutThemes);
 
         return new Snapshot(
                 Collections.unmodifiableMap(index),
@@ -404,7 +410,8 @@ public class TranslationData {
                 Collections.unmodifiableMap(indexByLen),
                 Collections.unmodifiableMap(englishByLenView),
                 Collections.unmodifiableMap(coveredByLang),
-                activeGuessIndex);
+                activeGuessIndex,
+                receivedGuessThemes);
     }
 
     private static ActiveGuessIndex buildActiveGuessIndex(
@@ -502,6 +509,19 @@ public class TranslationData {
             target.put(key, values);
         }
         values.addAll(themes);
+    }
+
+    private static Map<String, Set<String>> buildReceivedGuessIndex(
+            Map<String, ShortcutThemeData> shortcutThemes) {
+        Map<String, Set<String>> buckets = new HashMap<String, Set<String>>();
+        for (ShortcutThemeData data : shortcutThemes.values()) {
+            Set<String> englishTheme = Collections.singleton(data.englishTheme);
+            addThemes(buckets, HypixelGuessChat.coarseKey(data.englishTheme), englishTheme);
+            for (String translation : data.translations.values()) {
+                addThemes(buckets, HypixelGuessChat.coarseKey(translation), englishTheme);
+            }
+        }
+        return freezeThemeLookup(buckets);
     }
 
     private static Map<String, Set<String>> freezeThemeLookup(Map<String, Set<String>> source) {
@@ -996,6 +1016,13 @@ public class TranslationData {
 
     public static Set<Integer> lookupBuilderPoints(String langCode, String displayedTheme,
                                                    Collection<String> ruledOutEnglishThemes) {
+        return lookupBuilderPoints(langCode, displayedTheme, ruledOutEnglishThemes,
+                Collections.<String>emptyList());
+    }
+
+    public static Set<Integer> lookupBuilderPoints(String langCode, String displayedTheme,
+                                                   Collection<String> ruledOutEnglishThemes,
+                                                   Collection<String> acceptedGuessTexts) {
         Set<Integer> out = new TreeSet<Integer>();
         if (displayedTheme == null || displayedTheme.isEmpty()) return out;
 
@@ -1015,7 +1042,8 @@ public class TranslationData {
         if (langIndex != null) {
             Set<String> englishThemes = langIndex.get(displayedTheme);
             if (englishThemes != null && !englishThemes.isEmpty()) {
-                for (String et : filterRuledOutEnglishThemes(englishThemes, ruledOutEnglishThemes)) {
+                for (String et : narrowThemeEvidence(englishThemes, null,
+                        ruledOutEnglishThemes, acceptedGuessTexts)) {
                     out.add(lengthBucket(et));
                 }
                 return out;
@@ -1145,6 +1173,14 @@ public class TranslationData {
     public static List<String> resolveEnglishThemes(String langCode, String displayedTheme,
                                                     ScoreDelta builderDelta,
                                                     Collection<String> ruledOutEnglishThemes) {
+        return resolveEnglishThemes(langCode, displayedTheme, builderDelta,
+                ruledOutEnglishThemes, Collections.<String>emptyList());
+    }
+
+    public static List<String> resolveEnglishThemes(String langCode, String displayedTheme,
+                                                    ScoreDelta builderDelta,
+                                                    Collection<String> ruledOutEnglishThemes,
+                                                    Collection<String> acceptedGuessTexts) {
         if (displayedTheme == null || displayedTheme.trim().isEmpty()) {
             return Collections.emptyList();
         }
@@ -1169,18 +1205,49 @@ public class TranslationData {
             }
         }
 
-        if (resolved.size() <= 1 || builderDelta == null) {
-            return filterRuledOutEnglishThemes(resolved, ruledOutEnglishThemes);
-        }
+        return narrowThemeEvidence(resolved, builderDelta, ruledOutEnglishThemes, acceptedGuessTexts);
+    }
 
-        List<String> narrowed = new ArrayList<String>();
-        for (String english : resolved) {
-            if (builderDelta.canBe(lengthBucket(english))) {
-                narrowed.add(english);
+    private static List<String> narrowThemeEvidence(Collection<String> originals,
+                                                     ScoreDelta builderDelta,
+                                                     Collection<String> ruledOutEnglishThemes,
+                                                     Collection<String> acceptedGuessTexts) {
+        TreeSet<String> original = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+        original.addAll(originals);
+        TreeSet<String> strong = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+        if (acceptedGuessTexts != null && !acceptedGuessTexts.isEmpty()) {
+            strong.addAll(original);
+            for (String accepted : acceptedGuessTexts) {
+                strong.retainAll(findActiveGuessThemes(accepted));
             }
         }
-        return filterRuledOutEnglishThemes(
-                narrowed.isEmpty() ? resolved : narrowed, ruledOutEnglishThemes);
+
+        TreeSet<String> byScore = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+        if (builderDelta != null) {
+            for (String english : original) {
+                if (builderDelta.canBe(lengthBucket(english))) byScore.add(english);
+            }
+            if (builderDelta.isDefinite() && ("scoreboard".equals(builderDelta.source)
+                    || "builder_gui".equals(builderDelta.source))
+                    && !byScore.isEmpty()) {
+                TreeSet<String> overlap = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+                overlap.addAll(strong);
+                overlap.retainAll(byScore);
+                strong = overlap.isEmpty() ? byScore : overlap;
+            }
+        }
+
+        TreeSet<String> candidates = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+        candidates.addAll(!strong.isEmpty() ? strong : !byScore.isEmpty() ? byScore : original);
+        if (ruledOutEnglishThemes != null) {
+            TreeSet<String> ruledOut = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+            ruledOut.addAll(ruledOutEnglishThemes);
+            candidates.removeAll(ruledOut);
+        }
+        // Exhaustion is contradictory chat evidence, not proof of an arbitrary
+        // last candidate. Rebuild from authoritative overlap or all base origins.
+        if (candidates.isEmpty()) candidates.addAll(strong.isEmpty() ? original : strong);
+        return new ArrayList<String>(candidates);
     }
 
     public static Set<String> ruledOutEnglishThemesFromGuesses(Collection<String> guesses) {
@@ -1196,7 +1263,7 @@ public class TranslationData {
     public static boolean isDisplayedMultiwordTheme(String langCode, String displayedTheme) {
         if (displayedTheme == null || displayedTheme.trim().isEmpty()) return false;
         String lang = normalizeLangCode(langCode);
-        if (lang == null || "en".equals(lang) || "pirate".equals(lang)) return false;
+        if (lang == null || "en".equals(lang)) return false;
 
         Snapshot snap = SNAPSHOT;
         Map<String, Set<String>> langIndex = snap.index.get(lang);
@@ -1207,6 +1274,11 @@ public class TranslationData {
     }
 
     private static Set<String> ruledOutEnglishThemesFromGuess(String guess) {
+        // Hypixel may display normalized Cyrillic as Latin; that same text may
+        // also be an unrelated literal Latin guess, so it cannot rule themes out.
+        if (HypixelGuessChat.containsLatinLookalikeOutput(guess)) {
+            return Collections.emptySet();
+        }
         String key = normalizedGuessCacheKey(guess);
         if (key.isEmpty()) return Collections.emptySet();
 
@@ -1240,7 +1312,7 @@ public class TranslationData {
                 if (candidate != null && !candidate.isEmpty()) original.add(candidate);
             }
         }
-        if (original.size() <= 1 || ruledOutEnglishThemes == null || ruledOutEnglishThemes.isEmpty()) {
+        if (ruledOutEnglishThemes == null || ruledOutEnglishThemes.isEmpty()) {
             return new ArrayList<String>(original);
         }
 
@@ -1376,12 +1448,7 @@ public class TranslationData {
         }
     }
 
-    /**
-     * Find English themes whose English name or translation is accepted by the
-     * GTBGUI-style guess matcher. Source codes use normalized mod language
-     * codes, except the JSON's complement field ("co") is exposed as
-     * "complement" for UI display.
-     */
+    /** Resolve English themes from received player-guess chat, including Hypixel lookalike rendering. */
     public static List<GuessMatch> findGuessMatches(String guess) {
         return findGuessMatches(guess, null);
     }
@@ -1391,11 +1458,7 @@ public class TranslationData {
         Snapshot snap = SNAPSHOT;
         if (snap.englishThemes.isEmpty()) return Collections.emptyList();
 
-        ActiveGuessIndex index = snap.activeGuessIndex;
-        Set<String> candidates = activeGuessThemes(guess,
-                index.directThemes, index.whitespaceThemes, index.accentThemes,
-                index.originalEndingSDirectThemes, index.originalEndingSWhitespaceThemes,
-                index.originalEndingSAccentThemes, index.complementThemes);
+        Set<String> candidates = receivedGuessCandidates(guess, snap);
         if (candidates.isEmpty()) return Collections.emptyList();
 
         Map<String, Set<String>> byEnglish = new TreeMap<String, Set<String>>();
@@ -1423,6 +1486,17 @@ public class TranslationData {
         return out;
     }
 
+    private static Set<String> receivedGuessCandidates(String guess, Snapshot snapshot) {
+        ActiveGuessIndex index = snapshot.activeGuessIndex;
+        Set<String> candidates = activeGuessThemes(guess,
+                index.directThemes, index.whitespaceThemes, index.accentThemes,
+                index.originalEndingSDirectThemes, index.originalEndingSWhitespaceThemes,
+                index.originalEndingSAccentThemes, index.complementThemes);
+        addLookupThemes(candidates, snapshot.receivedGuessThemes.get(
+                HypixelGuessChat.coarseKey(guess.trim())));
+        return candidates;
+    }
+
     static List<GuessMatch> findGuessMatchesForTest(String guess, int[] inspectionCount) {
         if (inspectionCount == null || inspectionCount.length == 0) {
             throw new IllegalArgumentException("inspectionCount must have at least one element");
@@ -1434,7 +1508,7 @@ public class TranslationData {
     private static boolean matchesGuessSource(
             String guess, String candidate, String lang, int[] inspectionCount) {
         if (inspectionCount != null) inspectionCount[0]++;
-        return GtwLogic.gtbMatches(guess, candidate, lang);
+        return HypixelGuessChat.matchesObserved(guess, candidate, lang);
     }
 
     /** Active guesses include approved translations plus exact, case-insensitive complements. */

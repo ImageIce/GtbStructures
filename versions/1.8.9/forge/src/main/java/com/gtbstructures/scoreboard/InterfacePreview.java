@@ -1,6 +1,7 @@
 package com.gtbstructures.scoreboard;
 
 import com.gtbstructures.GtbStructures;
+import com.gtbstructures.chat.ChatCooldownCounter;
 import com.gtbstructures.hints.HintOverlay;
 import com.gtbstructures.overlay.HudPanelScale;
 import com.gtbstructures.overlay.HudPosition;
@@ -73,6 +74,7 @@ public final class InterfacePreview {
 
     public void disableSilently() {
         enabled = false;
+        ChatCooldownCounter.INSTANCE.cancelPreviewTest();
         worldAnchor = null;
         mockActionbarVisible = true;
         PreviewLayoutEditor.INSTANCE.reset();
@@ -214,19 +216,38 @@ public final class InterfacePreview {
         fr.drawStringWithShadow(text, x, y, 0xFFFFFF);
     }
 
+    static String cooldownPreviewText(boolean timer, boolean bar, boolean sfx) {
+        return cooldownPreviewText(timer, bar, sfx, -1L);
+    }
+
+    static String cooldownPreviewText(boolean timer, boolean bar, boolean sfx, long testRemainingMs) {
+        if (timer) return ChatCooldownCounter.displayRemaining(testRemainingMs < 0L ? 3000L : testRemainingMs);
+        // Keep an editor anchor when the runtime counter has no visible parts.
+        return !bar && sfx ? "SFX only" : "";
+    }
+
+    static int cooldownPreviewFillWidth(long testRemainingMs) {
+        return ChatCooldownCounter.fillWidth(COOLDOWN_BAR_WIDTH, testRemainingMs < 0L ? 3000L : testRemainingMs);
+    }
+
     private static void renderCooldownCounter(Minecraft mc, boolean layoutOnly) {
         if (!GtbStructures.chatCooldownCounter) return;
         boolean showTimer = GtbStructures.chatCooldownTimerEnabled;
         boolean showBar = GtbStructures.chatCooldownBarEnabled;
-        if (!showTimer && !showBar) return;
+        long testRemaining = ChatCooldownCounter.INSTANCE.previewRemainingMs(System.currentTimeMillis());
+        String previewText = cooldownPreviewText(showTimer, showBar, GtbStructures.chatCooldownSfxEnabled, testRemaining);
+        boolean showLabel = !previewText.isEmpty();
+        if (!showLabel && !showBar) return;
         ScaledResolution sr = new ScaledResolution(mc);
         int fillColor = GtbStructures.minecraftColorArgb(GtbStructures.chatCooldownBarColor, 0xCC);
-        String label = GtbStructures.normalizeMinecraftColorCode(GtbStructures.chatCooldownTimerColor, "\u00a7f") + "3.0s";
+        String label = (showTimer
+                ? GtbStructures.normalizeMinecraftColorCode(GtbStructures.chatCooldownTimerColor, "\u00a7f")
+                : "\u00a77") + previewText;
         FontRenderer fr = mc.fontRendererObj;
-        int labelWidth = showTimer ? fr.getStringWidth(label) : 0;
+        int labelWidth = showLabel ? fr.getStringWidth(label) : 0;
         int widgetWidth = Math.max(showBar ? COOLDOWN_BAR_WIDTH : 0, labelWidth);
-        int widgetHeight = (showTimer ? fr.FONT_HEIGHT : 0)
-                + (showTimer && showBar ? 3 : 0)
+        int widgetHeight = (showLabel ? fr.FONT_HEIGHT : 0)
+                + (showLabel && showBar ? 3 : 0)
                 + (showBar ? COOLDOWN_BAR_HEIGHT : 0);
         float panelScale = HudPanelScale.normalize(GtbStructures.chatCooldownScale);
         int scaledWidth = HudPanelScale.scaledPixels(widgetWidth, panelScale);
@@ -242,7 +263,7 @@ public final class InterfacePreview {
         }
         int centerX = widgetWidth / 2;
         int x = centerX - COOLDOWN_BAR_WIDTH / 2;
-        int y = showTimer ? fr.FONT_HEIGHT + 3 : 0;
+        int y = showLabel ? fr.FONT_HEIGHT + 3 : 0;
         int labelX = centerX - labelWidth / 2;
         GlStateManager.pushMatrix();
         try {
@@ -262,9 +283,10 @@ public final class InterfacePreview {
                     Gui.drawRect(x - 1, y - 1, x + COOLDOWN_BAR_WIDTH + 1, y + COOLDOWN_BAR_HEIGHT + 1, ScoreboardLayout.BACKGROUND_COLOR);
                     Gui.drawRect(x, y, x + COOLDOWN_BAR_WIDTH, y + COOLDOWN_BAR_HEIGHT, 0x66000000);
                 }
-                Gui.drawRect(x, y, x + COOLDOWN_BAR_WIDTH, y + COOLDOWN_BAR_HEIGHT, fillColor);
+                int fillWidth = cooldownPreviewFillWidth(testRemaining);
+                if (fillWidth > 0) Gui.drawRect(x, y, x + fillWidth, y + COOLDOWN_BAR_HEIGHT, fillColor);
             }
-            if (showTimer) {
+            if (showLabel) {
                 fr.drawStringWithShadow(label, labelX, 0, 0xFFFFFF);
             }
         } finally {

@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
 /** Performs the single update lookup allowed during a Minecraft startup. */
 public final class UpdateChecker {
     public static final UpdateChecker INSTANCE = new UpdateChecker();
-    public static final String CURRENT_VERSION = "1.1.1";
+    public static final String CURRENT_VERSION = "1.2.0";
     public static final String MODRINTH_URL = "https://modrinth.com/mod/gtbstructures/versions";
 
     private static final String LATEST_RELEASE_API =
@@ -77,17 +77,91 @@ public final class UpdateChecker {
 
     static UpdateInfo parseLatestRelease(String json, String currentVersion) {
         if (json == null || currentVersion == null) return null;
+        JsonObject release;
         try {
             JsonElement parsed = JsonParser.parseString(json);
             if (!parsed.isJsonObject()) return null;
-            JsonObject release = parsed.getAsJsonObject();
-            String tag = stringField(release, "tag_name");
-            String latestVersion = normalizeVersion(tag);
-            if (latestVersion == null || compareVersions(latestVersion, currentVersion) <= 0) return null;
-            return new UpdateInfo(latestVersion, GITHUB_RELEASE_TAG_URL + tag.trim(), MODRINTH_URL);
+            release = parsed.getAsJsonObject();
         } catch (RuntimeException ignored) {
-            return null;
+            String truncatedTag = tagBeforeTruncatedJsonString(json);
+            return updateInfo(truncatedTag, currentVersion, json);
         }
+        String tag = stringField(release, "tag_name");
+        return updateInfo(tag, currentVersion, json);
+    }
+
+    private static UpdateInfo updateInfo(String tag, String currentVersion, String json) {
+        String latestVersion = normalizeVersion(tag);
+        if (latestVersion == null || compareVersions(latestVersion, currentVersion) <= 0) return null;
+        return new UpdateInfo(latestVersion, GITHUB_RELEASE_TAG_URL + tag.trim(), MODRINTH_URL,
+                ReleaseChangelog.fromReleaseJson(json));
+    }
+
+    /** Preserve the validated tag if the response was cut off inside its release-body string. */
+    private static String tagBeforeTruncatedJsonString(String json) {
+        if (json == null || json.indexOf("\"body\"") < 0 || !endsInsideJsonString(json)) return null;
+        int key = json.indexOf("\"tag_name\"");
+        if (key < 0) return null;
+        int colon = json.indexOf(':', key + "\"tag_name\"".length());
+        if (colon < 0) return null;
+        int value = skipWhitespace(json, colon + 1);
+        if (value >= json.length() || json.charAt(value) != '"') return null;
+        return decodeJsonString(json, value + 1);
+    }
+
+    private static boolean endsInsideJsonString(String json) {
+        boolean inString = false;
+        boolean escaped = false;
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (escaped) {
+                escaped = false;
+            } else if (inString && c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                inString = !inString;
+            }
+        }
+        return inString;
+    }
+
+    private static int skipWhitespace(String value, int cursor) {
+        while (cursor < value.length() && Character.isWhitespace(value.charAt(cursor))) cursor++;
+        return cursor;
+    }
+
+    private static String decodeJsonString(String json, int cursor) {
+        StringBuilder out = new StringBuilder();
+        while (cursor < json.length()) {
+            char c = json.charAt(cursor++);
+            if (c == '"') return out.toString();
+            if (c < 0x20) return null;
+            if (c != '\\') {
+                out.append(c);
+                continue;
+            }
+            if (cursor >= json.length()) return null;
+            char escaped = json.charAt(cursor++);
+            if (escaped == '"' || escaped == '\\' || escaped == '/') out.append(escaped);
+            else if (escaped == 'b') out.append('\b');
+            else if (escaped == 'f') out.append('\f');
+            else if (escaped == 'n') out.append('\n');
+            else if (escaped == 'r') out.append('\r');
+            else if (escaped == 't') out.append('\t');
+            else if (escaped == 'u') {
+                if (cursor + 4 > json.length()) return null;
+                int codePoint = 0;
+                for (int i = 0; i < 4; i++) {
+                    int digit = Character.digit(json.charAt(cursor++), 16);
+                    if (digit < 0) return null;
+                    codePoint = (codePoint << 4) | digit;
+                }
+                out.append((char) codePoint);
+            } else {
+                return null;
+            }
+        }
+        return null;
     }
 
     static int compareVersions(String left, String right) {
@@ -126,11 +200,19 @@ public final class UpdateChecker {
         private final String version;
         private final String githubUrl;
         private final String modrinthUrl;
+        private final java.util.List<String> changelogLines;
 
         private UpdateInfo(String version, String githubUrl, String modrinthUrl) {
+            this(version, githubUrl, modrinthUrl, java.util.Collections.emptyList());
+        }
+
+        private UpdateInfo(String version, String githubUrl, String modrinthUrl,
+                           java.util.List<String> changelogLines) {
             this.version = version;
             this.githubUrl = githubUrl;
             this.modrinthUrl = modrinthUrl;
+            this.changelogLines = java.util.Collections.unmodifiableList(
+                    new java.util.ArrayList<String>(changelogLines));
         }
 
         public String version() {
@@ -143,6 +225,10 @@ public final class UpdateChecker {
 
         public String modrinthUrl() {
             return modrinthUrl;
+        }
+
+        public java.util.List<String> changelogLines() {
+            return changelogLines;
         }
     }
 

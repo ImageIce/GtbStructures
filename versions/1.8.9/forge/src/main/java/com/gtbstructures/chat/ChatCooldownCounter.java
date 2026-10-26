@@ -33,6 +33,12 @@ public final class ChatCooldownCounter {
     private static final long DISPLAY_MAX_MS = 3000L;
     private static final long START_GATE_PADDING_MS = COOLDOWN_MS - DISPLAY_MAX_MS;
     private static final long ACCEPTANCE_CONFIRMATION_MS = 5000L;
+    private static final long PROGRESS_SOUND_GRACE_MS = 250L;
+    private static final long READY_SOUND_GRACE_MS = 1000L;
+    private static final float SOUND_VOLUME = 20.0F;
+    static final int SOUND_NONE = 0;
+    static final int SOUND_PROGRESS = 1;
+    static final int SOUND_READY = 2;
     private static final int BAR_WIDTH = 42;
     private static final int BAR_HEIGHT = 4;
     private static final int TIMER_BG_PAD_X = 2;
@@ -42,7 +48,10 @@ public final class ChatCooldownCounter {
     private Channel channel;
     private long cooldownEndMs;
     private long pendingRestartSentAtMs;
+    private int progressSoundMark;
     private boolean suppressUntilRoundEnds;
+    private long previewCooldownEndMs;
+    private int previewProgressSoundMark;
 
     private ChatCooldownCounter() {
     }
@@ -52,11 +61,39 @@ public final class ChatCooldownCounter {
         if (event.phase != TickEvent.Phase.END) return;
         if (!runtimeEnabledForMaster(GtbStructures.modEnabled)) {
             resetRuntimeState();
+            cancelPreviewTest();
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc == null || mc.theWorld == null || mc.thePlayer == null
+                || mc.getNetHandler() == null) {
+            resetRuntimeState();
+            cancelPreviewTest();
+            return;
+        }
+        Channel activeChannel = mc.getNetHandler().getNetworkManager().channel();
+        if (activeChannel == null || !activeChannel.isOpen()) {
+            resetRuntimeState();
+            cancelPreviewTest();
             return;
         }
         registerIfNeeded();
         drainPending();
-        updateState(System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        boolean previewTesting = previewCooldownEndMs > 0L;
+        int previewSound = updatePreviewTest(now, InterfacePreview.isActive(),
+                GtbStructures.chatCooldownCounter, GtbStructures.chatCooldownSfxEnabled,
+                GtbStructures.chatCooldownProgressBeats);
+        int liveSound = updateState(now,
+                GtbStructures.chatCooldownCounter && GameStats.INSTANCE.isTrackingEnabled(),
+                GameStats.INSTANCE.getState(), GtbStructures.chatCooldownSfxEnabled,
+                GtbStructures.chatCooldownProgressBeats);
+        int sound = previewTesting ? previewSound : liveSound;
+        if (sound == SOUND_READY) {
+            mc.thePlayer.playSound("note.pling", soundVolume(sound), 1.5F);
+        } else if (sound == SOUND_PROGRESS) {
+            mc.thePlayer.playSound("note.hat", soundVolume(sound), 1.0F);
+        }
     }
 
     @SubscribeEvent
@@ -64,6 +101,12 @@ public final class ChatCooldownCounter {
         if (event.type != RenderGameOverlayEvent.ElementType.CHAT) return;
         if (!runtimeEnabledForMaster(GtbStructures.modEnabled)) return;
         render();
+    }
+
+    static float soundVolume(int sound) {
+        if (sound == SOUND_READY) return SOUND_VOLUME;
+        // Preserve the existing weaker progress-beat balance in live and preview playback.
+        return sound == SOUND_PROGRESS ? SOUND_VOLUME / 3.0F : 0.0F;
     }
 
     static boolean isNormalChatMessage(String message) {
@@ -119,12 +162,55 @@ public final class ChatCooldownCounter {
 
     void resetForTest() {
         resetRuntimeState();
+        cancelPreviewTest();
+    }
+
+    public void startPreviewTest() {
+        if (!GtbStructures.modEnabled || !GtbStructures.chatCooldownCounter
+                || !InterfacePreview.isActive()) {
+            cancelPreviewTest();
+            return;
+        }
+        startPreviewTest(System.currentTimeMillis());
+    }
+
+    private void startPreviewTest(long now) {
+        previewCooldownEndMs = now + COOLDOWN_MS;
+        previewProgressSoundMark = 0;
+    }
+
+    public void cancelPreviewTest() {
+        previewCooldownEndMs = 0L;
+        previewProgressSoundMark = 0;
+    }
+
+    public long previewRemainingMs(long now) {
+        return previewCooldownEndMs <= 0L ? -1L
+                : Math.max(0L, Math.min(COOLDOWN_MS, previewCooldownEndMs - now));
+    }
+
+    private int updatePreviewTest(long now, boolean previewActive, boolean counterEnabled,
+                                  boolean sfxEnabled, boolean progressBeats) {
+        if (!previewActive || !counterEnabled) {
+            cancelPreviewTest();
+            return SOUND_NONE;
+        }
+        int sound = cooldownSound(now, previewCooldownEndMs, previewProgressSoundMark,
+                sfxEnabled, progressBeats);
+        if (previewCooldownEndMs > 0L && now >= previewCooldownEndMs) {
+            cancelPreviewTest();
+        } else if (previewCooldownEndMs > 0L) {
+            previewProgressSoundMark = Math.max(previewProgressSoundMark,
+                    reachedProgressMark(now, previewCooldownEndMs));
+        }
+        return sound;
     }
 
     private void resetRuntimeState() {
         pending.clear();
         cooldownEndMs = 0L;
         pendingRestartSentAtMs = 0L;
+        progressSoundMark = 0;
         suppressUntilRoundEnds = false;
     }
 
@@ -132,6 +218,7 @@ public final class ChatCooldownCounter {
         cooldownEndMs = 0L;
         pendingRestartSentAtMs = 0L;
         pending.clear();
+        progressSoundMark = 0;
         suppressUntilRoundEnds = false;
     }
 
@@ -139,6 +226,7 @@ public final class ChatCooldownCounter {
         cooldownEndMs = 0L;
         pendingRestartSentAtMs = 0L;
         pending.clear();
+        progressSoundMark = 0;
         suppressUntilRoundEnds = true;
     }
 
@@ -150,6 +238,8 @@ public final class ChatCooldownCounter {
         if (now < sentAt || now - sentAt > ACCEPTANCE_CONFIRMATION_MS) return;
         long confirmedEnd = sentAt + COOLDOWN_MS;
         cooldownEndMs = confirmedEnd > now ? confirmedEnd : 0L;
+        // Acceptance may arrive late; elapsed progress marks must not replay.
+        progressSoundMark = (int) Math.min(2L, (now - sentAt) / 1000L);
     }
 
     private void registerIfNeeded() {
@@ -183,6 +273,7 @@ public final class ChatCooldownCounter {
         if (suppressUntilRoundEnds) {
             pending.clear();
             cooldownEndMs = 0L;
+            progressSoundMark = 0;
             return;
         }
         SentChat sent;
@@ -200,34 +291,57 @@ public final class ChatCooldownCounter {
                 suppressUntilRoundEnds)) {
             cooldownEndMs = now + COOLDOWN_MS;
             pendingRestartSentAtMs = 0L;
+            progressSoundMark = 0;
         } else if (shouldAwaitAcceptance(enabled, state, message, now, cooldownEndMs,
                 suppressUntilRoundEnds)) {
             pendingRestartSentAtMs = now;
         }
     }
 
-    private void updateState(long now) {
-        if (!GtbStructures.chatCooldownCounter
-                || !GameStats.INSTANCE.isTrackingEnabled()
-                || GameStats.INSTANCE.getState() != GameStats.TrackingState.ROUND_BUILD) {
-            cooldownEndMs = 0L;
-            pendingRestartSentAtMs = 0L;
-            pending.clear();
-            suppressUntilRoundEnds = false;
-            return;
+    private int updateState(long now, boolean enabled, GameStats.TrackingState state,
+                            boolean sfxEnabled, boolean progressBeats) {
+        if (!enabled || state != GameStats.TrackingState.ROUND_BUILD) {
+            resetRuntimeState();
+            return SOUND_NONE;
         }
 
         if (suppressUntilRoundEnds) {
             cooldownEndMs = 0L;
             pendingRestartSentAtMs = 0L;
             pending.clear();
-            return;
+            progressSoundMark = 0;
+            return SOUND_NONE;
         }
 
+        expirePendingRestart(now);
+        int sound = cooldownSound(now, cooldownEndMs, progressSoundMark, sfxEnabled, progressBeats);
         if (cooldownEndMs > 0L && now >= cooldownEndMs) {
             cooldownEndMs = 0L;
+            progressSoundMark = 0;
+        } else if (cooldownEndMs > 0L) {
+            progressSoundMark = Math.max(progressSoundMark, reachedProgressMark(now, cooldownEndMs));
         }
-        expirePendingRestart(now);
+        return sound;
+    }
+
+    private static int cooldownSound(long now, long end, int playedProgressMark,
+                                     boolean sfxEnabled, boolean progressBeats) {
+        if (end <= 0L) return SOUND_NONE;
+        if (now >= end) {
+            return sfxEnabled && now - end <= READY_SOUND_GRACE_MS ? SOUND_READY : SOUND_NONE;
+        }
+        long startedAt = end - COOLDOWN_MS;
+        long elapsed = now - startedAt;
+        int reachedMark = reachedProgressMark(now, end);
+        if (reachedMark <= playedProgressMark) return SOUND_NONE;
+        // Skip old marks after a stalled tick instead of playing a burst.
+        return sfxEnabled && progressBeats
+                && elapsed - reachedMark * 1000L <= PROGRESS_SOUND_GRACE_MS
+                ? SOUND_PROGRESS : SOUND_NONE;
+    }
+
+    private static int reachedProgressMark(long now, long end) {
+        return (int) Math.min(2L, Math.max(0L, now - (end - COOLDOWN_MS)) / 1000L);
     }
 
     private void expirePendingRestart(long now) {
@@ -241,6 +355,20 @@ public final class ChatCooldownCounter {
     void applyOutboundForTest(boolean enabled, GameStats.TrackingState state,
                               String message, long now) {
         applyOutbound(enabled, state, message, now);
+    }
+
+    int updateStateForTest(long now, boolean enabled, GameStats.TrackingState state,
+                           boolean sfxEnabled, boolean progressBeats) {
+        return updateState(now, enabled, state, sfxEnabled, progressBeats);
+    }
+
+    void startPreviewTestForTest(long now) {
+        startPreviewTest(now);
+    }
+
+    int updatePreviewTestForTest(long now, boolean previewActive, boolean counterEnabled,
+                                 boolean sfxEnabled, boolean progressBeats) {
+        return updatePreviewTest(now, previewActive, counterEnabled, sfxEnabled, progressBeats);
     }
 
     long cooldownEndForTest() {
@@ -335,7 +463,7 @@ public final class ChatCooldownCounter {
         return !round.builder.equalsIgnoreCase(localIgn);
     }
 
-    private static String displayRemaining(long remainingMs) {
+    public static String displayRemaining(long remainingMs) {
         long clamped = Math.max(0L, Math.min(DISPLAY_MAX_MS, remainingMs));
         int tenths = (int) ((clamped + 99L) / 100L);
         int seconds = tenths / 10;
@@ -343,7 +471,7 @@ public final class ChatCooldownCounter {
         return seconds + "." + dec + "s";
     }
 
-    private static int fillWidth(int width, long remainingMs) {
+    public static int fillWidth(int width, long remainingMs) {
         long clamped = Math.max(0L, Math.min(DISPLAY_MAX_MS, remainingMs));
         return Math.max(0, Math.min(width, (int) ((clamped * width + DISPLAY_MAX_MS - 1L) / DISPLAY_MAX_MS)));
     }
@@ -365,6 +493,8 @@ public final class ChatCooldownCounter {
                 if (runtimeEnabledForMaster(GtbStructures.modEnabled)) {
                     try {
                         RawPacketRecorder.INSTANCE.captureOutbound(msg);
+                        GameStats.INSTANCE.onOutboundGuess(
+                                ((C01PacketChatMessage) msg).getMessage(), System.currentTimeMillis());
                         pending.add(new SentChat(System.currentTimeMillis(),
                                 ((C01PacketChatMessage) msg).getMessage()));
                     } catch (Throwable ignored) {

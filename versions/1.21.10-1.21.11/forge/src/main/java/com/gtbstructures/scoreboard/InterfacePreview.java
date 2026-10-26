@@ -1,5 +1,7 @@
 package com.gtbstructures.scoreboard;
 
+import com.gtbstructures.chat.ChatCooldownLogic;
+import com.gtbstructures.chat.ModernChatCooldownCounter;
 import com.gtbstructures.GtbStructuresSettings;
 import com.gtbstructures.hints.HintStructureParser;
 import com.gtbstructures.stats.GameStats;
@@ -107,6 +109,7 @@ public final class InterfacePreview {
     }
 
     private void closePreviewScreen() {
+        ModernChatCooldownCounter.cancelPreviewTest();
         PreviewLayoutEditor.INSTANCE.reset();
         if (screenController != null) screenController.closePreviewScreen();
     }
@@ -184,6 +187,19 @@ public final class InterfacePreview {
 
     static int cooldownBarWidthForTest() {
         return COOLDOWN_BAR_WIDTH;
+    }
+
+    public static String cooldownPreviewText(boolean timer, boolean bar, boolean sfx) {
+        return cooldownPreviewText(timer, bar, sfx, -1L);
+    }
+
+    public static String cooldownPreviewText(boolean timer, boolean bar, boolean sfx, long remaining) {
+        if (timer) return ChatCooldownLogic.displayRemaining(remaining < 0L ? 3000L : remaining);
+        return !bar && sfx ? "SFX only" : "";
+    }
+
+    public static int cooldownPreviewFillWidth(long remaining) {
+        return ChatCooldownLogic.fillWidth(COOLDOWN_BAR_WIDTH, remaining < 0L ? 3000L : remaining);
     }
 
     static String vanillaPreviewLineForTest(String lang, int index) {

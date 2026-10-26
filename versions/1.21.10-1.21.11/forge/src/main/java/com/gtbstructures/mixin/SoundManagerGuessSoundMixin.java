@@ -7,7 +7,7 @@ import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/** Cancels only the matched local experience-orb sound before SoundManager plays it. */
+/** Filters matched guess sounds and disabled post-game fireworks before local playback. */
 @Mixin(targets = {"net.minecraft.client.sounds.SoundManager"}, remap = false)
 public abstract class SoundManagerGuessSoundMixin {
     @Inject(method = {"play"}, at = @At("HEAD"), cancellable = true, remap = false, require = 1)

@@ -1,6 +1,9 @@
 package com.gtbstructures.sound;
 
 import com.gtbstructures.GtbStructuresSettings;
+import com.gtbstructures.chat.ModernChatCooldownCounter;
+import com.gtbstructures.scoreboard.GtbGame;
+import com.gtbstructures.scoreboard.InterfacePreview;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.InputStream;
@@ -42,6 +45,22 @@ public final class MinecraftClientSoundBridge {
 
     public static void setPlayback(GuessSoundController.Playback value) {
         playback = value == null ? MinecraftClientSoundBridge::playNative : value;
+    }
+
+    public static void playNotification(String id, float volume, float pitch) {
+        playback.play(id, volume, pitch);
+    }
+
+    public static void tickCooldown(boolean liveEnabled, GtbGame.State state, long now) {
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        int sound = ModernChatCooldownCounter.onClientTick(settings.modEnabled,
+                settings.chatCooldownCounter, liveEnabled, InterfacePreview.isActive(), state, now,
+                settings.chatCooldownSfxEnabled, settings.chatCooldownProgressBeats);
+        if (sound == ModernChatCooldownCounter.SOUND_READY) {
+            playNotification("block.note_block.pling", 20.0F, 1.5F);
+        } else if (sound == ModernChatCooldownCounter.SOUND_PROGRESS) {
+            playNotification("block.note_block.hat", 20.0F / 3.0F, 1.0F);
+        }
     }
 
     public static synchronized void ensureCatalog() {
@@ -113,6 +132,12 @@ public final class MinecraftClientSoundBridge {
         float volume = soundVolume(instance);
         float pitch = soundPitch(instance);
         if (id == null) return false;
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        if (!settings.modEnabled) EndGameFireworkController.INSTANCE.reset();
+        if (EndGameFireworkController.shouldSuppress(id, settings.modEnabled,
+                settings.endGameFireworkSounds,
+                EndGameFireworkController.INSTANCE.isPostGameLatched(),
+                GuessSoundController.INSTANCE.isPlayingReplacement())) return true;
         return GuessSoundController.INSTANCE.consumeOriginal(new GuessSoundController.OriginalSound() {
             public String canonicalSoundId() { return id; }
             public float volume() { return volume; }

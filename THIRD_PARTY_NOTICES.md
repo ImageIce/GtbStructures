@@ -20,4 +20,4 @@ Licensed under the MIT License:
 
 Bundled `translations-data.json` snapshots and generated translation-history resources originate from [zmh-program/gtb_platform](https://github.com/zmh-program/gtb_platform).
 
-At the time of this repository's publication audit, that upstream repository did not include a license file or declare an SPDX license through GitHub. This notice does not grant rights to the dataset. Confirm redistribution permission with the upstream owner before publishing or distributing GTBS source or binaries containing those resources.
+On 2026-10-26, the project maintainer confirmed permission to redistribute this data as bundled with GTBS. This confirmation applies to GTBS redistribution; it does not establish a general dataset license or relicense the upstream data.

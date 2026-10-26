@@ -33,3 +33,7 @@ crash-reports/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Discontinued targets omitted from the public source bundle
+/versions/26.1/forge/
+/versions/26.2/forge/

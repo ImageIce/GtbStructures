@@ -1,5 +1,6 @@
 package com.gtbstructures.diagnostics;
 
+import com.gtbstructures.GtbStructuresSettings;
 import com.gtbstructures.stats.GameStats;
 
 import java.io.BufferedWriter;
@@ -81,13 +82,13 @@ public final class RawPacketRecorder {
     }
 
     public synchronized void captureSummary(String packet, String summary) {
-        if (!GameStats.INSTANCE.isTrackingEnabled()) return;
+        if (!captureEnabled()) return;
         if (packet == null || packet.trim().isEmpty()) return;
         addRecord(withContext(System.currentTimeMillis(), packet, summary));
     }
 
     public synchronized void captureSoundPacket(Object packet) {
-        if (!GameStats.INSTANCE.isTrackingEnabled() || packet == null) return;
+        if (!captureEnabled() || packet == null) return;
         captureSummary("S29PacketSoundEffect", summarizeSoundPacket(packet));
     }
 
@@ -119,13 +120,15 @@ public final class RawPacketRecorder {
     }
 
     public synchronized void captureDistinctSummary(String packet, String summary) {
-        if (!GameStats.INSTANCE.isTrackingEnabled()) return;
+        if (!captureEnabled()) return;
         if (packet == null || packet.trim().isEmpty()) return;
+        long now = System.currentTimeMillis();
+        if (!acceptsRecordAt(now)) return;
         String cleanSummary = summary == null ? "{}" : summary;
         String previous = lastDistinctSummaries.get(packet);
         if (cleanSummary.equals(previous)) return;
         lastDistinctSummaries.put(packet, cleanSummary);
-        addRecord(withContext(System.currentTimeMillis(), packet, cleanSummary));
+        addRecord(withContext(now, packet, cleanSummary));
     }
 
     public synchronized void captureInboundChat(String source, String text, int type) {
@@ -158,7 +161,7 @@ public final class RawPacketRecorder {
     }
 
     public synchronized void capturePhysicalTimer(int level) {
-        if (!GameStats.INSTANCE.isTrackingEnabled()) return;
+        if (!captureEnabled() || !acceptsRecordAt(System.currentTimeMillis())) return;
         if (lastPhysicalTimerLevel != null && lastPhysicalTimerLevel.intValue() == level) return;
         lastPhysicalTimerLevel = Integer.valueOf(level);
         captureSummary("S1FPacketSetExperience", "{\"totalExperience\":0"
@@ -168,7 +171,7 @@ public final class RawPacketRecorder {
     }
 
     public synchronized void captureCustomScoreboard(String skin, List<ScoreboardLine> rows) {
-        if (!GameStats.INSTANCE.isTrackingEnabled()) return;
+        if (!captureEnabled() || !acceptsRecordAt(System.currentTimeMillis())) return;
         if (rows == null || rows.isEmpty()) return;
         String signature = customScoreboardSignature(skin, rows);
         if (signature.equals(lastCustomScoreboardSignature)) return;
@@ -210,16 +213,32 @@ public final class RawPacketRecorder {
     }
 
     synchronized void addSyntheticSampleForTest(long t, String packet, String summary) {
-        addRecord(new PacketRecord(t, null, null, null, null, null, packet, summary));
+        addRecord(withContext(t, packet, summary));
     }
 
     private void addRecord(PacketRecord record) {
-        if (record == null) return;
+        if (record == null || !acceptsRecordAt(record.t)) return;
         if (sessionActive) {
             appendSessionRecord(record);
         } else {
             appendPreSessionRecord(record);
         }
+    }
+
+    private static boolean captureEnabled() {
+        return GtbStructuresSettings.INSTANCE.modEnabled && GameStats.INSTANCE.isTrackingEnabled();
+    }
+
+    private boolean acceptsRecordAt(long timestamp) {
+        if (sessionActive) return true;
+        GameStats.TrackingState state = GameStats.INSTANCE.getState();
+        return state == GameStats.TrackingState.LOBBY
+                || state == GameStats.TrackingState.ROUND_PRE
+                || state == GameStats.TrackingState.ROUND_BUILD
+                || state == GameStats.TrackingState.ROUND_END
+                || state == GameStats.TrackingState.POST_GAME
+                || state == GameStats.TrackingState.PAUSED
+                || GameStats.INSTANCE.isLobbyHandoffActive(timestamp);
     }
 
     private void appendPreSessionRecord(PacketRecord record) {

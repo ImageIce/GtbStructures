@@ -1,14 +1,14 @@
 {
   "schemaVersion": 4,
-  "currentHash": "897edb1c561b2d91e1648df56f1a7162ed3c21bcff789c9b08d226c72f5eb04e",
-  "currentValidFrom": 1788323157000,
+  "currentHash": "ad805d16105ee95ac2c72b5cc50c12c9d6fe0eb5aad607e1316169f315b978b3",
+  "currentValidFrom": 1789255907000,
   "upstreamRepository": "https://github.com/zmh-program/gtb_platform",
   "upstreamPath": "lib/source/translations-data.json",
   "bundleKind": "GTBHIST3-sequential-delta",
   "approvalHistory": {
     "resource": "translation-approval-history.json.gz",
     "schemaVersion": 1,
-    "sha256": "2565d4402de3930f19076b37631333662ea727605e7ba068c9c2a4b0389ef77d",
+    "sha256": "a21153c687f00d0355b854eb9824156c0bfd7b51911cc84e493084c806c2a179",
     "themeCount": 1495,
     "entryCount": 34174,
     "eventCount": 34386
@@ -209,9 +209,17 @@
     {
       "hash": "897edb1c561b2d91e1648df56f1a7162ed3c21bcff789c9b08d226c72f5eb04e",
       "validFrom": 1788323157000,
-      "validUntil": 0,
+      "validUntil": 1789255907000,
       "sourceTimestamp": 1788323157000,
       "sourceCommit": "e3b730f133a5ce9d2a85b42770d5bed17cb987f6",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "ad805d16105ee95ac2c72b5cc50c12c9d6fe0eb5aad607e1316169f315b978b3",
+      "validFrom": 1789255907000,
+      "validUntil": 0,
+      "sourceTimestamp": 1789255907000,
+      "sourceCommit": "b551829ca2662a6090f3e3701d9952b822037c99",
       "bundledSnapshot": true
     }
   ]

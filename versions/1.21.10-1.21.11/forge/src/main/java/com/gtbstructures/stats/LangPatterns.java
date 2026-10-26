@@ -196,9 +196,7 @@ public class LangPatterns {
             "Professional", "Artisan", "Expert", "Master", "Legend",
             "Grandmaster", "Celestial", "Divine", "Ascended"
     };
-    // Hypixel currently exposes Divine and Ascended in English only. Keep their
-    // rank indexes active so encoded GTB tab metadata maps 17/18 to the named
-    // ranks, not to synthetic "#N Builder" leaderboard titles.
+    // Named ranks, including Celestial/Divine/Ascended, precede leaderboard titles.
     private static final int ACTIVE_BB_TITLE_COUNT = 19;
     private static final String[] BB_TITLE_COLORS = new String[] {
             "\u00a7f", "\u00a77", "\u00a78", "\u00a7a", "\u00a72",
@@ -302,6 +300,30 @@ public class LangPatterns {
         }
         return THEME_REVEAL_PATTERNS.get(0);
     }
+
+    public static boolean isAlreadyCorrectGuessMessage(String cleanLine) {
+        if (cleanLine == null) return false;
+        String text = cleanLine.trim();
+        for (String message : ALREADY_CORRECT_GUESS_MESSAGES) {
+            if (message.equals(text)) return true;
+        }
+        return false;
+    }
+
+    private static final String[] ALREADY_CORRECT_GUESS_MESSAGES = {
+            "You have already guessed the theme correctly!",
+            "你已经猜对了主题！", "你正確猜出主題了！",
+            "Už jsi uhodl toto téma!", "Du har allerede gættet temaet rigtigt!",
+            "Je hebt het thema al correct geraden!", "Olet jo arvannut aihe en oikein!",
+            "Vous avez déjà deviné le thème correctement!", "Du hast das Thema bereits richtig erraten!",
+            "Már kitaláltad a témát!", "Hai già indovinato il tema!", "既にテーマを当てました！",
+            "이미 주제를 올바르게 맞췄습니다!", "Du har allerede gjettet riktig tema!",
+            "Ye 'ave already guessed th' theme correctly!", "Już zgadłeś poprawnie motyw!",
+            "Já adivinhaste o tema corretamente!", "Você já adivinhou o tema desta construção!",
+            "Deja ai ghicit tema corect!", "Вы уже отгадали тему!",
+            "¡Has adivinado el tema correctamente!", "Du har redan gissat på rätt tema!",
+            "Temayı zaten doğru tahmin ettin!", "Ви вже відгадали тему!"
+    };
 
     public static Integer selfCorrectGuessPoints(String cleanLine) {
         if (cleanLine == null) return null;
@@ -1541,62 +1563,62 @@ public class LangPatterns {
         if ("zh_cn".equals(code)) return titleArray(
                 "\u521d\u6765\u4e4d\u5230", "\u672a\u7ecf\u96d5\u7422", "\u521d\u7aa5\u95e8\u5f84", "\u5b66\u6709\u6240\u6210",
                 "\u9a7e\u8f7b\u5c31\u719f", "\u5386\u7ec3\u8001\u6210", "\u6280\u827a\u7cbe\u6e5b", "\u7089\u706b\u7eaf\u9752",
-                "\u6280\u60ca\u56db\u5ea7", "\u5de7\u593a\u5929\u5de5", null, null, "\u95fb\u540d\u4e8e\u4e16",
-                "\u5efa\u7b51\u5927\u5e08", "\u4f20\u8bf4\u661f\u8000", "\u6700\u5f3a\u738b\u8005", null,
+                "\u6280\u60ca\u56db\u5ea7", "\u5de7\u593a\u5929\u5de5", "\u80fd\u5de5\u5de7\u5320", "\u6f5c\u529b\u65b0\u79c0", "\u95fb\u540d\u4e8e\u4e16",
+                "\u5efa\u7b51\u5927\u5e08", "\u4f20\u8bf4\u661f\u8000", "\u6700\u5f3a\u738b\u8005", "\u5929\u795e\u4e0b\u51e1",
                 "\u8d85\u51e1\u5165\u5723", "\u767b\u5cf0\u9020\u6781");
         if ("zh_tw".equals(code)) return titleArray(
                 "\u521d\u4f86\u4e4d\u5230", "\u6280\u85dd\u751f\u758f", "\u521d\u7aa5\u9580\u5f91", "\u5b78\u5f92",
                 "\u99d5\u8f15\u5c31\u719f", "\u8b58\u9014\u8001\u99ac", "\u6280\u85dd\u7cbe\u6e5b", "\u7210\u706b\u7d14\u9752",
                 "\u6280\u9a5a\u56db\u5ea7", "\u5de7\u596a\u5929\u5de5", null, null, "\u805e\u540d\u65bc\u4e16",
-                "\u5927\u5e2b", "\u50b3\u8aaa", "\u4e00\u4ee3\u5b97\u5e2b", null, "\u51fa\u795e\u5165\u5316",
+                "\u5927\u5e2b", "\u50b3\u8aaa", "\u4e00\u4ee3\u5b97\u5e2b", "\u5347\u5802\u5165\u5ba4", "\u51fa\u795e\u5165\u5316",
                 "\u81f3\u9ad8\u7121\u4e0a");
         if ("cs".equals(code)) return titleArray("Nov\u00e1\u010dek", "Nezku\u0161en\u00fd", "Amat\u00e9r", "U\u010dedn\u00edk", "Zku\u0161en\u00fd",
                 "Ost\u0159\u00edlen\u00fd", "Zb\u011bhl\u00fd", "\u0160ikovn\u00fd", "Talentovan\u00fd", "Profesion\u00e1l",
-                null, null, "Ekspert", "Mistr", "Legenda", "Velmistr", null, "Bo\u017esk\u00e1", "Nanebevzet\u00ed");
+                null, null, "Ekspert", "Mistr", "Legenda", "Velmistr", "Nebesk\u00fd", "Bo\u017esk\u00e1", "Nanebevzet\u00ed");
         if ("da".equals(code)) return titleArray("Nybegynder", "Utr\u00e6net", "Amat\u00f8r", "L\u00e6rling", "\u00d8vet",
                 null, "Kvalificeret", "Kyndig", "Talentfuld", "Professionel", null, null, null,
-                "Mester", "Legende", "Stormester", null, "Guddommelig", "Alm\u00e6gtig");
+                "Mester", "Legende", "Stormester", "Velsignet", "Guddommelig", "Alm\u00e6gtig");
         if ("nl".equals(code)) return titleArray("Beginner", "Ongetraind", null, "Leerling", "Ervaren",
-                "Doorwinterd", "Opgeleid", null, "Getalenteerd", "Vakkundige", null, null, null,
-                "Meester", null, "Grootmeester", null, "Goddelijk", "Gerezen");
+                "Doorwinterd", "Opgeleid", null, "Getalenteerd", "Vakkundige", "Ambachtswerker", "Vooruitzicht", null,
+                "Meester", null, "Grootmeester", "Hemels", "Goddelijk", "Gerezen");
         if ("fi".equals(code)) return titleArray("Aloittelija", "Kokematon", "Amat\u00f6\u00f6ri", "Oppipoika",
                 "Harjoitellut", "Kokenut", "Treenattu", "Taitava", "Lahjakas", "Pro", null, null,
-                "Ekspertti", "Mestari", null, "Suurmestari", null, "Jumalallinen", "Noussut");
+                "Ekspertti", "Mestari", null, "Suurmestari", "Taivaallinen", "Jumalallinen", "Noussut");
         if ("fr".equals(code)) return titleArray("D\u00e9butant", "Novice", "Dilettante", "Apprenti", "Exp\u00e9riment\u00e9",
                 "Saisonnier", "Entra\u00een\u00e9", "Comp\u00e9tent", "Talentueux", "Professionnel", null, null,
-                "Experte", "Maitre", "L\u00e9gende", "Grand maitre", null, null, "Ascendu");
+                "Experte", "Maitre", "L\u00e9gende", "Grand maitre", "C\u00e9leste", null, "Ascendu");
         if ("de".equals(code)) return titleArray("Anf\u00e4nger", "Untrainiert", null, "Lehrling", "Erfahren",
-                null, "Trainiert", "Bewandt", "Talentiert", "Professionell", null, null, "Experte",
-                "Meister", null, "Gro\u00dfmeister", null, "G\u00f6ttlich", "Aufgestiegen");
+                null, "Trainiert", "Bewandt", "Talentiert", "Professionell", "Handwerker", "Prospekt", "Experte",
+                "Meister", null, "Gro\u00dfmeister", "Himmlisch", "G\u00f6ttlich", "Aufgestiegen");
         if ("hu".equals(code)) return titleArray("\u00dajonc", "K\u00e9pzetlen", "Amat\u0151r", "Tanonc", "Tapasztalt",
                 "Szezon\u00e1lis", "Edzett", "\u00dcgyes", "Tehets\u00e9ges", "Profi", null, null,
-                "Szak\u00e9rt\u0151", null, null, "Nagymester", null, "Isteni", "Felemelkedett");
+                "Szak\u00e9rt\u0151", null, null, "Nagymester", "\u00c9gi", "Isteni", "Felemelkedett");
         if ("it".equals(code)) return titleArray("Novellino", "Non Allenato", null, "Apprendista", "Esperto",
-                null, "Allenato", "Abile", "Talentuoso", "Professionista", null, null, null,
-                "Maestro", "Leggenda", "Gran Maestro", null, "Divino", "Asceso");
+                null, "Allenato", "Abile", "Talentuoso", "Professionista", "Artigiano", "Panorama", null,
+                "Maestro", "Leggenda", "Gran Maestro", "Celestiale", "Divino", "Asceso");
         if ("ja".equals(code)) return titleArray("\u65b0\u4eba", "\u4e00\u822c\u4eba", "\u30a2\u30de\u30c1\u30e5\u30a2",
                 "\u898b\u7fd2", "\u7d4c\u9a13\u8005", "\u719f\u9054\u8005", "\u30d9\u30c6\u30e9\u30f3",
-                "\u719f\u7df4\u8005", "\u4eba\u6750", "\u8077\u696d\u4eba", null, null, "\u5c02\u9580\u5bb6",
+                "\u719f\u7df4\u8005", "\u4eba\u6750", "\u8077\u696d\u4eba", "\u5320", "\u6709\u671b\u682a", "\u5c02\u9580\u5bb6",
                 "\u30de\u30b9\u30bf\u30fc", "\u30ec\u30b8\u30a7\u30f3\u30c9", "\u30b0\u30e9\u30f3\u30c9\u30de\u30b9\u30bf\u30fc",
-                null, null, "\u6607\u5929");
+                "\u30bb\u30ec\u30b9\u30c1\u30e3\u30eb", null, "\u6607\u5929");
         if ("ko".equals(code)) return titleArray("\ud480\ub0b4\uae30", "\uc77c\ubc18\uc778", "\uc544\ub9c8\ucd94\uc5b4",
                 "\uacac\uc2b5", "\uacbd\ud5d8\uc790", "\uc219\ub2ec\uc790", "\ubca0\ud14c\ub791",
                 "\uc219\ub828\uc790", "\uc778\uc7ac", "\uc9c1\uc5c5\uc778", null, null, "\uc804\ubb38\uac00",
                 "\ub9c8\uc2a4\ud130", "\ub808\uc804\ub4dc", "\uadf8\ub79c\ub4dc\ub9c8\uc2a4\ud130",
-                null, "\ucd5c\uc0c1", "\uc2b9\ucc9c");
+                "\ucc9c\uc0c1", "\ucd5c\uc0c1", "\uc2b9\ucc9c");
         if ("no".equals(code)) return titleArray("Nybegynner", "Utrent", null, null, null, "Kunnskapsrik",
                 "Trent", "Dyktig", "Talentfull", "Profesjonell", null, null, null, "Mester",
-                null, null, null, null, "Oppsteget");
+                null, null, "Himmelsk", "Guddommelig", "Oppsteget");
         if ("pl".equals(code)) return titleArray("Pocz\u0105tkuj\u0105cy", "Niewprawny", "Amator", "Praktykant",
                 "Do\u015bwiadczony", "Zaprawiony", "Wyszkolony", "Uzdolniony", "Utalentowany",
-                "Zawodowiec", null, null, "Znawca", "Mistrz", null, "Arcymistrz", null, "Boska",
+                "Zawodowiec", null, null, "Znawca", "Mistrz", null, "Arcymistrz", "Niebia\u0144ski", "Boska",
                 "Wst\u0105pi\u0142");
         if ("pt_br".equals(code)) return titleArray("Novato", "Caloiro", "Dedicado", "Aprendiz", "Experiente",
-                "Gladiador", "Perspicaz", "Craque", "Talentoso", "Profissional", null, null, null,
-                "Mestre", "Lenda", "Supremo", null, "Divina", "Ascendente");
+                "Gladiador", "Perspicaz", "Craque", "Talentoso", "Profissional", "Artes\u00e3o", "Prospecto", null,
+                "Mestre", "Lenda", "Supremo", "Celestial", "Divina", "Ascendente");
         if ("pt".equals(code)) return titleArray("Novato", "Amador", "Aficionado", "Aprendiz", "Veterano",
                 "Habilidoso", "Inteligente", "Perito", "Talentoso", "Profissional", null, null, null,
-                "Mestre", "Lenda", "Supremo", null, "Divina", "Ascendente");
+                "Mestre", "Lenda", "Supremo", "Celestial", "Divino", "Ascendente");
         if ("ro".equals(code)) return titleArray("\u00cencep\u0103tor", "Neinstruit", null, "Ucenic", "Experimentat",
                 "Sezonier", "Antrenat", "\u00cendem\u00e2natic", "Talentat", "Profesionist", null, null,
                 null, "Maestru", "Legend\u0103", "Mare Maestru", null, "Divin", null);
@@ -1605,25 +1627,25 @@ public class LangPatterns {
                 "\u0423\u0447\u0435\u043d\u0438\u043a", "\u041e\u043f\u044b\u0442\u043d\u044b\u0439", "\u0411\u044b\u0432\u0430\u043b\u044b\u0439",
                 "\u041e\u0431\u0443\u0447\u0435\u043d\u043d\u044b\u0439", "\u0423\u043c\u0435\u043b\u044b\u0439",
                 "\u0422\u0430\u043b\u0430\u043d\u0442\u043b\u0438\u0432\u044b\u0439", "\u041f\u0440\u043e\u0444\u0435\u0441\u0441\u0438\u043e\u043d\u0430\u043b",
-                null, null, "\u042d\u043a\u0441\u043f\u0435\u0440\u0442", "\u041c\u0430\u0441\u0442\u0435\u0440",
+                "\u0417\u043d\u0430\u0442\u043e\u043a", "\u041f\u0435\u0440\u0441\u043f\u0435\u043a\u0442\u0438\u0432\u043d\u044b\u0439", "\u042d\u043a\u0441\u043f\u0435\u0440\u0442", "\u041c\u0430\u0441\u0442\u0435\u0440",
                 "\u041b\u0435\u0433\u0435\u043d\u0434\u0430", "\u0413\u0440\u043e\u0441\u0441\u043c\u0435\u0439\u0441\u0442\u0435\u0440",
-                null, "\u0411\u043e\u0436\u0435\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0439", "\u0412\u043e\u0437\u043d\u0435\u0441\u0451\u043d\u043d\u044b\u0439");
+                "\u041d\u0435\u0431\u0435\u0441\u043d\u044b\u0439", "\u0411\u043e\u0436\u0435\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0439", "\u0412\u043e\u0437\u043d\u0435\u0441\u0451\u043d\u043d\u044b\u0439");
         if ("es".equals(code)) return titleArray("Novato", "Amador", "Aficionado", "Aprendiz", "Veterano",
-                "Habilidoso", "Inteligente", "Perito", "Talentoso", "Profesional", null, null,
-                "Experto", "Maestro", "Leyenda", null, null, "Divina", "Ascendido");
+                "Habilidoso", "Inteligente", "Perito", "Talentoso", "Profesional", "Artesano", "Prospecto",
+                "Experto", "Maestro", "Leyenda", null, "Celestial", "Divino", "Ascendido");
         if ("sv".equals(code)) return titleArray("Nyb\u00f6rjare", "Otr\u00e4nad", "Amat\u00f6r", "L\u00e4rling", null,
                 "H\u00e4rdad", "Tr\u00e4nad", "Skicklig", "Talangfull", null, null, null, null,
-                "M\u00e4stare", null, "Storm\u00e4stare", null, "Underbart", "Uppsteg");
+                "M\u00e4stare", null, "Storm\u00e4stare", "Himmelsk", "Underbart", "Uppsteg");
         if ("tr".equals(code)) return titleArray("\u00c7aylak", "E\u011fitimsiz", null, "Acemi", "Deneyimli",
                 "Tecr\u00fcbeli", "E\u011fitilmi\u015f", "Becerikli", "Yetenekli", "Profesyonel",
-                null, null, "Uzman", "Usta", "Efsane", "\u00dcstat", null, "\u0130lahi", "Y\u00fckselmi\u015f");
+                "Artisan", "Olas\u0131l\u0131k", "Uzman", "Usta", "Efsane", "\u00dcstat", "G\u00f6ksel", "\u0130lahi", "Y\u00fckselmi\u015f");
         if ("uk".equals(code)) return titleArray("\u041d\u043e\u0432\u0430\u0447\u043e\u043a",
                 "\u041d\u0435\u043d\u0430\u0432\u0447\u0435\u043d\u0438\u0439", null, "\u0423\u0447\u0435\u043d\u044c",
                 "\u0414\u043e\u0441\u0432\u0456\u0434\u0447\u0435\u043d\u0438\u0439", "\u0411\u0443\u0432\u0430\u043b\u0438\u0439",
                 "\u041d\u0430\u0432\u0447\u0435\u043d\u0438\u0439", "\u0423\u043c\u0456\u043b\u0438\u0439",
                 "\u0422\u0430\u043b\u0430\u043d\u043e\u0432\u0438\u0442\u0438\u0439", "\u041f\u0440\u043e\u0444\u0435\u0441\u0456\u043e\u043d\u0430\u043b",
-                null, null, "\u0415\u043a\u0441\u043f\u0435\u0440\u0442", "\u041c\u0430\u0439\u0441\u0442\u0435\u0440",
-                null, "\u0413\u0440\u043e\u0441\u043c\u0435\u0439\u0441\u0442\u0435\u0440", null,
+                "\u0417\u043d\u0430\u0432\u0435\u0446\u044c", "\u041f\u0435\u0440\u0441\u043f\u0435\u043a\u0442\u0438\u0432\u043d\u0438\u0439", "\u0415\u043a\u0441\u043f\u0435\u0440\u0442", "\u041c\u0430\u0439\u0441\u0442\u0435\u0440",
+                null, "\u0413\u0440\u043e\u0441\u043c\u0435\u0439\u0441\u0442\u0435\u0440", "\u041d\u0435\u0431\u0435\u0441\u043d\u0438\u0439",
                 "\u0411\u043e\u0436\u0435\u0441\u0442\u0432\u0435\u043d\u043d\u0438\u0439", "\u0412\u043e\u0437\u043d\u0435\u0441\u0435\u043d\u0438\u0439");
         return null;
     }
@@ -1633,7 +1655,6 @@ public class LangPatterns {
         String[] out = Arrays.copyOf(EN_BB_TITLES, EN_BB_TITLES.length);
         for (int i = 0; i < titles.length && i < LEGACY_TO_CURRENT_BB_TITLE_INDEX.length; i++) {
             int target = LEGACY_TO_CURRENT_BB_TITLE_INDEX[i];
-            if (target >= 17) continue;
             if (titles[i] != null && !titles[i].isEmpty()) out[target] = titles[i];
         }
         return out;
@@ -1655,6 +1676,7 @@ public class LangPatterns {
         }
         Collections.addAll(active, EN_BB_TITLES);
         CHAT_TITLES.retainAll(active);
+        CHAT_TITLES.addAll(active);
     }
 
     /** Strip a leading Build Battle title only when another token remains for the IGN. */

@@ -12,9 +12,31 @@ public final class TrollMode {
     }
 
     public static String transformOutbound(String message) {
+        if (isMarked(message)) return message;
         return transform(message, GameStats.INSTANCE.getState(),
                 GameStats.INSTANCE.hasLocalPlayerCorrectlyGuessedCurrentRound(),
                 GtbStructuresSettings.INSTANCE.trollMode);
+    }
+
+    public static String prepareOneShot(String message) {
+        if (isBlank(message) || message.length() + TROLL_MARKER.length() > MAX_CHAT_LENGTH) {
+            return null;
+        }
+        return message + TROLL_MARKER;
+    }
+
+    public static boolean isMarked(String message) {
+        return message != null && message.endsWith(TROLL_MARKER);
+    }
+
+    private static boolean isBlank(String message) {
+        if (message == null || message.isEmpty()) return true;
+        for (int offset = 0; offset < message.length();) {
+            int codePoint = message.codePointAt(offset);
+            if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) return false;
+            offset += Character.charCount(codePoint);
+        }
+        return true;
     }
 
     static String transformForTest(String message, GameStats.TrackingState state,
@@ -24,6 +46,7 @@ public final class TrollMode {
 
     private static String transform(String message, GameStats.TrackingState state,
                                     boolean alreadyGuessed, boolean enabled) {
+        if (isMarked(message)) return message;
         if (!isEligible(message, state, alreadyGuessed, enabled)) return message;
         if (message.length() + TROLL_MARKER.length() > MAX_CHAT_LENGTH) return message;
         return message + TROLL_MARKER;

@@ -69,7 +69,8 @@ public final class ScoreReconciler {
         // correctly during the round. If nobody guessed correctly, builder scores 0
         // regardless of whether the round was skipped, the builder left, or the
         // timer simply expired — matching GTU's onThemeUpdate / onCorrectGuess logic.
-        if (r.correctGuesses == null || r.correctGuesses.isEmpty()) {
+        if ((r.correctGuesses == null || r.correctGuesses.isEmpty())
+                && r.acceptedGuessTexts.isEmpty()) {
             r.scoreDeltas.put(r.builder, ScoreDelta.definite(0, "no_correct_guesses"));
             return;
         }
@@ -91,7 +92,8 @@ public final class ScoreReconciler {
             }
         }
 
-        Set<Integer> options = TranslationData.lookupBuilderPoints(r.langCode, r.theme);
+        Set<Integer> options = TranslationData.lookupBuilderPoints(r.langCode, r.theme,
+                GameExporter.ruledOutEnglishThemes(r.guesses, r.builder), r.acceptedGuessTexts);
         if (options.isEmpty()) {
             // Unknown — leave unrecorded; finalizer will treat as residual.
             return;

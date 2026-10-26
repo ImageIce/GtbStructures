@@ -2,10 +2,12 @@ package com.gtbstructures.stats;
 
 import com.gtbstructures.GtbStructuresSettings;
 import com.gtbstructures.sound.GuessSoundController;
+import com.gtbstructures.sound.EndGameFireworkController;
 import com.gtbstructures.sound.MinecraftClientSoundBridge;
 import com.gtbstructures.hints.HintStructureParser;
 import com.gtbstructures.hints.ShowAllMatching;
 import com.gtbstructures.chat.ModernChatCooldownCounter;
+import com.gtbstructures.chat.AcceptedGuessTracker;
 import com.gtbstructures.player.PlayerMetaCache;
 import com.gtbstructures.diagnostics.RawPacketRecorder;
 import com.gtbstructures.scoreboard.GameTracker;
@@ -121,6 +123,7 @@ public class GameStats {
     private boolean localRejoinedImmediatelyStage;
     private static final long GTB_HANDOFF_ROSTER_GRACE_MS = 3000L;
     private long gtbHandoffRosterUntilMs;
+    private InitialRoundHeader pendingLobbyRoundStart;
     private boolean gtbLobbyRosterConfirmed;
     private boolean lobbyTabDone;
     private TrackingState lastScoreboardState = TrackingState.NOT_IN_GAME;
@@ -146,7 +149,18 @@ public class GameStats {
     private String pendingSelfGuessScoreIgn;
     private int pendingSelfGuessScoreRound;
     private long pendingSelfGuessScoreUntilMs;
+    private final AcceptedGuessTracker acceptedGuessTracker = new AcceptedGuessTracker();
     private final LobbyLanguageFallback lobbyLanguageFallback = new LobbyLanguageFallback();
+
+    private static final class InitialRoundHeader {
+        final int totalRounds;
+        final long timestamp;
+
+        InitialRoundHeader(int totalRounds, long timestamp) {
+            this.totalRounds = totalRounds;
+            this.timestamp = timestamp;
+        }
+    }
 
     public enum TrackingState {
         NOT_IN_GAME,
@@ -160,6 +174,7 @@ public class GameStats {
 
     public interface GtbHooks {
         void onGameStart(List<String> players, String localIgn);
+        default void onMidGameStart() {}
         default void onRoundPre() {}
         default void onRoundBuild() {}
         void onRoundStart(int currentRound, int totalRounds);
@@ -470,7 +485,9 @@ public class GameStats {
     }
 
     public void onServerSessionReset() {
+        acceptedGuessTracker.reset();
         GuessSoundController.INSTANCE.onDisconnect();
+        ModernChatCooldownCounter.onDisconnect();
         cancelPendingAutoRequeue("server session reset");
         lobbyLanguageFallback.resetForServerSession();
         pendingTabReturnConfirmations.clear();
@@ -492,6 +509,7 @@ public class GameStats {
 
     public void setTrackingEnabled(boolean enabled) {
         this.trackingEnabled = enabled;
+        if (!enabled) acceptedGuessTracker.reset();
         if (!enabled) {
             activeTimeMs = activeTimeAt(System.currentTimeMillis());
             activeTimeStartedAt = 0L;
@@ -796,6 +814,7 @@ public class GameStats {
         round.roundEnd = longValue(object, "roundEnd", 0L);
         round.builder = stringValue(object, "builder", null);
         round.theme = stringValue(object, "theme", null);
+        round.acceptedGuessTexts.addAll(stringList(arrayValue(object, "acceptedGuessTexts")));
         round.themeCharCount = intValue(object, "themeCharCount", 0);
         round.language = stringValue(object, "language", null);
         round.langCode = stringValue(object, "languageCode", null);
@@ -1532,10 +1551,18 @@ public class GameStats {
     }
 
     void beginLobbyHandoff(long now) {
+        pendingLobbyRoundStart = null;
         handoffLobbyRoster.clear();
         mergeRosterInto(handoffLobbyRoster, players);
         gtbHandoffRosterUntilMs = now + GTB_HANDOFF_ROSTER_GRACE_MS;
         PlayerMetaCache.INSTANCE.clearRosterEvidence();
+    }
+
+    /** Whether an arrival belongs to the bounded, previously observed GTB lobby handoff. */
+    public boolean isLobbyHandoffActive(long timestamp) {
+        return state == TrackingState.NOT_IN_GAME && gtbHandoffRosterUntilMs > 0L
+                && timestamp >= gtbHandoffRosterUntilMs - GTB_HANDOFF_ROSTER_GRACE_MS
+                && timestamp <= gtbHandoffRosterUntilMs;
     }
 
     void seedGameStartRoster(long now, String localIgn) {
@@ -1566,9 +1593,20 @@ public class GameStats {
     }
 
     public void onScoreboardTick(String titleClean, List<String> cleanLines, List<String> rawFormattedLines) {
-        if (!trackingEnabled) return;
+        onScoreboardTickAt(titleClean, cleanLines, rawFormattedLines, System.currentTimeMillis());
+    }
+
+    void onScoreboardTickAt(String titleClean, List<String> cleanLines, List<String> rawFormattedLines, long now) {
         boolean scoreboardShowsGtb = LangPatterns.isGtbTitle(titleClean);
         TrackingState rawScoreboardState = scoreboardState(cleanLines, scoreboardShowsGtb);
+        if (GtbStructuresSettings.INSTANCE.modEnabled) {
+            EndGameFireworkController.INSTANCE.observeScoreboard(rawScoreboardState, scoreboardShowsGtb);
+        } else {
+            EndGameFireworkController.INSTANCE.reset();
+        }
+        if (!trackingEnabled) return;
+        boolean unrelatedSidebar = titleClean != null && !titleClean.trim().isEmpty()
+                && !scoreboardShowsGtb;
         TrackingState sbState = retainActiveStateForUnclassifiedGtb(
                 state, rawScoreboardState, scoreboardShowsGtb);
         // The runtime observes the local entity before this tick, but a nick
@@ -1579,14 +1617,14 @@ public class GameStats {
             resetAuthoritativeLowRosterCandidate();
         }
         lastScoreboardState = sbState;
-        long now = System.currentTimeMillis();
         if (sbState != TrackingState.POST_GAME) clearAutoRequeueSchedule();
         // Persisted current.json is resolved by the lobby/user-joined boundary.
         // An arbitrary active sidebar can belong to a different GTB instance.
         if (state == TrackingState.NOT_IN_GAME
                 && gtbHandoffRosterUntilMs > 0L
-                && now > gtbHandoffRosterUntilMs) {
+                && (now > gtbHandoffRosterUntilMs || unrelatedSidebar)) {
             clearLobbyHandoff();
+            pendingNextBuilder = null;
             PlayerMetaCache.INSTANCE.clearRosterEvidence();
         }
 
@@ -1596,7 +1634,13 @@ public class GameStats {
                 if (state == TrackingState.POST_GAME) {
                     endGame(true, null, now);
                 } else if (state == TrackingState.LOBBY) {
-                    beginLobbyHandoff(now);
+                    if (unrelatedSidebar) {
+                        clearLobbyHandoff();
+                        pendingNextBuilder = null;
+                        PlayerMetaCache.INSTANCE.clearRosterEvidence();
+                    } else {
+                        beginLobbyHandoff(now);
+                    }
                     state = TrackingState.NOT_IN_GAME;
                     lobbyTabDone = false;
                     players.clear();
@@ -1631,6 +1675,7 @@ public class GameStats {
             finalizePendingCurrent(runtimeStatsDir(), "new_gtb_lobby", now);
             state = TrackingState.LOBBY;
             clearLobbyHandoff();
+            pendingNextBuilder = null;
             lobbyTabDone = false;
             players.clear();
             rounds.clear();
@@ -1649,7 +1694,8 @@ public class GameStats {
 
         if (state == TrackingState.LOBBY
                 && (sbState == TrackingState.ROUND_PRE || sbState == TrackingState.ROUND_BUILD)) {
-            autoDisableTrollModeAtGameStart();
+            startScoreboardOnlyRound(sbState, cleanLines, now);
+            return;
         }
         boolean enteredBuildPhase = state == TrackingState.ROUND_PRE
                 && sbState == TrackingState.ROUND_BUILD;
@@ -1667,14 +1713,18 @@ public class GameStats {
     }
 
     public void onChatMessage(String raw, String clean) {
+        onChatMessageAt(raw, clean, System.currentTimeMillis());
+    }
+
+    void onChatMessageAt(String raw, String clean, long now) {
         String text = clean != null ? clean : raw;
         if (text == null) text = "";
         text = stripControlCodes(text).trim();
         if (text.isEmpty()) return;
-        observeGuessSoundChat(text, System.currentTimeMillis());
+        observeGuessSoundChat(text, now);
         maybeAutoDisableTrollModeFromRoundStart(text);
         if (!trackingEnabled) return;
-        long now = System.currentTimeMillis();
+        expireLobbyHandoff(now);
 
         if (handleLobbyJoinMessage(raw != null ? raw : text, text, now)) {
             return;
@@ -1686,6 +1736,10 @@ public class GameStats {
             return;
         }
 
+        if (LangPatterns.isAlreadyCorrectGuessMessage(text)) {
+            acceptPendingGuess(now);
+            return;
+        }
         Integer explicitSelfPoints = LangPatterns.selfCorrectGuessPoints(text);
         if (explicitSelfPoints != null) {
             ModernChatCooldownCounter.onUserCorrectGuess();
@@ -1838,6 +1892,16 @@ public class GameStats {
     }
 
     private void handleRoundStart(int roundNumber, int totalRounds, long now) {
+        expireLobbyHandoff(now);
+        if (state == TrackingState.NOT_IN_GAME && isLobbyHandoffActive(now)
+                && roundNumber == 1 && totalRounds > 0) {
+            // The chat can precede the new sidebar. Keep its first arrival time
+            // and wait for GTB sidebar confirmation before starting the game.
+            long firstTimestamp = pendingLobbyRoundStart == null
+                    ? now : pendingLobbyRoundStart.timestamp;
+            pendingLobbyRoundStart = new InitialRoundHeader(totalRounds, firstTimestamp);
+            return;
+        }
         if (!gameInitialized) {
             seedGameStartRoster(now, bestKnownLocalIgn());
             initNewGame(now);
@@ -1928,8 +1992,31 @@ public class GameStats {
         if (gtbHooks != null) gtbHooks.onCorrectGuess(Collections.singletonList(ign));
     }
 
+    /** Receives the post-transform text actually submitted by the loader's send hook. */
+    public void onOutboundGuess(String actuallySent, long now) {
+        RoundData round = currentRound;
+        if (!trackingEnabled || state != TrackingState.ROUND_BUILD || round == null
+                || isLocalPlayerBuilder(round)) return;
+        acceptedGuessTracker.record(round, actuallySent, now);
+    }
+
+    private void acceptPendingGuess(long now) {
+        if (currentRound == null || (state != TrackingState.ROUND_BUILD
+                && state != TrackingState.ROUND_END)) return;
+        String sent = acceptedGuessTracker.consumeAccepted(currentRound, now);
+        if (sent == null) return;
+        currentRound.acceptedGuessTexts.add(sent);
+        ScoreReconciler.computeBuilderDelta(currentRound);
+        if (GameTracker.INSTANCE.game != null
+                && GameTracker.INSTANCE.game.currentRound == currentRound.roundNumber) {
+            GameTracker.INSTANCE.onAcceptedGuess(sent);
+        }
+        queueThemePointFromTheme(currentRound.theme, currentRound.langCode);
+    }
+
     private void handleLocalCorrectGuess(String ign, long now, boolean updateCooldown) {
         if (currentRound == null || !isValidMcUsername(ign)) return;
+        acceptPendingGuess(now);
         if (updateCooldown) ModernChatCooldownCounter.onUserCorrectGuess();
         rememberPendingSelfGuessScore(ign, now);
         markCompleteThemeRevealed(currentRound);
@@ -2341,31 +2428,31 @@ public class GameStats {
     }
 
     private void startScoreboardOnlyRound(TrackingState sbState, List<String> cleanLines, long now) {
+        boolean lobbyStart = state == TrackingState.LOBBY || isLobbyHandoffActive(now);
+        InitialRoundHeader initialHeader = lobbyStart ? pendingLobbyRoundStart : null;
+        long startTime = initialHeader == null ? now : initialHeader.timestamp;
+        if (lobbyStart) {
+            autoDisableTrollModeAtGameStart();
+        } else {
+            pendingNextBuilder = null;
+        }
         String detectedLang = LangPatterns.detectLanguageFromScoreboard(cleanLines);
         if (detectedLang != null) {
             currentLangCode = detectedLang;
             String display = LangPatterns.mapLanguageName(detectedLang);
             if (display != null) currentLanguage = display;
         }
-        if (sbState == TrackingState.ROUND_PRE) {
-            beginPreRound(now, true);
+        seedGameStartRoster(startTime, bestKnownLocalIgn());
+        initNewGame(startTime);
+        if (!lobbyStart && gtbHooks != null) gtbHooks.onMidGameStart();
+        if (initialHeader != null) {
+            state = sbState;
+            handleRoundStart(1, initialHeader.totalRounds, initialHeader.timestamp);
             return;
         }
-        seedGameStartRoster(now, bestKnownLocalIgn());
-        initNewGame(now);
-        if (currentRound == null) {
-            currentRound = new RoundData();
-            currentRound.roundStart = now;
-            currentRound.language = currentLanguage;
-            currentRound.langCode = currentLangCode;
-            currentRound.dataGap = true;
-            rounds.add(currentRound);
-            if (pendingNextBuilder != null) {
-                reassignBuilder(currentRound, pendingNextBuilder);
-                pendingNextBuilder = null;
-            }
-        }
+        beginPreRound(startTime, !lobbyStart);
         state = sbState;
+        if (sbState == TrackingState.ROUND_BUILD && gtbHooks != null) gtbHooks.onRoundBuild();
     }
 
     private void beginPreRound(long now, boolean dataGap) {
@@ -3189,6 +3276,7 @@ public class GameStats {
     private void resetFreshLobbyRoster() {
         gtbLobbyRosterConfirmed = false;
         clearLobbyHandoff();
+        pendingNextBuilder = null;
         lobbyTabDone = false;
         notInGameTicks = 0;
         players.clear();
@@ -3203,9 +3291,19 @@ public class GameStats {
         clearLobbyPacketRemovalEvidence();
     }
 
+    private void expireLobbyHandoff(long now) {
+        if (state == TrackingState.NOT_IN_GAME && gtbHandoffRosterUntilMs > 0L
+                && now > gtbHandoffRosterUntilMs) {
+            clearLobbyHandoff();
+            pendingNextBuilder = null;
+            PlayerMetaCache.INSTANCE.clearRosterEvidence();
+        }
+    }
+
     private void clearLobbyHandoff() {
         gtbHandoffRosterUntilMs = 0L;
         handoffLobbyRoster.clear();
+        pendingLobbyRoundStart = null;
     }
 
     private static Integer parseLobbyAnnouncedPlayerCount(String clean) {
@@ -3440,6 +3538,7 @@ public class GameStats {
         state.langCode = firstNonEmpty(round.langCode, currentLangCode);
         state.hintStructure = round.hintStructure;
         state.builderThemeOptions = round.builderThemeOptions;
+        state.acceptedGuessTexts = round.acceptedGuessTexts;
         state.selfBuildRound = isLocalPlayerBuilder(round);
         state.completeThemeRevealedToUser = round.completeThemeRevealedToUser;
         state.themePointRevealSent = round.themePointRevealSent;
@@ -3555,6 +3654,7 @@ public class GameStats {
     private void observeGuessSoundChat(String clean, long now) {
         if (!GtbStructuresSettings.INSTANCE.modEnabled) {
             GuessSoundController.INSTANCE.reset();
+            EndGameFireworkController.INSTANCE.reset();
             return;
         }
         MinecraftClientSoundBridge.ensureInstalled();
@@ -3564,12 +3664,21 @@ public class GameStats {
                 && LangPatterns.startsWithChatTitle(LangPatterns.stripEmojis(clean).trim()))) return;
 
         for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+            if (lp.winnersKeyword != null && clean.trim().equals(lp.winnersKeyword)) {
+                EndGameFireworkController.INSTANCE.observeWinnersNotice();
+                break;
+            }
+        }
+
+        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
             if (lp.countdown1Sec != null && clean.equals(lp.countdown1Sec)) {
                 GuessSoundController.INSTANCE.onRoundBoundary();
+                EndGameFireworkController.INSTANCE.onRoundBoundary();
                 break;
             }
             if (lp.roundPrefix != null && clean.startsWith(lp.roundPrefix)) {
                 GuessSoundController.INSTANCE.onRoundBoundary();
+                EndGameFireworkController.INSTANCE.onRoundBoundary();
                 break;
             }
             if (lp.themeWasPrefix != null && clean.startsWith(lp.themeWasPrefix)) {
@@ -3665,6 +3774,9 @@ public class GameStats {
         PlayerChatObservation chat = extractPlayerChatObservation(raw, text);
         if (chat == null || isReservedNonPlayerName(chat.ign)) return;
         if (isLocalPlayerIgn(chat.ign)) {
+            acceptedGuessTracker.discardEcho(currentRound, chat.message, now,
+                    (observed, sent) -> com.gtbstructures.translation.HypixelGuessChat
+                            .matchesObserved(observed, sent, "co"));
             ModernChatCooldownCounter.onUserChatAccepted(now);
         }
         PlayerMetaCache.INSTANCE.harvestChatMessageRank(chat.ign, raw);
@@ -3676,6 +3788,7 @@ public class GameStats {
         }
         if (state == TrackingState.ROUND_BUILD && currentRound != null) {
             currentRound.guesses.add(new GuessEntry(now, chat.ign, chat.message));
+            ScoreReconciler.computeBuilderDelta(currentRound);
             if (gtbHooks != null) gtbHooks.onPlayerGuess(chat.ign, chat.message);
             queueThemePointFromTheme(currentRound.theme, currentRound.langCode);
         }
@@ -4177,6 +4290,7 @@ public class GameStats {
         public String language;
         public String langCode;
         public List<GuessEntry> guesses = new ArrayList<GuessEntry>();
+        public List<String> acceptedGuessTexts = new ArrayList<String>();
         public List<CorrectGuessEntry> correctGuesses = new ArrayList<CorrectGuessEntry>();
         public List<HintEntry> hints = new ArrayList<HintEntry>();
         public List<HandheldItemEntry> handheldItems = new ArrayList<HandheldItemEntry>();

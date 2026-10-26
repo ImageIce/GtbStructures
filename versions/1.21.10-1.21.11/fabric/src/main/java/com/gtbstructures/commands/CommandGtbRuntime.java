@@ -36,7 +36,7 @@ import java.util.Set;
 
 /** Runtime adapter for the platform-neutral /gtbs command core. */
 public final class CommandGtbRuntime {
-    private static final String[] ROOT_COMMANDS = {"gtbs", "gtbstructures", "gtb", "lrj", "copytranslation", "copyt", "gtw", "guess", "trollmode", "shortcutreminder", "screminder"};
+    private static final String[] ROOT_COMMANDS = {"gtbs", "gtbstructures", "gtb", "lrj", "copytranslation", "copyt", "gtw", "guess", "trollmode", "troll", "shortcutreminder", "screminder"};
     private static final String PLAY_GTB_COMMAND = "/play build_battle_guess_the_build";
     private static final String LOBBY_COMMAND = "/l";
     private static final String BYPASS_LOBBY_PROTECTION_COMMAND = "/l bb";
@@ -80,6 +80,9 @@ public final class CommandGtbRuntime {
             return false;
         }
         void sendServerCommand(String command);
+        default void sendChat(String message) {
+            throw new UnsupportedOperationException("Chat sending is not configured");
+        }
         boolean copyToClipboard(String text);
     }
 
@@ -103,7 +106,6 @@ public final class CommandGtbRuntime {
 
     public static Result execute(String root, String rawArgs) {
         String normalizedRoot = normalizeRoot(root);
-        String[] args = parseExecutionArgs(rawArgs);
         if ("gtbstructures".equals(normalizedRoot)) {
             normalizedRoot = "gtbs";
         }
@@ -113,6 +115,18 @@ public final class CommandGtbRuntime {
         if ("screminder".equals(normalizedRoot)) {
             normalizedRoot = "shortcutreminder";
         }
+
+        if ("troll".equals(normalizedRoot)) {
+            return handleOneShotTroll(rawArgs, "/troll <message>");
+        }
+        if ("gtbs".equals(normalizedRoot)) {
+            String oneShotMessage = extractGtbsTrollMessage(rawArgs);
+            if (oneShotMessage != null) {
+                return handleOneShotTroll(oneShotMessage, "/gtbs troll <message>");
+            }
+        }
+
+        String[] args = parseExecutionArgs(rawArgs);
 
         if ("gtw".equals(normalizedRoot)) {
             return handleGtw(args, "/gtw");
@@ -204,11 +218,17 @@ public final class CommandGtbRuntime {
         if ("guess".equals(normalizedRoot)) {
             return Collections.emptyList();
         }
+        if ("troll".equals(normalizedRoot)) {
+            return Collections.emptyList();
+        }
         if (!"gtbs".equals(normalizedRoot)) {
             return completeRoot(rawArgs);
         }
 
         String[] args = parseCompletionArgs(rawArgs);
+        if (args.length > 0 && "troll".equalsIgnoreCase(args[0])) {
+            return Collections.emptyList();
+        }
         if (args.length > 0 && "gtw".equalsIgnoreCase(args[0])) {
             return completeGtw(rawArgs, true);
         }
@@ -224,24 +244,32 @@ public final class CommandGtbRuntime {
 
     private static Result executeGtbs(String[] args) {
         if (args.length == 0) {
-            return Result.messages(CommandGtb.buildHelpMessages(new String[0]));
+            CommandGtb.HelpOutput help = CommandGtb.buildHelpOutput(new String[0]);
+            return Result.messages(help.messages, help.navigation);
         }
 
         String first = args[0].toLowerCase(Locale.ROOT);
         if ("help".equals(first)) {
+            CommandGtb.HelpOutput help = CommandGtb.buildHelpOutput(sliceFrom(args, 1));
             List<String> messages = new ArrayList<String>(
-                    CommandGtb.buildHelpMessages(sliceFrom(args, 1)));
+                    help.messages);
             if (!SETTINGS.previewQuickstartRan) {
                 messages.add(CommandGtb.head + "Quickstart: use \u00a7f/gtbs preview\u00a77"
                         + " to configure and preview most visual settings in the GUI.");
             }
-            return Result.messages(messages);
+            return Result.messages(messages, help.navigation);
+        }
+        if ("search".equals(first)) {
+            return executeGtbs(prefixedArgs("help", args));
         }
         if ("gtb".equals(first)) {
             return execute("gtb", join(sliceFrom(args, 1)));
         }
         if ("lrj".equals(first)) {
             return handleLeaveRejoin(sliceFrom(args, 1), "/gtbs lrj");
+        }
+        if ("fireworks".equals(first)) {
+            return handleEndGameFireworkSounds(sliceFrom(args, 1));
         }
         if (isHintStructureCommand(first)) {
             return handleHintStructure(sliceFrom(args, 1));
@@ -385,6 +413,28 @@ public final class CommandGtbRuntime {
         }
 
         return Result.messages(CommandGtb.head + "Unknown argument. Usage: see /gtbs help");
+    }
+
+    private static Result handleOneShotTroll(String rawMessage, String usage) {
+        String markedMessage = com.gtbstructures.chat.TrollMode.prepareOneShot(rawMessage);
+        if (markedMessage == null) {
+            return Result.messages(CommandGtb.head + "Usage: " + usage);
+        }
+        services.sendChat(markedMessage);
+        return Result.empty();
+    }
+
+    private static String extractGtbsTrollMessage(String rawArgs) {
+        if (rawArgs == null) return null;
+        int start = 0;
+        while (start < rawArgs.length() && Character.isWhitespace(rawArgs.charAt(start))) start++;
+        int end = start + "troll".length();
+        if (end > rawArgs.length() || !rawArgs.regionMatches(true, start, "troll", 0, "troll".length())) {
+            return null;
+        }
+        if (end < rawArgs.length() && !Character.isWhitespace(rawArgs.charAt(end))) return null;
+        while (end < rawArgs.length() && Character.isWhitespace(rawArgs.charAt(end))) end++;
+        return rawArgs.substring(end);
     }
 
     private static Result handleHintStructure(String[] args) {
@@ -779,10 +829,23 @@ public final class CommandGtbRuntime {
 
     private static Result handleLeaveRejoin(String[] args, String commandRoot) {
         if (args == null || args.length == 0) {
-            leaveRejoin.start();
+            leaveRejoin.start(Math.round(SETTINGS.lrjDelaySeconds * 1000F));
             services.sendServerCommand(SETTINGS.lrjBypassLobbyProtection
                     ? BYPASS_LOBBY_PROTECTION_COMMAND : LOBBY_COMMAND);
             return Result.empty();
+        }
+        if ("delay".equalsIgnoreCase(args[0])) {
+            String usage = "Usage: " + commandRoot + " delay [time]";
+            if (args.length == 1) return Result.messages(CommandGtb.head + lrjDelayStatusMessage());
+            if (args.length != 2) return Result.messages(CommandGtb.head + usage);
+            Float delay = GtbStructuresSettings.parseLrjDelaySeconds(args[1]);
+            if (delay == null) return Result.messages(CommandGtb.head
+                    + "Please enter a time from 0.0 to 10.0 seconds.");
+            SETTINGS.lrjDelaySeconds = delay.floatValue();
+            saveSettings();
+            return Result.messages(CommandGtb.head + "LRJ delay set to \u00a7f"
+                    + GtbStructuresSettings.formatLrjDelaySeconds(SETTINGS.lrjDelaySeconds)
+                    + " seconds.");
         }
         String usage = "Usage: " + commandRoot + " bypassprotection [on|off]";
         if (!"bypassprotection".equalsIgnoreCase(args[0]) || args.length > 2) return Result.messages(CommandGtb.head + usage);
@@ -797,6 +860,25 @@ public final class CommandGtbRuntime {
 
     static String leaveRejoinProtectionStatusMessage(boolean enabled) {
         return "Bypass /l protection is currently " + onOff(enabled);
+    }
+
+    private static String lrjDelayStatusMessage() {
+        return "LRJ delay is currently \u00a7f"
+                + GtbStructuresSettings.formatLrjDelaySeconds(SETTINGS.lrjDelaySeconds) + " seconds.";
+    }
+
+    private static Result handleEndGameFireworkSounds(String[] args) {
+        if (args.length > 1) return Result.messages(CommandGtb.head
+                + "Usage: /gtbs fireworks [on|off|toggle]");
+        if (args.length == 1) {
+            Boolean value = parseToggleBoolean(args[0], SETTINGS.endGameFireworkSounds);
+            if (value == null) return Result.messages(CommandGtb.head
+                    + "Usage: /gtbs fireworks [on|off|toggle]");
+            SETTINGS.endGameFireworkSounds = value.booleanValue();
+            saveSettings();
+        }
+        return Result.messages(CommandGtb.head + "End-game firework sounds are currently "
+                + onOff(SETTINGS.endGameFireworkSounds));
     }
 
     private static Result handleCopyTranslation(String[] args) {
@@ -1484,6 +1566,9 @@ public final class CommandGtbRuntime {
         if ("timer".equalsIgnoreCase(args[0]) || "bar".equalsIgnoreCase(args[0])) {
             return handleCooldownCounterPart(args);
         }
+        if ("sfx".equalsIgnoreCase(args[0])) {
+            return handleCooldownCounterSfx(args);
+        }
         if ("background".equalsIgnoreCase(args[0])) {
             return handleCooldownCounterBackground(args);
         }
@@ -1500,7 +1585,27 @@ public final class CommandGtbRuntime {
                         else SETTINGS.chatCooldownPosY = value;
                     });
         }
-        return Result.messages(CommandGtb.head + "Usage: /gtbs cooldowncounter [setlocation|setcolor|timer|bar|background|scale] ...");
+        return Result.messages(CommandGtb.head + "Usage: /gtbs cooldowncounter [setlocation|setcolor|timer|bar|sfx|background|scale] ...");
+    }
+
+    private static Result handleCooldownCounterSfx(String[] args) {
+        boolean progressBeats = args.length >= 2 && "progressbeats".equalsIgnoreCase(args[1]);
+        int valueIndex = progressBeats ? 2 : 1;
+        boolean current = progressBeats
+                ? SETTINGS.chatCooldownProgressBeats : SETTINGS.chatCooldownSfxEnabled;
+        String label = progressBeats ? "Chat cooldown progress beats" : "Chat cooldown SFX";
+        String usage = CommandGtb.head + "Usage: /gtbs cooldowncounter sfx"
+                + (progressBeats ? " progressbeats" : "") + " [on|off|toggle]";
+        if (args.length == valueIndex) {
+            return Result.messages(CommandGtb.head + backgroundStatusMessage(label, current));
+        }
+        if (args.length != valueIndex + 1) return Result.messages(usage);
+        Boolean next = parseToggleBoolean(args[valueIndex], current);
+        if (next == null) return Result.messages(usage);
+        if (progressBeats) SETTINGS.chatCooldownProgressBeats = next.booleanValue();
+        else SETTINGS.chatCooldownSfxEnabled = next.booleanValue();
+        saveSettings();
+        return Result.messages(CommandGtb.head + backgroundStatusMessage(label, next.booleanValue()));
     }
 
     private static Result handlePanelScale(String[] args, String panel, String label) {
@@ -2181,6 +2286,11 @@ public final class CommandGtbRuntime {
         }
 
         @Override
+        public void sendChat(String message) {
+            // Loader entrypoints replace this with a live Minecraft chat sender.
+        }
+
+        @Override
         public boolean copyToClipboard(String text) {
             try {
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
@@ -2345,9 +2455,15 @@ public final class CommandGtbRuntime {
 
     public static final class Result {
         private final List<String> messages;
+        private final HelpPageNavigation helpNavigation;
 
         private Result(List<String> messages) {
+            this(messages, null);
+        }
+
+        private Result(List<String> messages, HelpPageNavigation helpNavigation) {
             this.messages = Collections.unmodifiableList(new ArrayList<String>(messages));
+            this.helpNavigation = helpNavigation;
         }
 
         public static Result empty() {
@@ -2364,8 +2480,16 @@ public final class CommandGtbRuntime {
             return new Result(messages == null ? Collections.<String>emptyList() : messages);
         }
 
+        public static Result messages(List<String> messages, HelpPageNavigation helpNavigation) {
+            return new Result(messages == null ? Collections.<String>emptyList() : messages, helpNavigation);
+        }
+
         public List<String> messages() {
             return messages;
+        }
+
+        public HelpPageNavigation helpNavigation() {
+            return helpNavigation;
         }
     }
 

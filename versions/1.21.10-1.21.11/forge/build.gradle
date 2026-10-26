@@ -856,3 +856,23 @@ guessSoundMigrationSmokes.each { smokeClass ->
 tasks.named('runSmokeTests') {
     dependsOn guessSoundMigrationSmokes.collect { 'run' + it.substring(it.lastIndexOf('.') + 1) }
 }
+
+// Version-neutral development regressions are inherited and discovered by 26.x.
+def development120Smokes = [
+        'com.gtbstructures.stats.GameStatsStartupHandoffSmoke',
+        'com.gtbstructures.stats.LobbyLanguageFallbackSmoke',
+        'com.gtbstructures.sound.EndGameFireworkControllerSmoke',
+        'com.gtbstructures.translation.HypixelGuessChatSmoke',
+]
+development120Smokes.each { smokeClass ->
+    def taskName = 'run' + smokeClass.substring(smokeClass.lastIndexOf('.') + 1)
+    tasks.register(taskName, JavaExec) {
+        group = 'verification'
+        dependsOn tasks.testClasses
+        classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
+        mainClass = smokeClass
+    }
+}
+tasks.named('runSmokeTests') {
+    dependsOn development120Smokes.collect { 'run' + it.substring(it.lastIndexOf('.') + 1) }
+}

@@ -81,9 +81,11 @@ public final class GuessSoundController {
     }
 
     public synchronized void onRoundBoundary() { reset(); }
-    public synchronized void onWorldUnload() { reset(); }
-    public synchronized void onDisconnect() { reset(); }
+    public synchronized void onWorldUnload() { reset(); EndGameFireworkController.INSTANCE.reset(); }
+    public synchronized void onDisconnect() { reset(); EndGameFireworkController.INSTANCE.reset(); }
     public synchronized void reset() { clearToken(); localBuilderRound = false; }
+
+    public synchronized boolean isPlayingReplacement() { return playingReplacement; }
 
     synchronized int pendingPoints(long now) { return tokenLive(now) && !resolved ? points : 0; }
 

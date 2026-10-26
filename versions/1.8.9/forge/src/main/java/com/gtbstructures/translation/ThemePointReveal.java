@@ -42,7 +42,7 @@ public final class ThemePointReveal {
         Integer point = pointFromTheme(displayedTheme,
                 liveLangCode == null ? round.langCode : liveLangCode,
                 round.builderThemeOptions, ruledOutEnglishThemes,
-                currentBuilderScoreboardPoint(round));
+                currentBuilderScoreboardPoint(round), round.acceptedGuessTexts);
         queueIfAllowed(round, point, enabled, showAfterGuess);
     }
 
@@ -64,7 +64,16 @@ public final class ThemePointReveal {
                                   String[] builderThemeOptions,
                                   Collection<String> ruledOutEnglishThemes,
                                   Integer scoreboardPoint) {
+        return pointFromTheme(displayedTheme, langCode, builderThemeOptions,
+                ruledOutEnglishThemes, scoreboardPoint, Collections.<String>emptyList());
+    }
+
+    static Integer pointFromTheme(String displayedTheme, String langCode,
+                                  String[] builderThemeOptions,
+                                  Collection<String> ruledOutEnglishThemes,
+                                  Integer scoreboardPoint, Collection<String> acceptedGuessTexts) {
         if (displayedTheme == null || displayedTheme.trim().isEmpty()) return null;
+        if (scoreboardPoint != null && isThemePoint(scoreboardPoint.intValue())) return scoreboardPoint;
         String cleanTheme = displayedTheme.trim();
         if (builderThemeOptions != null) {
             for (int i = 0; i < Math.min(3, builderThemeOptions.length); i++) {
@@ -77,7 +86,8 @@ public final class ThemePointReveal {
 
         PointEntry inferred = ThemePointAward.compute(cleanTheme, langCode,
                 ruledOutEnglishThemes == null
-                        ? Collections.<String>emptySet() : ruledOutEnglishThemes);
+                        ? Collections.<String>emptySet() : ruledOutEnglishThemes,
+                acceptedGuessTexts);
         Integer exact = exactPoint(inferred);
         if (exact != null) return exact;
         if (inferred != null && inferred.kind == PointEntry.Kind.FORK

@@ -85,8 +85,7 @@ function Resolve-JavaHome {
     $searchRoots = @(
         (Join-Path $env:ProgramFiles 'Java'),
         (Join-Path $env:ProgramFiles 'Eclipse Adoptium'),
-        (Join-Path $env:USERPROFILE '.jdks'),
-        'D:\GTBS-26x-toolchains'
+        (Join-Path $env:USERPROFILE '.jdks')
     ) | Select-Object -Unique
 
     foreach ($searchRoot in $searchRoots) {

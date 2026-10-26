@@ -15,6 +15,7 @@ public final class ThemePointReveal {
         public String langCode;
         public String hintStructure;
         public String[] builderThemeOptions;
+        public Collection<String> acceptedGuessTexts = Collections.emptyList();
         public boolean selfBuildRound;
         public boolean completeThemeRevealedToUser;
         public boolean themePointRevealSent;
@@ -45,7 +46,8 @@ public final class ThemePointReveal {
         if (round == null) return null;
         Integer point = pointFromTheme(displayedTheme,
                 liveLangCode == null ? round.langCode : liveLangCode,
-                round.builderThemeOptions, ruledOutEnglishThemes, scoreboardDelta);
+                round.builderThemeOptions, ruledOutEnglishThemes, scoreboardDelta,
+                round.acceptedGuessTexts);
         return buildIfAllowed(round, point, enabled, showAfterGuess);
     }
 
@@ -67,7 +69,17 @@ public final class ThemePointReveal {
                                   String[] builderThemeOptions,
                                   Collection<String> ruledOutEnglishThemes,
                                   ScoreDelta scoreboardDelta) {
+        return pointFromTheme(displayedTheme, langCode, builderThemeOptions,
+                ruledOutEnglishThemes, scoreboardDelta, Collections.<String>emptyList());
+    }
+
+    static Integer pointFromTheme(String displayedTheme, String langCode,
+                                  String[] builderThemeOptions,
+                                  Collection<String> ruledOutEnglishThemes,
+                                  ScoreDelta scoreboardDelta, Collection<String> acceptedGuessTexts) {
         if (displayedTheme == null || displayedTheme.trim().isEmpty()) return null;
+        Integer authoritativePoint = pointFromScoreboardDelta(scoreboardDelta);
+        if (authoritativePoint != null) return authoritativePoint;
         String cleanTheme = displayedTheme.trim();
         if (builderThemeOptions != null) {
             for (int i = 0; i < Math.min(3, builderThemeOptions.length); i++) {
@@ -80,7 +92,8 @@ public final class ThemePointReveal {
 
         PointEntry inferred = ThemePointAward.compute(cleanTheme, langCode,
                 ruledOutEnglishThemes == null
-                        ? Collections.<String>emptySet() : ruledOutEnglishThemes);
+                        ? Collections.<String>emptySet() : ruledOutEnglishThemes,
+                acceptedGuessTexts);
         Integer exact = exactPoint(inferred);
         if (exact != null) return exact;
         Integer reconciledPoint = pointFromScoreboardDelta(scoreboardDelta);

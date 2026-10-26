@@ -1,10 +1,10 @@
 package com.gtbstructures.scoreboard;
 
 import com.gtbstructures.chat.ChatHeader;
+import com.gtbstructures.util.FabricInputBridge;
 import com.gtbstructures.util.MinecraftClientUiBridge;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.MappingResolver;
-import org.lwjgl.glfw.GLFW;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
@@ -144,7 +144,7 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
                     "keyPressed", "method_25404");
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        if (FabricInputBridge.isKeyCode(keyCode, FabricInputBridge.Key.ESCAPE)) {
             InterfacePreview.INSTANCE.disableSilently();
         }
         return true;
@@ -226,7 +226,8 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
         final TextFieldPurpose effectivePurpose = purpose == null
                 ? TextFieldPurpose.HEADER : purpose;
         try {
-            Object screen = MinecraftClientUiBridge.currentScreen(minecraftClient());
+            Object client = minecraftClient();
+            Object screen = MinecraftClientUiBridge.currentScreen(client);
             if (!isPreviewScreen(screen)) return;
             if (headerEditBox == null || headerEditScreen != screen) {
                 discardHeaderEditor();
@@ -262,6 +263,7 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
             invokeAny(headerEditBox, new Object[] {true},
                     minecraftMethodName(ELEMENT, "method_25365", "(Z)V"),
                     "setFocused", "method_25365");
+            FabricInputBridge.onTextInputFocusChange(client, headerEditBox, true);
             headerEditNeedsLayoutRefresh = true;
         } catch (ReflectiveOperationException | RuntimeException e) {
             discardHeaderEditor();
@@ -420,6 +422,11 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
         headerEditNeedsLayoutRefresh = false;
         if (widget == null) return;
         try {
+            try {
+                FabricInputBridge.onTextInputFocusChange(minecraftClient(), widget, false);
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // Field teardown must still proceed if the Minecraft client is unavailable.
+            }
             invokeAny(widget, new Object[] {false},
                     minecraftMethodName(ELEMENT, "method_25365", "(Z)V"),
                     "setFocused", "method_25365");
@@ -439,16 +446,7 @@ public final class PreviewScreenController implements InterfacePreview.ScreenCon
     }
 
     private static int keyCode(Object input) {
-        if (input == null) return GLFW.GLFW_KEY_UNKNOWN;
-        try {
-            Object value = invokeAny(input, new Object[0],
-                    minecraftMethodName(KEY_INPUT, "comp_4795", "()I"),
-                    "key", "comp_4795");
-            return value instanceof Number ? ((Number) value).intValue() : GLFW.GLFW_KEY_UNKNOWN;
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            LOGGER.warn("Unable to read GtbStructures Fabric key input", e);
-            return GLFW.GLFW_KEY_UNKNOWN;
-        }
+        return FabricInputBridge.keyCode(input);
     }
 
     private static boolean invokeWidgetBoolean(Object target, String owner, String name,

@@ -13,8 +13,11 @@ Download GTBS from [GitHub Releases](https://github.com/ImageIce/GtbStructures/r
 - Multilingual theme matching, difficulty-filtered GTW practice, optional result counts, configurable translation-copy casing, shortcut reminders, and GuessPeek annotations.
 - Local game tracking, statistics summaries, and opt-in stats/raw-packet exports.
 - Experimental configurable correct-guess sounds with three point selectors, None/Random choices, default volume 20 and maximum volume 30, and a session-only `/gtbs preview` editor. Modern targets enumerate the complete Minecraft sound catalog, exclude music and discs, use native English subtitle captions with audited qualifiers, and show semantically matched block, item, or species-specific spawn-egg icons.
+- Experimental end-game firework audio control, enabled by default to preserve vanilla sounds. Use `/gtbs fireworks [on|off|toggle]` or the preview editor.
+- Received-guess matching supports Hypixel-normalized Russian lookalikes while preserving original translations and outgoing guesses.
 - Preview and layout controls for configuring interface elements outside a live game.
-- Utility commands for queueing, leaving/rejoining, configurable-delay requeueing, and checking builder progress.
+- Utility commands for queueing, leaving/rejoining, configurable-delay requeueing, and checking builder progress. `/gtbs lrj delay [time]` or `/lrj delay [time]` queries/sets an additional 0.0-10.0 second delay after LRJ becomes ready to rejoin; the default is 0.0 seconds.
+- Update notices include a bounded plain-text preview of the curated GitHub release changelog, with GitHub and Modrinth links. Publish the curated notes in the release description; no separate changelog request is needed. The existing update-notice toggle and one-check-per-session behavior still apply.
 
 Run `/gtbs help` in game for the categorized command list. `/gtbs preview` opens a session-only preview of enabled interface features.
 
@@ -28,16 +31,20 @@ Each loader directory is an independent Gradle project; this repository is not a
 | 1.21.10-1.21.11 | Fabric | Java 21 | `versions/1.21.10-1.21.11/fabric` |
 | 1.21.10-1.21.11 | Forge | Java 21 | `versions/1.21.10-1.21.11/forge` |
 | 26.1 | Fabric | Java 25 | `versions/26.1/fabric` |
-| 26.1 | Forge | Java 25 | `versions/26.1/forge` |
 | 26.2 | Fabric | Java 25 | `versions/26.2/fabric` |
-| 26.2 | Forge | Java 25 | `versions/26.2/forge` |
+| 26.3 | Fabric | Java 25 | `versions/26.3/fabric` |
 
-The 26.x roots reuse version-neutral implementation code and resources from the maintained 1.21 loader baseline, while keeping their target-specific adapters and metadata locally.
+The active 26.x Fabric roots reuse version-neutral implementation code and resources from the maintained 1.21 Fabric baseline, while keeping their target-specific adapters and metadata locally. Minecraft 26.3 is a maintained Fabric target.
+
+Their target-owned SoundManager playback adapters reuse the shared firework and correct-guess sound controllers, including filtering client-generated post-game fireworks.
 
 For the 1.1.1 publication, the 26.1 and 26.2 Forge roots are source-only:
 their built JARs are intentionally not published. GTBS 1.1.1 is the final
 version that includes 26.x Forge source; those targets are discontinued after
-this version.
+this version. `versions/26.1/forge` and `versions/26.2/forge` are archival
+folders, not active sync, build, parity, or release targets. Their existing
+shared-source references do not reinstate support. Do not resume target-owned
+work or builds unless the user explicitly reopens those targets.
 
 ## Installation
 
@@ -49,7 +56,7 @@ this version.
 
 Do not mix Fabric and Forge artifacts or use a JAR built for a different Minecraft line.
 
-## Building and testing
+## Building the public source
 
 Run the wrapper from the loader directory being built. Artifacts are written to that root's `build/libs/` directory.
 
@@ -59,46 +66,14 @@ Run the wrapper from the loader directory being built. Artifacts are written to 
 | `versions/1.21.10-1.21.11/fabric` | `gradlew.bat --no-daemon clean build` |
 | `versions/1.21.10-1.21.11/forge` | `gradlew.bat --no-daemon clean build` |
 | `versions/26.1/fabric` | `gradlew.bat --no-daemon clean build` |
-| `versions/26.1/forge` | `gradlew.bat --no-daemon clean build` |
 | `versions/26.2/fabric` | `gradlew.bat --no-daemon clean build` |
-| `versions/26.2/forge` | `gradlew.bat --no-daemon clean build` |
+| `versions/26.3/fabric` | `gradlew.bat --no-daemon clean build` |
 
-Use Java 8 for the legacy root, Java 21 for 1.21.10-1.21.11, and Java 25 for 26.x. On a constrained system drive, pass `-PgtbsTargetWorkRoot=<path>` to redirect generated build/run output without changing the portable default.
+Use Java 8 for the legacy root, Java 21 for 1.21.10-1.21.11, and Java 25 for 26.x. The 26.2 and 26.3 Fabric roots accept `-PgtbsTargetWorkRoot=<path>` to redirect generated build/run output without changing the portable default; the 26.1 root does not implement that option.
 
-### Accelerated development verification
+### Public source build scope
 
-Use `tools/gtbs.ps1` from the project directory that contains `tools` during active development. It
-selects Java 8, 21, or 25 automatically, keeps incremental outputs, and runs
-only the checks mapped to the affected subsystem. The first invocation
-starts the appropriate Gradle daemon; later invocations reuse it. This does not
-replace the clean seven-root release gate.
-
-```powershell
-# Inspect what would run.
-.\tools\gtbs.ps1 fast -Target 26.2-fabric -Area preview -PlanOnly
-
-# Incrementally check one target and run the Preview checks.
-.\tools\gtbs.ps1 fast -Target 26.2-fabric -Area preview
-
-# Check the affected subsystem across every maintained target.
-.\tools\gtbs.ps1 parity -Area preview
-
-# Run the clean, complete, sequential release matrix.
-.\tools\gtbs.ps1 release
-```
-
-Available areas are `preview`, `scoreboard`, `translation`, `lrj`,
-`guesspeek`, `guesssounds`, `autorequeue`, `identity`, `commands`, and `resources`. Add one or
-more exact Gradle tasks with `-Task`; use `-NoDaemon` when daemon reuse is not
-desired. `fast` also accepts `-DeployTo <existing-jar>` after successful
-verification. Deployment refuses a missing target, multiple active GTBS JARs,
-any remaining Java process, or a SHA-256 mismatch, and never creates a backup.
-All GTBS Gradle daemon families are stopped automatically before this guard.
-Use `-PlanOnly -Json` when another tool needs the resolved plan.
-
-The area/task mapping and release matrix live in
-`tools/verification-scopes.json`. Update that manifest whenever a relevant
-verification task or maintained target changes.
+The clean Gradle commands above build the public source included in this bundle. The optional `tools/gtbs.ps1` helper uses `tools/verification-scopes.json` to select one target (`fast`), the targets mapped to a feature area (`parity`), or all maintained targets (`release`). Public plans invoke build tasks only.
 
 ## Privacy and network behavior
 

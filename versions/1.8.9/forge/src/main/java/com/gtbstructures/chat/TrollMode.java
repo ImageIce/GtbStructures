@@ -11,6 +11,16 @@ public final class TrollMode {
     private TrollMode() {
     }
 
+    /** Explicit one-shot chat: no setting, round-state, or theme lookup. */
+    public static String prepareOneShot(String message) {
+        if (message == null || message.codePoints().allMatch(c ->
+                Character.isWhitespace(c) || Character.isSpaceChar(c))
+                || message.length() + TROLL_MARKER.length() > MAX_CHAT_LENGTH) {
+            return null;
+        }
+        return message + TROLL_MARKER;
+    }
+
     public static String transformOutbound(String message) {
         return transform(message, GameStats.INSTANCE.getState(),
                 GameStats.INSTANCE.hasLocalPlayerCorrectlyGuessedCurrentRound(),

@@ -131,6 +131,11 @@ public final class RawPacketRecorder {
         return modEnabled;
     }
 
+    /** Drain already queued lobby packets before GameStats changes to NOT_IN_GAME. */
+    public synchronized void flushPendingBeforeLobbyHandoff() {
+        drainAllPending();
+    }
+
     public synchronized void startSession(long gameStartMs) {
         drainAllPending();
         session.clear();
@@ -224,7 +229,11 @@ public final class RawPacketRecorder {
         if (state == GameStats.TrackingState.LOBBY
                 || state == GameStats.TrackingState.ROUND_PRE
                 || state == GameStats.TrackingState.ROUND_BUILD
-                || state == GameStats.TrackingState.ROUND_END) {
+                || state == GameStats.TrackingState.ROUND_END
+                // Scoreboard removal can briefly precede the first round header.
+                // Keep its original arrival time inside the verified lobby handoff,
+                // including packets drained by startSession before it consumes it.
+                || GameStats.INSTANCE.isLobbyHandoffActive(sample.t)) {
             appendPreSessionRecord(record);
         }
     }

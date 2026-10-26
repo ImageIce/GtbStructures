@@ -21,7 +21,21 @@ public final class ThemePointAward {
 
     public static PointEntry compute(String displayedTheme, String langCode,
                                      Collection<String> ruledOutEnglishThemes) {
+        return compute(displayedTheme, langCode, ruledOutEnglishThemes, Collections.<String>emptyList());
+    }
+
+    public static PointEntry compute(String displayedTheme, String langCode,
+                                     Collection<String> ruledOutEnglishThemes,
+                                     Collection<String> acceptedGuessTexts) {
+        return compute(displayedTheme, langCode, ruledOutEnglishThemes, acceptedGuessTexts, null);
+    }
+
+    public static PointEntry compute(String displayedTheme, String langCode,
+                                     Collection<String> ruledOutEnglishThemes,
+                                     Collection<String> acceptedGuessTexts, Integer scoreboardPoint) {
         if (displayedTheme == null || displayedTheme.isEmpty()) return PointEntry.zero();
+        if (scoreboardPoint != null && scoreboardPoint.intValue() >= 1
+                && scoreboardPoint.intValue() <= 3) return PointEntry.definite(scoreboardPoint.intValue());
 
         // Pirate is stored as translated data and must use reverse lookup.
         String normalized = TranslationData.normalizeLangCode(langCode);
@@ -30,7 +44,7 @@ public final class ThemePointAward {
         }
 
         Set<Integer> candidates = TranslationData.lookupBuilderPoints(
-                langCode, displayedTheme, ruledOutEnglishThemes);
+                langCode, displayedTheme, ruledOutEnglishThemes, acceptedGuessTexts);
         if (candidates == null || candidates.isEmpty()) {
             return PointEntry.definite(awardForEnglishLength(displayedTheme));
         }

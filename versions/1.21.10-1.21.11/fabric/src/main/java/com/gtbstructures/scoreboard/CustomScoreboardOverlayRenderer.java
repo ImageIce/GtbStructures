@@ -6,8 +6,8 @@ import com.gtbstructures.diagnostics.RawPacketRecorder;
 import com.gtbstructures.overlay.FabricHudElementBridge;
 import com.gtbstructures.stats.GameStats;
 import com.gtbstructures.stats.LangPatterns;
+import com.gtbstructures.util.FabricInputBridge;
 import com.gtbstructures.util.RuntimeReflectionCache;
-import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1094,16 +1094,7 @@ public final class CustomScoreboardOverlayRenderer {
     }
 
     private static boolean isTabKeyPhysicallyDown(Object mc) {
-        try {
-            Object window = invokeAny(mc, "getWindow", "method_22683");
-            Object handle = invokeAny(window, "getHandle", "handle", "method_4490");
-            if (!(handle instanceof Number)) return false;
-            long windowHandle = ((Number) handle).longValue();
-            return windowHandle != 0L
-                    && GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_TAB) == GLFW.GLFW_PRESS;
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            return false;
-        }
+        return FabricInputBridge.isKeyDown(mc, FabricInputBridge.Key.TAB);
     }
 
     private static Object minecraftClient() throws ReflectiveOperationException {

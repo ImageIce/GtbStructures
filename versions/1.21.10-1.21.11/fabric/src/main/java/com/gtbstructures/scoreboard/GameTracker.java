@@ -72,6 +72,13 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     }
 
+    @Override
+    public void onMidGameStart() {
+        if (game == null) return;
+        game.totalRounds = 0;
+        game.awaitingAuthoritativeRoundTotal = true;
+    }
+
     public void onTickActivity() {
         if (game == null) return;
         for (GtbPlayer p : game.players.values()) p.inactiveTicks++;
@@ -98,7 +105,7 @@ public final class GameTracker implements GameStats.GtbHooks {
             game.rejoinGuessOrderUncertain = false;
             game.rejoinBuilderChangedBeforeRoundHeader = false;
         }
-        if (game.totalRounds <= 0) {
+        if (game.totalRounds <= 0 && !game.awaitingAuthoritativeRoundTotal) {
             game.totalRounds = Math.max(1, game.players.size());
             for (GtbPlayer p : game.players.values()) {
                 ensurePointsCapacity(p, game.totalRounds);
@@ -178,6 +185,9 @@ public final class GameTracker implements GameStats.GtbHooks {
         game.currentTheme = "";
         game.currentHintStructure = "";
         game.ruledOutEnglishThemesThisRound.clear();
+        game.acceptedGuessTextsThisRound.clear();
+        game.scoreboardBuilderPointsThisRound.clear();
+        game.uncertainBuilderBaselinesThisRound.clear();
         game.wrongGuessesThisRound.clear();
         game.roundCountUnknown = false;
         game.rejoinGuessOrderUncertain = false;
@@ -332,6 +342,12 @@ public final class GameTracker implements GameStats.GtbHooks {
                 awarded.append(" SKIP-already-set(").append(ign).append(")");
             }
             onActivity(p);
+            if (game.rejoinGuessOrderUncertain) {
+                // This new guess follows every already-proven occupied rank,
+                // including sidebar-only scorers missing from observed chat.
+                game.correctGuessesThisRound = Math.max(game.correctGuessesThisRound,
+                        game.rejoinPriorGuessFloor);
+            }
             game.correctGuessesThisRound++;
         }
         awardBuilderIfReady();
@@ -346,7 +362,10 @@ public final class GameTracker implements GameStats.GtbHooks {
             return PointEntry.definite(Math.max(1, 3 - observedIndex));
         }
 
-        int maxAward = Math.max(1, 3 - game.rejoinPriorGuessFloor - observedIndex);
+        // Chat and retained/replayed scoreboard awards can prove the same ranks.
+        // These are overlapping lower bounds, not additional hidden guessers.
+        int occupiedRankFloor = Math.max(game.rejoinPriorGuessFloor, observedIndex);
+        int maxAward = Math.max(1, 3 - occupiedRankFloor);
         if (maxAward == 1) return PointEntry.definite(1);
         java.util.Set<Integer> options = new java.util.HashSet<Integer>();
         for (int v = 1; v <= maxAward; v++) {
@@ -411,6 +430,12 @@ public final class GameTracker implements GameStats.GtbHooks {
         if (trimmed.isEmpty()) return;
         game.wrongGuessesThisRound.add(trimmed);
         if (!applyGuessExclusionsIfCurrentThemeIsMultiword()) return;
+        awardBuilderIfReady();
+    }
+
+    public void onAcceptedGuess(String actualSent) {
+        if (game == null || actualSent == null || actualSent.trim().isEmpty()) return;
+        game.acceptedGuessTextsThisRound.add(actualSent);
         awardBuilderIfReady();
     }
 
@@ -543,6 +568,18 @@ public final class GameTracker implements GameStats.GtbHooks {
             if (!isPlausibleObservedScore(rawObserved)) {
                 continue;
             }
+            if (!settleRoundStartBaseline
+                    && !game.uncertainBuilderBaselinesThisRound.contains(p)
+                    && (p == game.currentBuilder || p.buildRound == game.currentRound)
+                    && !hasLocalRejoinUncertainty() && !p.unresolvedIdentity
+                    && p.roundsMissedDuringDisconnect == 0 && p.presentAtGameStart) {
+                Integer baseline = scoreIgnoreCase(game.roundStartTrueScore, p.name);
+                if (baseline == null) baseline = exactTotalExceptRound(p.points, game.currentRound - 1);
+                int delta = baseline == null ? -1 : rawObserved - baseline.intValue();
+                if (delta >= 1 && delta <= 3) {
+                    game.scoreboardBuilderPointsThisRound.put(p.name, Integer.valueOf(delta));
+                }
+            }
             Integer authoritativeBuilderTotal = authoritativeBuilderTotal(p);
             int stableObserved;
             if (!closingScoreSnapshot && authoritativeBuilderTotal != null) {
@@ -576,6 +613,9 @@ public final class GameTracker implements GameStats.GtbHooks {
             }
             boolean absorbedAsRoundStartBaseline = settleRoundStartBaseline
                     && absorbRoundStartScoreBaseline(p, stableObserved);
+            if (settleRoundStartBaseline && !absorbedAsRoundStartBaseline) {
+                game.uncertainBuilderBaselinesThisRound.add(p);
+            }
             if (!absorbedAsRoundStartBaseline) {
                 applyVisibleScoreDelta(p, stableObserved, prior,
                         scoreIgnoreCase(previousVisible, e.getKey()));
@@ -587,6 +627,16 @@ public final class GameTracker implements GameStats.GtbHooks {
         }
         game.visibleTrueScore = visible;
         game.latestTrueScore = latest;
+        if (settleRoundStartBaseline && !visible.isEmpty()) {
+            for (GtbPlayer player : game.players.values()) {
+                if (scoreIgnoreCase(visible, player.name) == null) {
+                    game.uncertainBuilderBaselinesThisRound.add(player);
+                }
+            }
+        }
+        if (TranslationData.isDisplayedMultiwordTheme(game.currentLangCode, game.currentTheme)) {
+            awardBuilderIfReady();
+        }
         if (settleRoundStartBaseline && !visible.isEmpty()) {
             game.roundStartScoreBaselinePending = false;
         }
@@ -1179,6 +1229,7 @@ public final class GameTracker implements GameStats.GtbHooks {
     private void updateKnownRoundCount(int totalRounds) {
         if (game == null || totalRounds <= 0) return;
         game.totalRounds = totalRounds;
+        game.awaitingAuthoritativeRoundTotal = false;
         int capacity = Math.max(game.totalRounds, game.currentRound);
         for (GtbPlayer p : game.players.values()) {
             ensurePointsCapacity(p, capacity);
@@ -1188,7 +1239,7 @@ public final class GameTracker implements GameStats.GtbHooks {
     private void ensureImplicitFirstRound() {
         if (game == null || game.currentRound > 0) return;
         if (hasLocalRejoinUncertainty()) return;
-        if (game.totalRounds <= 0) {
+        if (game.totalRounds <= 0 && !game.awaitingAuthoritativeRoundTotal) {
             game.totalRounds = Math.max(1, game.players.size());
         }
         for (GtbPlayer p : game.players.values()) {
@@ -1200,6 +1251,9 @@ public final class GameTracker implements GameStats.GtbHooks {
         game.currentTheme = "";
         game.currentHintStructure = "";
         game.ruledOutEnglishThemesThisRound.clear();
+        game.acceptedGuessTextsThisRound.clear();
+        game.scoreboardBuilderPointsThisRound.clear();
+        game.uncertainBuilderBaselinesThisRound.clear();
         game.wrongGuessesThisRound.clear();
         game.roundSkippedThisRound = false;
         clearPendingBuilderScoreMarkers();
@@ -1254,6 +1308,9 @@ public final class GameTracker implements GameStats.GtbHooks {
         game.currentTheme = "";
         game.currentHintStructure = "";
         game.ruledOutEnglishThemesThisRound.clear();
+        game.acceptedGuessTextsThisRound.clear();
+        game.scoreboardBuilderPointsThisRound.clear();
+        game.uncertainBuilderBaselinesThisRound.clear();
         game.wrongGuessesThisRound.clear();
         game.roundSkippedThisRound = false;
         clearPendingBuilderScoreMarkers();
@@ -1442,10 +1499,9 @@ public final class GameTracker implements GameStats.GtbHooks {
         }
 
         int provenOccupiedSlots = Math.max(exactScorerCount, rankFloor);
-        int preGapObservedGuesses = Math.max(0,
-                game.correctGuessesThisRound - game.rejoinObservedGuessOrder.size());
-        int hiddenOccupiedSlots = Math.max(0, provenOccupiedSlots - preGapObservedGuesses);
-        game.rejoinPriorGuessFloor = Math.max(game.rejoinPriorGuessFloor, hiddenOccupiedSlots);
+        // Keep the full rank bound: correctGuessAwardEntry combines it with
+        // the observed chat count using max, so overlapping ranks count once.
+        game.rejoinPriorGuessFloor = Math.max(game.rejoinPriorGuessFloor, provenOccupiedSlots);
     }
 
     private int indexOfIgnoreCase(List<String> values, String target) {
@@ -1460,15 +1516,50 @@ public final class GameTracker implements GameStats.GtbHooks {
     /** Award the builder from the revealed theme, correcting a tentative sidebar delta. */
     private void awardBuilderIfReady() {
         if (game == null) return;
-        if (game.correctGuessesThisRound <= 0) return;
+        if (game.correctGuessesThisRound <= 0 && game.acceptedGuessTextsThisRound.isEmpty()) return;
         if (isAbandonedLocalBuildRound()) return;
         if (game.currentTheme == null || game.currentTheme.isEmpty()) return;
         GtbPlayer builder = builderAwaitingThemeAward();
         if (builder == null) return;
         int r = game.currentRound - 1;
         if (r < 0 || builder.points == null || r >= builder.points.length) return;
+        boolean multiword = TranslationData.isDisplayedMultiwordTheme(
+                game.currentLangCode, game.currentTheme);
+        Integer scoreboardPoint = scoreIgnoreCase(game.scoreboardBuilderPointsThisRound, builder.name);
+        GameStats.RoundData liveRound = GameStats.INSTANCE.getCurrentRound();
+        if (liveRound != null && liveRound.roundNumber == game.currentRound
+                && liveRound.builder != null && liveRound.builder.equalsIgnoreCase(builder.name)) {
+            com.gtbstructures.stats.ScoreDelta delta = liveRound.scoreDeltas.get(liveRound.builder);
+            if (delta != null && delta.isDefinite() && "scoreboard".equals(delta.source)
+                    && delta.value != null && delta.value.intValue() >= 1 && delta.value.intValue() <= 3) {
+                scoreboardPoint = delta.value;
+            }
+            if (scoreboardPoint == null && liveRound.builderThemeOptions != null) {
+                for (int i = 0; i < Math.min(3, liveRound.builderThemeOptions.length); i++) {
+                    if (game.currentTheme.equalsIgnoreCase(liveRound.builderThemeOptions[i])) {
+                        scoreboardPoint = Integer.valueOf(i + 1);
+                    }
+                }
+            }
+        }
+        if (multiword) {
+            PointEntry evidenceAward = ThemePointAward.compute(game.currentTheme,
+                    game.currentLangCode, game.ruledOutEnglishThemesThisRound,
+                    game.acceptedGuessTextsThisRound, scoreboardPoint);
+            // Chat narrowing is reversible. Do not retain a synthesized total or
+            // intersect with a stale singleton when later chat contradicts it.
+            builder.points[r] = evidenceAward;
+            builder.pendingBuilderScoreRound = 0;
+            builder.suppressedPointBadgeRound = 0;
+            builder.authoritativeBuilderScoreRound = 0;
+            if (scoreboardPoint != null) applyBuilderAward(builder, r, evidenceAward);
+            builder.everScored = true;
+            markMessageOrScoreEvidence(builder);
+            return;
+        }
         PointEntry award = ThemePointAward.compute(
-                game.currentTheme, game.currentLangCode, game.ruledOutEnglishThemesThisRound);
+                game.currentTheme, game.currentLangCode, game.ruledOutEnglishThemesThisRound,
+                game.acceptedGuessTextsThisRound);
         if (award == null) return;
         award = resolveAwardFromKnownTotal(builder, r, award);
         PointEntry existing = builder.points[r];

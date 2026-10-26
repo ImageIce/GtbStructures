@@ -5,6 +5,7 @@ import com.gtbstructures.diagnostics.RawPacketRecorder;
 import com.gtbstructures.overlay.WorldEnvironmentOverlay;
 import com.gtbstructures.stats.GameStats;
 import com.gtbstructures.sound.GuessSoundController;
+import com.gtbstructures.sound.EndGameFireworkController;
 
 import com.mojang.authlib.GameProfile;
 import io.netty.channel.Channel;
@@ -52,11 +53,13 @@ public final class PlayerListPacketListener {
         if (!captureEnabledForMaster(GtbStructures.modEnabled)) {
             pending.clear();
             GuessSoundController.INSTANCE.reset();
+            EndGameFireworkController.INSTANCE.reset();
             return;
         }
         Minecraft mc = Minecraft.getMinecraft();
         if (mc == null || mc.theWorld == null || mc.thePlayer == null) {
             GuessSoundController.INSTANCE.onWorldUnload();
+            EndGameFireworkController.INSTANCE.reset();
         }
         registerIfNeeded();
         drainPending();
@@ -70,6 +73,7 @@ public final class PlayerListPacketListener {
             if (ch == null || !ch.isOpen()) return;
             if (ch != channel) {
                 GuessSoundController.INSTANCE.onDisconnect();
+                EndGameFireworkController.INSTANCE.reset();
             }
             if (ch == channel && ch.pipeline().get(HANDLER) != null) return;
             if (ch.pipeline().get(HANDLER) != null) {
@@ -179,6 +183,17 @@ public final class PlayerListPacketListener {
     @SubscribeEvent
     public void onPlaySound(PlaySoundEvent event) {
         if (event == null || event.sound == null) return;
+        if (!GtbStructures.modEnabled) {
+            EndGameFireworkController.INSTANCE.reset();
+            return;
+        }
+        if (EndGameFireworkController.shouldSuppress(event.name,
+                GtbStructures.modEnabled, GtbStructures.endGameFireworkSounds,
+                EndGameFireworkController.INSTANCE.isPostGameLatched(),
+                GuessSoundController.INSTANCE.isPlayingReplacement())) {
+            event.result = null;
+            return;
+        }
         if (GuessSoundController.INSTANCE.consumeOriginal(
                 event.name, event.sound.getVolume(), event.sound.getPitch(),
                 System.currentTimeMillis())) {
@@ -188,7 +203,10 @@ public final class PlayerListPacketListener {
 
     @SubscribeEvent
     public void onWorldUnload(WorldEvent.Unload event) {
-        if (event.world.isRemote) GuessSoundController.INSTANCE.onWorldUnload();
+        if (event.world.isRemote) {
+            GuessSoundController.INSTANCE.onWorldUnload();
+            EndGameFireworkController.INSTANCE.reset();
+        }
     }
 
     private void captureTabPacket(S38PacketPlayerListItem packet) {

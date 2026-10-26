@@ -4,6 +4,7 @@ final class LeaveRejoinController {
     static final long MIN_REJOIN_WAIT_MS = 750L;
     static final long MAX_REJOIN_WAIT_MS = 3500L;
     static final int TIMEOUT_TICKS = 20 * 60;
+    static final long MAX_DELAY_MS = 10_000L;
 
     interface Clock {
         long nowMillis();
@@ -18,6 +19,8 @@ final class LeaveRejoinController {
     private int pendingTicks = -1;
     private boolean connectionBoundaryObserved;
     private long pendingSinceMs;
+    private long readySinceMs = -1L;
+    private long delayMs;
     private final Clock clock;
 
     LeaveRejoinController() {
@@ -35,9 +38,15 @@ final class LeaveRejoinController {
     }
 
     void start() {
+        start(0L);
+    }
+
+    void start(long delayMs) {
         pendingTicks = 0;
         connectionBoundaryObserved = false;
         pendingSinceMs = clock.nowMillis();
+        readySinceMs = -1L;
+        this.delayMs = Math.max(0L, Math.min(MAX_DELAY_MS, delayMs));
     }
 
     void onConnectionBoundary(boolean playReady) {
@@ -59,6 +68,18 @@ final class LeaveRejoinController {
         if (!connectionBoundaryObserved && elapsedMs < MAX_REJOIN_WAIT_MS) {
             return Action.NONE;
         }
+        long now = clock.nowMillis();
+        if (readySinceMs < 0L) {
+            readySinceMs = now;
+            return delayMs == 0L ? finishRejoin() : Action.NONE;
+        }
+        long readyElapsed = now - readySinceMs;
+        if (readyElapsed < 0L) readyElapsed = 0L;
+        if (readyElapsed < delayMs) return Action.NONE;
+        return finishRejoin();
+    }
+
+    private Action finishRejoin() {
         cancel();
         return Action.REJOIN;
     }
@@ -75,5 +96,7 @@ final class LeaveRejoinController {
         pendingTicks = -1;
         connectionBoundaryObserved = false;
         pendingSinceMs = 0L;
+        readySinceMs = -1L;
+        delayMs = 0L;
     }
 }

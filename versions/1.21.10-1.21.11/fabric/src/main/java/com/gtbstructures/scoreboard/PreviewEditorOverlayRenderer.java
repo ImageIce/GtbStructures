@@ -2,10 +2,10 @@ package com.gtbstructures.scoreboard;
 
 import com.gtbstructures.overlay.FabricHudElementBridge;
 import com.gtbstructures.sound.SoundIconMapping;
+import com.gtbstructures.util.FabricInputBridge;
 import com.gtbstructures.util.RuntimeReflectionCache;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.MappingResolver;
-import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -126,7 +126,7 @@ public final class PreviewEditorOverlayRenderer {
             if (scaledWidth <= 0 || scaledHeight <= 0) return;
             PreviewLayoutEditor.render(
                     new FabricEditorRenderer(graphics, font),
-                    inputState(window, scaledWidth, scaledHeight),
+                    inputState(client, window, scaledWidth, scaledHeight),
                     scaledWidth,
                     scaledHeight);
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -134,68 +134,31 @@ public final class PreviewEditorOverlayRenderer {
         }
     }
 
-    private static PreviewLayoutEditor.InputState inputState(Object window, int scaledWidth, int scaledHeight)
+    private static PreviewLayoutEditor.InputState inputState(Object client, Object window,
+                                                              int scaledWidth, int scaledHeight)
             throws ReflectiveOperationException {
-        long handle = longAny(window, 0L, "handle", "getHandle",
-                minecraftMethodName(WINDOW, "method_4490", "()J"), "method_4490");
-        int screenWidth = intAny(window, scaledWidth,
-                "getScreenWidth", "getWidth",
-                minecraftMethodName(WINDOW, "method_4495", "()I"),
-                minecraftMethodName(WINDOW, "method_4489", "()I"),
-                minecraftMethodName(WINDOW, "method_4480", "()I"),
-                "method_4495", "method_4489", "method_4480");
-        int screenHeight = intAny(window, scaledHeight,
-                "getScreenHeight", "getHeight",
-                minecraftMethodName(WINDOW, "method_4494", "()I"),
-                minecraftMethodName(WINDOW, "method_4506", "()I"),
-                minecraftMethodName(WINDOW, "method_4507", "()I"),
-                "method_4494", "method_4506", "method_4507");
-        int mouseX = 0;
-        int mouseY = 0;
-        if (handle != 0L) {
-            int[] windowWidth = new int[1];
-            int[] windowHeight = new int[1];
-            GLFW.glfwGetWindowSize(handle, windowWidth, windowHeight);
-            if (windowWidth[0] > 0) screenWidth = windowWidth[0];
-            if (windowHeight[0] > 0) screenHeight = windowHeight[0];
-            double[] cursorX = new double[1];
-            double[] cursorY = new double[1];
-            GLFW.glfwGetCursorPos(handle, cursorX, cursorY);
-            mouseX = scale((int) Math.floor(cursorX[0]), Math.max(1, screenWidth), scaledWidth);
-            mouseY = scale((int) Math.floor(cursorY[0]), Math.max(1, screenHeight), scaledHeight);
-        }
-        boolean shiftDown = handle != 0L && (key(handle, GLFW.GLFW_KEY_LEFT_SHIFT)
-                || key(handle, GLFW.GLFW_KEY_RIGHT_SHIFT));
-        boolean controlDown = handle != 0L && (key(handle, GLFW.GLFW_KEY_LEFT_CONTROL)
-                || key(handle, GLFW.GLFW_KEY_RIGHT_CONTROL));
+        FabricInputBridge.CursorPosition cursor = FabricInputBridge.cursorPosition(
+                client, window, scaledWidth, scaledHeight);
+        boolean shiftDown = FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.LEFT_SHIFT)
+                || FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.RIGHT_SHIFT);
+        boolean controlDown = FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.LEFT_CONTROL)
+                || FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.RIGHT_CONTROL);
         return new PreviewLayoutEditor.InputState(
-                mouseX,
-                mouseY,
-                handle != 0L && mouse(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT),
-                handle != 0L && mouse(handle, GLFW.GLFW_MOUSE_BUTTON_RIGHT),
-                handle != 0L && key(handle, GLFW.GLFW_KEY_ESCAPE),
+                cursor.x,
+                cursor.y,
+                FabricInputBridge.isMouseButtonDown(client, FabricInputBridge.MouseButton.LEFT),
+                FabricInputBridge.isMouseButtonDown(client, FabricInputBridge.MouseButton.RIGHT),
+                FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.ESCAPE),
                 shiftDown || controlDown,
-                handle != 0L && key(handle, GLFW.GLFW_KEY_LEFT),
-                handle != 0L && key(handle, GLFW.GLFW_KEY_RIGHT),
-                handle != 0L && key(handle, GLFW.GLFW_KEY_UP),
-                handle != 0L && key(handle, GLFW.GLFW_KEY_DOWN),
-                handle != 0L && key(handle, GLFW.GLFW_KEY_DELETE),
-                handle != 0L && key(handle, GLFW.GLFW_KEY_Z),
+                FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.LEFT),
+                FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.RIGHT),
+                FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.UP),
+                FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.DOWN),
+                FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.DELETE),
+                FabricInputBridge.isKeyDown(client, FabricInputBridge.Key.Z),
                 shiftDown,
                 controlDown,
                 PreviewScreenController.consumeScrollDelta());
-    }
-
-    private static int scale(int value, int sourceSize, int targetSize) {
-        return Math.max(0, Math.min(targetSize - 1, value * targetSize / Math.max(1, sourceSize)));
-    }
-
-    private static boolean mouse(long handle, int button) {
-        return GLFW.glfwGetMouseButton(handle, button) == GLFW.GLFW_PRESS;
-    }
-
-    private static boolean key(long handle, int key) {
-        return GLFW.glfwGetKey(handle, key) == GLFW.GLFW_PRESS;
     }
 
     private static Object minecraftClient() throws ReflectiveOperationException {

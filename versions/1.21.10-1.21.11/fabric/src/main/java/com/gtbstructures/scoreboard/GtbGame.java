@@ -40,6 +40,8 @@ public final class GtbGame {
     public int potentialLeaverAmount;
 
     public boolean roundCountUnknown;
+    /** A missed-lobby bootstrap must wait for a server round header, not roster size. */
+    public boolean awaitingAuthoritativeRoundTotal;
     public boolean rejoinGuessOrderUncertain;
     public final List<String> rejoinObservedGuessOrder = new ArrayList<String>();
     public int rejoinPriorGuessFloor;
@@ -61,6 +63,12 @@ public final class GtbGame {
     public final Set<String> ruledOutEnglishThemesThisRound =
             new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
     public final Set<String> wrongGuessesThisRound = new LinkedHashSet<String>();
+    /** Actual submitted answers acknowledged by the server, including hidden duplicate-correct replies. */
+    public final List<String> acceptedGuessTextsThisRound = new ArrayList<String>();
+    /** Builder deltas derived only from real sidebar observations, never synthesized theme totals. */
+    public final Map<String, Integer> scoreboardBuilderPointsThisRound = new HashMap<String, Integer>();
+    /** First post-round snapshot could not prove these players' new-round baseline. */
+    public final Set<GtbPlayer> uncertainBuilderBaselinesThisRound = new LinkedHashSet<GtbPlayer>();
 
     public int maxPanelContentWidth;
 }

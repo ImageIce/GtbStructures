@@ -550,6 +550,11 @@ public final class GtwGame {
         return false;
     }
 
+    /** Accent equivalence for received-chat display matching, without case folding. */
+    public static String accentNormForReceivedGuess(String value) {
+        return value == null ? "" : accentNorm(value);
+    }
+
     private static String baseNorm(String s) {
         return s.toLowerCase().replace('ı', 'i');
     }

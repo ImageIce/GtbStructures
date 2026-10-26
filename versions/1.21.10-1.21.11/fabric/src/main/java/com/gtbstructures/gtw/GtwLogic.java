@@ -383,6 +383,11 @@ public final class GtwLogic {
         return accentNorm(value);
     }
 
+    /** Accent normalization used only to resolve received Hypixel guess chat. */
+    public static String accentNormForReceivedGuess(String value) {
+        return value == null ? "" : accentNorm(value);
+    }
+
     static int accentNormCacheLimitForTest() {
         return ACCENT_NORM_CACHE_LIMIT;
     }

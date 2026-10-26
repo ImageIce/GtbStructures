@@ -6,13 +6,14 @@ import java.io.InputStreamReader;
 import java.math.BigInteger;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Performs the session's single, best-effort GitHub release check off the client thread. */
 public final class UpdateChecker {
     public static final UpdateChecker INSTANCE = new UpdateChecker(new GitHubReleaseSource());
 
-    public static final String CURRENT_VERSION = "1.1.1";
+    public static final String CURRENT_VERSION = "1.2.0";
     public static final String GITHUB_LATEST_API =
             "https://api.github.com/repos/ImageIce/GtbStructures/releases/latest";
     public static final String GITHUB_RELEASE_TAG_BASE =
@@ -64,7 +65,8 @@ public final class UpdateChecker {
         if (!isNewerVersion(tag, CURRENT_VERSION)) return null;
 
         String displayVersion = normalizeVersionTag(tag);
-        return new UpdateInfo(displayVersion, githubReleaseUrl(tag), MODRINTH_URL);
+        return new UpdateInfo(displayVersion, githubReleaseUrl(tag), MODRINTH_URL,
+                ReleaseChangelog.fromReleaseJson(json));
     }
 
     static boolean isNewerVersion(String candidate, String current) {
@@ -156,11 +158,21 @@ public final class UpdateChecker {
         private final String version;
         private final String githubUrl;
         private final String modrinthUrl;
+        private final List<String> changelogLines;
 
         public UpdateInfo(String version, String githubUrl, String modrinthUrl) {
+            this(version, githubUrl, modrinthUrl, null);
+        }
+
+        public UpdateInfo(String version, String githubUrl, String modrinthUrl,
+                          List<String> changelogLines) {
             this.version = version;
             this.githubUrl = githubUrl;
             this.modrinthUrl = modrinthUrl;
+            this.changelogLines = changelogLines == null || changelogLines.isEmpty()
+                    ? java.util.Collections.<String>emptyList()
+                    : java.util.Collections.unmodifiableList(
+                            new java.util.ArrayList<String>(changelogLines));
         }
 
         public String getVersion() {
@@ -173,6 +185,10 @@ public final class UpdateChecker {
 
         public String getModrinthUrl() {
             return modrinthUrl;
+        }
+
+        public List<String> getChangelogLines() {
+            return changelogLines;
         }
     }
 

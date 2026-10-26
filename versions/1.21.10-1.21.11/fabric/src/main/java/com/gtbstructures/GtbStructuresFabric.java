@@ -2,6 +2,7 @@ package com.gtbstructures;
 
 import com.gtbstructures.commands.CommandGtb;
 import com.gtbstructures.commands.CommandGtbRuntime;
+import com.gtbstructures.commands.HelpPageNavigation;
 import com.gtbstructures.player.BbRankDisplayRepair;
 import com.gtbstructures.player.BuilderLeaderboardFallback;
 import com.gtbstructures.chat.ChatNameCompletion;
@@ -11,6 +12,7 @@ import com.gtbstructures.items.DisallowedItemHider;
 import com.gtbstructures.chat.GuessChatAnnotator;
 import com.gtbstructures.items.HandheldItemOverlayRenderer;
 import com.gtbstructures.chat.ModernChatCooldownCounter;
+import com.gtbstructures.sound.MinecraftClientSoundBridge;
 import com.gtbstructures.overlay.ModernHudOverlayRenderer;
 import com.gtbstructures.player.ModernPlayerListLogic;
 import com.gtbstructures.diagnostics.RawPacketRecorder;
@@ -29,6 +31,7 @@ import com.gtbstructures.stats.StatsArchive;
 import com.gtbstructures.translation.TranslationData;
 import com.gtbstructures.update.UpdateChecker;
 import com.gtbstructures.util.MinecraftClientUiBridge;
+import com.gtbstructures.util.FabricInputBridge;
 import com.gtbstructures.util.MinecraftFormatting;
 import com.gtbstructures.util.RuntimeReflectionCache;
 import com.mojang.brigadier.CommandDispatcher;
@@ -166,7 +169,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                                 bbRankDisplayRepair.restoreAll();
                                 GameStats.INSTANCE.discardPendingAutonomousActions();
                                 CommandGtbRuntime.discardPendingAutonomousActions();
-                                ModernChatCooldownCounter.onTick(false, currentState(),
+                                MinecraftClientSoundBridge.tickCooldown(false, currentState(),
                                         System.currentTimeMillis());
                                 resetFabricPlayerListPoll();
                                 return null;
@@ -182,7 +185,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                             }
                             pollFabricPhysicalTimer(args[0]);
                             DisallowedItemHider.onClientTick();
-                            ModernChatCooldownCounter.onTick(GtbStructuresSettings.INSTANCE.chatCooldownCounter
+                            MinecraftClientSoundBridge.tickCooldown(GtbStructuresSettings.INSTANCE.chatCooldownCounter
                                             && GameStats.INSTANCE.isTrackingEnabled(),
                                     currentState(), System.currentTimeMillis());
                             sendAutoRequeueIfReady();
@@ -255,7 +258,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
             if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
             UpdateChecker.INSTANCE.checkOnceAsync(info -> executeOnFabricClient(client, () -> {
                 if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
-                sendUpdateNotice(info.version(), info.githubUrl(), info.modrinthUrl());
+                sendUpdateNotice(info.version(), info.githubUrl(), info.modrinthUrl(), info.changelogLines());
             }));
         } catch (ReflectiveOperationException | RuntimeException e) {
             LOGGER.warn("Unable to start GtbStructures Fabric update check", e);
@@ -376,6 +379,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
 
     static String transformOutboundMessage(String message) {
         if (!GtbStructuresSettings.INSTANCE.modEnabled) return message;
+        if (TrollMode.isMarked(message)) return message;
         String processed = ScrambleGuess.transformOutbound(message);
         return TrollMode.transformOutbound(processed);
     }
@@ -449,7 +453,9 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                             if (isEnterKey(keyCode) && tryDispatchChatLocalCommand(args[0])) {
                                 return Boolean.FALSE;
                             }
-                            if (keyCode == 258 && tryCompleteChatName(args[0])) {
+                            if ((keyCode == 258 || FabricInputBridge.isKeyCode(
+                                    keyCode, FabricInputBridge.Key.TAB))
+                                    && tryCompleteChatName(args[0])) {
                                 return Boolean.FALSE;
                             }
                             return Boolean.TRUE;
@@ -863,7 +869,8 @@ public final class GtbStructuresFabric implements ClientModInitializer {
             styled = hovered;
             if (click != null) {
                 Object updated = withGuessPeekClickEvent(styled, click);
-                if (updated != null) styled = updated;
+                if (updated == null) return false;
+                styled = updated;
             }
             if (styled == style) return false;
             return invokeAnyWithArg(text, styled, "setStyle", "method_10862") != null;
@@ -890,6 +897,10 @@ public final class GtbStructuresFabric implements ClientModInitializer {
     static Object withGuessPeekClickEventForTest(Object style, Object click)
             throws ReflectiveOperationException {
         return withGuessPeekClickEvent(style, click);
+    }
+
+    static boolean applyGuessPeekStyleForTest(Object text, Object hover, Object click) {
+        return applyGuessPeekStyle(text, hover, click);
     }
 
     private static Object createHoverEvent(String tooltip) {
@@ -1061,6 +1072,11 @@ public final class GtbStructuresFabric implements ClientModInitializer {
     }
 
     private static void sendUpdateNotice(String version, String githubUrl, String modrinthUrl) {
+        sendUpdateNotice(version, githubUrl, modrinthUrl, java.util.Collections.<String>emptyList());
+    }
+
+    private static void sendUpdateNotice(String version, String githubUrl, String modrinthUrl,
+                                        java.util.List<String> changelogLines) {
         try {
             Object client = FabricServices.minecraftClient();
             Object chatHud = MinecraftClientUiBridge.chatHud(client);
@@ -1068,6 +1084,16 @@ public final class GtbStructuresFabric implements ClientModInitializer {
             if (chatHud == null || component == null || !invokeTextObjectAny(chatHud, component,
                     "addMessage", "addClientSystemMessage", "method_1812")) {
                 throw new NoSuchMethodException("ChatHud.addMessage(Text)");
+            }
+            if (changelogLines == null || changelogLines.isEmpty()) return;
+            Class<?> textClass = classAny("net.minecraft.text.Text",
+                    "net.minecraft.network.chat.Component", "net.minecraft.class_2561");
+            for (String line : changelogLines) {
+                Object plainText = literalText(textClass, line);
+                if (!invokeTextObjectAny(chatHud, plainText,
+                        "addMessage", "addClientSystemMessage", "method_1812")) {
+                    throw new NoSuchMethodException("ChatHud.addMessage(Text) for changelog");
+                }
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
             LOGGER.warn("Unable to display GtbStructures Fabric update notice", e);
@@ -1198,8 +1224,12 @@ public final class GtbStructuresFabric implements ClientModInitializer {
 
     private static int execute(CommandContext<Object> context, String root, String rawArgs) {
         CommandGtbRuntime.Result result = CommandGtbRuntime.execute(root, rawArgs);
-        for (String message : result.messages()) {
-            sendFeedback(context.getSource(), message);
+        List<String> messages = result.messages();
+        for (int i = 0; i < messages.size(); i++) {
+            HelpPageNavigation navigation = result.helpNavigation();
+            if (navigation != null && navigation.rowIndex == i
+                    && sendFeedback(context.getSource(), messages.get(i), navigation)) continue;
+            sendFeedback(context.getSource(), messages.get(i));
         }
         return 1;
     }
@@ -1223,8 +1253,12 @@ public final class GtbStructuresFabric implements ClientModInitializer {
         if (parsed == null) return false;
 
         CommandGtbRuntime.Result result = CommandGtbRuntime.execute(parsed.root, parsed.rawArgs);
-        for (String message : result.messages()) {
-            sendClientFeedback(message);
+        List<String> messages = result.messages();
+        for (int i = 0; i < messages.size(); i++) {
+            HelpPageNavigation navigation = result.helpNavigation();
+            if (navigation != null && navigation.rowIndex == i
+                    && sendClientFeedback(messages.get(i), navigation)) continue;
+            sendClientFeedback(messages.get(i));
         }
         return true;
     }
@@ -1299,7 +1333,9 @@ public final class GtbStructuresFabric implements ClientModInitializer {
     }
 
     static boolean isEnterKey(int keyCode) {
-        return keyCode == 257 || keyCode == 335;
+        return keyCode == 257 || keyCode == 335
+                || FabricInputBridge.isKeyCode(keyCode, FabricInputBridge.Key.ENTER)
+                || FabricInputBridge.isKeyCode(keyCode, FabricInputBridge.Key.NUMPAD_ENTER);
     }
 
     private static void closeChatScreen() {
@@ -1360,6 +1396,21 @@ public final class GtbStructuresFabric implements ClientModInitializer {
         } catch (ReflectiveOperationException | RuntimeException e) {
             LOGGER.warn("Unable to send GtbStructures Fabric local command feedback", e);
         }
+    }
+
+    private static boolean sendClientFeedback(String message, HelpPageNavigation navigation) {
+        try {
+            Object client = FabricServices.minecraftClient();
+            Object chatHud = MinecraftClientUiBridge.chatHud(client);
+            Object component = buildHelpNavigationRow(navigation);
+            if (component != null && invokeTextObjectAny(chatHud, component,
+                    "addMessage", "addClientSystemMessage", "method_1812")) return true;
+            LOGGER.warn("Unable to render clickable help pagination in Fabric chat; using plain help text");
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Unable to send GtbStructures Fabric paginated help feedback", e);
+        }
+        sendClientFeedback(message);
+        return false;
     }
 
     private static Object buildThemeExportPrompt(
@@ -1943,10 +1994,17 @@ public final class GtbStructuresFabric implements ClientModInitializer {
         return value instanceof Number ? Integer.valueOf(((Number) value).intValue()) : null;
     }
 
-    private static int keyCode(Object keyEvent) throws ReflectiveOperationException {
-        Object value = FabricServices.invokeAny(keyEvent, "getKeyCode", "keyCode", "f_412394_");
-        Integer key = intValue(value);
-        return key == null ? -1 : key.intValue();
+    static int keyCode(Object keyEvent) throws ReflectiveOperationException {
+        if (keyEvent instanceof Number) return ((Number) keyEvent).intValue();
+        try {
+            Object value = FabricServices.invokeAny(keyEvent,
+                    "getKeyCode", "keyCode", "f_412394_");
+            Integer key = intValue(value);
+            if (key != null) return key.intValue();
+        } catch (NoSuchMethodException ignored) {
+            // Modern KeyEvent values are translated through vanilla InputConstants below.
+        }
+        return FabricInputBridge.keyCode(keyEvent);
     }
 
     private static boolean invokeIntAny(Object target, int value, String... names)
@@ -2298,6 +2356,61 @@ public final class GtbStructuresFabric implements ClientModInitializer {
         } catch (ReflectiveOperationException | RuntimeException e) {
             LOGGER.warn("Unable to send GtbStructures command feedback", e);
         }
+    }
+
+    private static boolean sendFeedback(Object source, String message,
+                                        HelpPageNavigation navigation) {
+        try {
+            Method feedback = findFeedbackMethod(source.getClass());
+            Object component = buildHelpNavigationRow(feedback.getParameterTypes()[0], navigation);
+            if (component == null) {
+                LOGGER.warn("Unable to build clickable help pagination component; using plain help text");
+                return false;
+            }
+            feedback.invoke(source, component);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Unable to send GtbStructures paginated help feedback", e);
+            return false;
+        }
+    }
+
+    private static Object buildHelpNavigationRow(HelpPageNavigation navigation)
+            throws ReflectiveOperationException {
+        Class<?> textClass = RuntimeReflectionCache.classAny("net.minecraft.text.Text",
+                "net.minecraft.network.chat.Component", "net.minecraft.class_2561");
+        return buildHelpNavigationRow(textClass, navigation);
+    }
+
+    private static Object buildHelpNavigationRow(Class<?> textClass,
+                                                HelpPageNavigation navigation)
+            throws ReflectiveOperationException {
+        Object row = legacyFormattedText(textClass, navigation.prefix);
+        Object previous = legacyFormattedText(textClass,
+                (navigation.previousEnabled ? HelpPageNavigation.ENABLED_FORMATTING
+                        : HelpPageNavigation.DISABLED_FORMATTING) + HelpPageNavigation.PREVIOUS_SYMBOL);
+        Object position = legacyFormattedText(textClass,
+                "\u00a77 " + navigation.page + "/" + navigation.pageCount + " ");
+        Object next = legacyFormattedText(textClass,
+                (navigation.nextEnabled ? HelpPageNavigation.ENABLED_FORMATTING
+                        : HelpPageNavigation.DISABLED_FORMATTING) + HelpPageNavigation.NEXT_SYMBOL);
+        if (!applyHelpNavigationAction(previous, HelpPageNavigation.PREVIOUS_LABEL, navigation.previousCommand)
+                || !applyHelpNavigationAction(next, HelpPageNavigation.NEXT_LABEL, navigation.nextCommand)
+                || !appendText(row, previous, textClass)
+                || !appendText(row, position, textClass)
+                || !appendText(row, next, textClass)
+                || !appendText(row, legacyFormattedText(textClass, navigation.suffix), textClass)) {
+            return null;
+        }
+        return row;
+    }
+
+    private static boolean applyHelpNavigationAction(Object text, String label, String command)
+            throws ReflectiveOperationException {
+        if (command == null) return true;
+        Object hover = createHoverEvent(HelpPageNavigation.hoverText(label, command));
+        Object click = createClickEvent(command);
+        return hover != null && click != null && applyGuessPeekStyle(text, hover, click);
     }
 
     private static Method findFeedbackMethod(Class<?> sourceClass) throws NoSuchMethodException {
@@ -2681,6 +2794,21 @@ public final class GtbStructuresFabric implements ClientModInitializer {
                 }
             } catch (ReflectiveOperationException | RuntimeException e) {
                 LOGGER.warn("Unable to send GtbStructures Fabric server command {}", command, e);
+            }
+        }
+
+        @Override
+        public void sendChat(String message) {
+            try {
+                Object player = player();
+                if (player == null) return;
+                Object networkHandler = fieldAny(player, "networkHandler", "connection", "field_3944");
+                if (!invokeStringAny(networkHandler, message,
+                        "sendChat", "sendChatMessage", "method_45729")) {
+                    LOGGER.warn("Unable to send GtbStructures Fabric chat message");
+                }
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                LOGGER.warn("Unable to send GtbStructures Fabric chat message", e);
             }
         }
 

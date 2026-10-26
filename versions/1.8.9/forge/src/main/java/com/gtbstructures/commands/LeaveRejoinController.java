@@ -3,6 +3,7 @@ package com.gtbstructures.commands;
 final class LeaveRejoinController {
     static final long MIN_REJOIN_WAIT_MS = 750L;
     static final long MAX_REJOIN_WAIT_MS = 3500L;
+    static final long MAX_CONFIGURED_DELAY_MS = 10000L;
     static final int TIMEOUT_TICKS = 20 * 60;
 
     interface Clock {
@@ -17,7 +18,10 @@ final class LeaveRejoinController {
 
     private int pendingTicks = -1;
     private boolean connectionBoundaryObserved;
+    private boolean readyObserved;
     private long pendingSinceMs;
+    private long readySinceMs;
+    private long configuredDelayMs;
     private final Clock clock;
 
     LeaveRejoinController() {
@@ -35,9 +39,16 @@ final class LeaveRejoinController {
     }
 
     void start() {
+        start(0L);
+    }
+
+    void start(long delayMs) {
         pendingTicks = 0;
         connectionBoundaryObserved = false;
+        readyObserved = false;
         pendingSinceMs = clock.nowMillis();
+        readySinceMs = 0L;
+        configuredDelayMs = Math.max(0L, Math.min(MAX_CONFIGURED_DELAY_MS, delayMs));
     }
 
     void onConnectionBoundary(boolean playReady) {
@@ -51,14 +62,21 @@ final class LeaveRejoinController {
             cancel();
             return Action.CANCELLED;
         }
-        if (!playerAvailable) return Action.NONE;
-
         long elapsedMs = clock.nowMillis() - pendingSinceMs;
         if (elapsedMs < 0L) elapsedMs = 0L;
         if (elapsedMs < MIN_REJOIN_WAIT_MS) return Action.NONE;
         if (!connectionBoundaryObserved && elapsedMs < MAX_REJOIN_WAIT_MS) {
             return Action.NONE;
         }
+
+        if (!readyObserved && !playerAvailable) return Action.NONE;
+        if (!readyObserved) {
+            readyObserved = true;
+            readySinceMs = clock.nowMillis();
+        }
+        long readyElapsedMs = clock.nowMillis() - readySinceMs;
+        if (readyElapsedMs < 0L) readyElapsedMs = 0L;
+        if (readyElapsedMs < configuredDelayMs || !playerAvailable) return Action.NONE;
         cancel();
         return Action.REJOIN;
     }
@@ -74,6 +92,9 @@ final class LeaveRejoinController {
     private void cancel() {
         pendingTicks = -1;
         connectionBoundaryObserved = false;
+        readyObserved = false;
         pendingSinceMs = 0L;
+        readySinceMs = 0L;
+        configuredDelayMs = 0L;
     }
 }

@@ -10,6 +10,7 @@ import com.gtbstructures.font.ClassicFontResourcePack;
 import com.gtbstructures.items.DisallowedItemHider;
 import com.gtbstructures.items.HandheldItemOverlayRenderer;
 import com.gtbstructures.chat.ModernChatCooldownCounter;
+import com.gtbstructures.sound.MinecraftClientSoundBridge;
 import com.gtbstructures.overlay.ModernHudOverlayRenderer;
 import com.gtbstructures.overlay.WorldEnvironmentOverlayRenderer;
 import com.gtbstructures.player.BuilderLeaderboardFallback;
@@ -172,8 +173,9 @@ public final class GtbStructuresForge {
 
     private static int execute(CommandContext<CommandSourceStack> context, String root, String rawArgs) {
         CommandGtbRuntime.Result result = CommandGtbRuntime.execute(root, rawArgs);
-        for (String message : result.messages()) {
-            context.getSource().sendSystemMessage(Component.literal(message));
+        for (int i = 0; i < result.messages().size(); i++) {
+            context.getSource().sendSystemMessage(i == (result.helpPage() == null ? -1 : result.helpPage().rowIndex)
+                    ? buildHelpNavigationRow(result.helpPage()) : Component.literal(result.messages().get(i)));
         }
         return 1;
     }
@@ -208,6 +210,7 @@ public final class GtbStructuresForge {
 
     static String transformOutboundMessage(String message) {
         if (!GtbStructuresSettings.INSTANCE.modEnabled) return message;
+        if (TrollMode.isMarked(message)) return message;
         String processed = ScrambleGuess.transformOutbound(message);
         return TrollMode.transformOutbound(processed);
     }
@@ -217,8 +220,13 @@ public final class GtbStructuresForge {
         if (parsed == null) return false;
 
         CommandGtbRuntime.Result result = CommandGtbRuntime.execute(parsed.root, parsed.rawArgs);
-        for (String message : result.messages()) {
-            sendClientFeedback(message);
+        for (int i = 0; i < result.messages().size(); i++) {
+            String message = result.messages().get(i);
+            if (result.helpPage() != null && i == result.helpPage().rowIndex) {
+                sendClientFeedback(message, buildHelpNavigationRow(result.helpPage()));
+            } else {
+                sendClientFeedback(message);
+            }
         }
         return true;
     }
@@ -238,6 +246,10 @@ public final class GtbStructuresForge {
     }
 
     private static void sendClientFeedback(String message) {
+        sendClientFeedback(message, null);
+    }
+
+    private static void sendClientFeedback(String message, Component structured) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.gui != null) {
             // Local feedback must bypass Forge's inbound system-message event.
@@ -247,12 +259,34 @@ public final class GtbStructuresForge {
                     StatsArchive.parseThemeExportPrompt(message);
             StatsArchive.LocalFileNotice localFileNotice =
                     StatsArchive.parseLocalFileNotice(message);
-            mc.gui.getChat().addMessage(prompt != null
+            mc.gui.getChat().addMessage(structured != null
+                    ? structured
+                    : prompt != null
                     ? buildThemeExportPrompt(prompt)
                     : localFileNotice != null
                     ? buildLocalFileNotice(localFileNotice)
                     : Component.literal(message));
         }
+    }
+
+    static Component buildHelpNavigationRow(com.gtbstructures.commands.HelpPageNavigation navigation) {
+        MutableComponent row = Component.literal(navigation.prefix);
+        row.append(helpChevron("«", "Previous page", navigation.previousCommand, navigation.previousEnabled));
+        row.append(Component.literal(" " + navigation.page + "/" + navigation.pageCount + " ")
+                .withStyle(ChatFormatting.GRAY));
+        row.append(helpChevron("»", "Next page", navigation.nextCommand, navigation.nextEnabled));
+        row.append(Component.literal(navigation.suffix));
+        return row;
+    }
+
+    private static MutableComponent helpChevron(String glyph, String label, String command, boolean enabled) {
+        MutableComponent component = Component.literal(glyph).withStyle(enabled
+                ? ChatFormatting.GOLD : ChatFormatting.DARK_GRAY);
+        if (!enabled) return component;
+        return component.withStyle(style -> style
+                .withClickEvent(new ClickEvent.RunCommand(command))
+                .withHoverEvent(new HoverEvent.ShowText(Component.literal("\u00a7e" + label
+                        + "\n\u00a77" + command))));
     }
 
     static Component buildLocalFileNotice(StatsArchive.LocalFileNotice notice) {
@@ -295,9 +329,18 @@ public final class GtbStructuresForge {
     }
 
     private static void sendUpdateNotice(String version, String githubUrl, String modrinthUrl) {
+        sendUpdateNotice(version, githubUrl, modrinthUrl, java.util.Collections.<String>emptyList());
+    }
+
+    private static void sendUpdateNotice(String version, String githubUrl, String modrinthUrl,
+                                         List<String> changelogLines) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.gui != null) {
             mc.gui.getChat().addMessage(buildUpdateNotice(version, githubUrl, modrinthUrl));
+            if (changelogLines == null) return;
+            for (String line : changelogLines) {
+                mc.gui.getChat().addMessage(Component.literal(line));
+            }
         }
     }
 
@@ -574,7 +617,7 @@ public final class GtbStructuresForge {
             resetPlayerListPolling();
             GameStats.INSTANCE.discardPendingAutonomousActions();
             CommandGtbRuntime.discardPendingAutonomousActions();
-            ModernChatCooldownCounter.onTick(false, currentState(),
+            MinecraftClientSoundBridge.tickCooldown(false, currentState(),
                     System.currentTimeMillis());
             return;
         }
@@ -587,7 +630,7 @@ public final class GtbStructuresForge {
         pollPlayerListIfDue(mc);
         pollPhysicalTimer(mc);
         DisallowedItemHider.onClientTick();
-        ModernChatCooldownCounter.onTick(GtbStructuresSettings.INSTANCE.chatCooldownCounter
+        MinecraftClientSoundBridge.tickCooldown(GtbStructuresSettings.INSTANCE.chatCooldownCounter
                         && GameStats.INSTANCE.isTrackingEnabled(),
                 currentState(), System.currentTimeMillis());
         if (GameStats.INSTANCE.consumeAutoRequeueIfReady(System.currentTimeMillis())) {
@@ -609,7 +652,7 @@ public final class GtbStructuresForge {
         if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
         UpdateChecker.INSTANCE.checkOnceAsync(info -> mc.execute(() -> {
             if (!GtbStructuresSettings.INSTANCE.updateNoticeEnabled) return;
-            sendUpdateNotice(info.version(), info.githubUrl(), info.modrinthUrl());
+            sendUpdateNotice(info.version(), info.githubUrl(), info.modrinthUrl(), info.changelogLines());
         }));
     }
 
@@ -1115,6 +1158,13 @@ public final class GtbStructuresForge {
                 GameStats.INSTANCE.onOutboundServerCommand(command);
                 RawPacketRecorder.INSTANCE.captureOutboundChat(withLeadingSlash(command));
                 Minecraft.getInstance().getConnection().sendCommand(withoutLeadingSlash(command));
+            }
+        }
+
+        @Override
+        public void sendChat(String message) {
+            if (Minecraft.getInstance().getConnection() != null) {
+                Minecraft.getInstance().getConnection().sendChat(message);
             }
         }
 

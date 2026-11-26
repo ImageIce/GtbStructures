@@ -80,6 +80,7 @@ public final class BuildBattleTitles {
     private static final int STRIP_CACHE_LIMIT = 256;
     private static final Map<String, String> STRIPPED_BB_TITLE_CACHE =
             new LinkedHashMap<String, String>();
+    private static Set<String> cachedRankTitleAliases = Collections.emptySet();
     private static boolean testCountersEnabled;
     private static long stripCacheHits;
     private static long stripCacheMisses;
@@ -112,6 +113,10 @@ public final class BuildBattleTitles {
             String token = stripLeadingRankPrefixes(tokens[i]);
             if (isKnownChatTitle(token)) return true;
         }
+        for (String title : LangPatterns.downloadedRankTitleAliases()) {
+            if (isTitlePrefix(beforeColon, title, true)
+                    && hasIgnTokenAfterTitle(beforeColon.substring(title.length()))) return true;
+        }
 
         if (startsWithLeaderboardChatTitle(beforeColon)) return true;
 
@@ -119,7 +124,8 @@ public final class BuildBattleTitles {
         if (lastSpace > 0) {
             String leaderboardPart = beforeColon.substring(0, lastSpace).trim();
             leaderboardPart = stripLeadingRankPrefixes(leaderboardPart);
-            return LEADERBOARD_TITLE_PATTERN.matcher(leaderboardPart).matches();
+            return LEADERBOARD_TITLE_PATTERN.matcher(leaderboardPart).matches()
+                    || LangPatterns.downloadedLeaderboardRankIndex(leaderboardPart) != null;
         }
         return false;
     }
@@ -127,13 +133,18 @@ public final class BuildBattleTitles {
     static String stripLeadingBbTitle(String text) {
         if (text == null) return null;
         synchronized (STRIPPED_BB_TITLE_CACHE) {
+            Set<String> aliases = LangPatterns.downloadedRankTitleAliases();
+            if (cachedRankTitleAliases != aliases) {
+                STRIPPED_BB_TITLE_CACHE.clear();
+                cachedRankTitleAliases = aliases;
+            }
             String cached = STRIPPED_BB_TITLE_CACHE.get(text);
             if (cached != null) {
                 if (testCountersEnabled) stripCacheHits++;
                 return cached;
             }
             if (testCountersEnabled) stripCacheMisses++;
-            String stripped = stripLeadingBbTitleUncached(text);
+            String stripped = stripLeadingBbTitleUncached(text, aliases);
             if (STRIPPED_BB_TITLE_CACHE.size() >= STRIP_CACHE_LIMIT) {
                 STRIPPED_BB_TITLE_CACHE.remove(
                         STRIPPED_BB_TITLE_CACHE.keySet().iterator().next());
@@ -143,17 +154,18 @@ public final class BuildBattleTitles {
         }
     }
 
-    private static String stripLeadingBbTitleUncached(String text) {
+    private static String stripLeadingBbTitleUncached(String text, Set<String> aliases) {
         String clean = normalizeLeadingBbTitleCandidate(text);
 
-        String bestTitle = leadingBbTitle(clean, true);
+        String bestTitle = leadingBbTitle(clean, true, aliases);
         if (bestTitle == null) return clean;
         return clean.substring(bestTitle.length()).trim();
     }
 
     public static boolean hasLeadingBbTitle(String text) {
         if (text == null) return false;
-        return leadingBbTitle(normalizeLeadingBbTitleCandidate(text), false) != null;
+        return leadingBbTitle(normalizeLeadingBbTitleCandidate(text), false,
+                LangPatterns.downloadedRankTitleAliases()) != null;
     }
 
     public static Integer bbRankIndexForTitle(String title, String langCode) {
@@ -197,8 +209,7 @@ public final class BuildBattleTitles {
         Matcher m = LEADERBOARD_TITLE_PREFIX_HASH.matcher(clean);
         if (!m.matches()) m = LEADERBOARD_TITLE_PREFIX_ORDINAL.matcher(clean);
         if (!m.matches()) m = LEADERBOARD_TITLE_SUFFIX_NUMBER.matcher(clean);
-        if (!m.matches()) return null;
-        return leaderboardRankIndex(m.group(1));
+        return m.matches() ? leaderboardRankIndex(m.group(1)) : LangPatterns.downloadedLeaderboardRankIndex(clean);
     }
 
     public static Integer bbLeaderboardRankIndexFromFragment(String title) {
@@ -264,7 +275,8 @@ public final class BuildBattleTitles {
         for (int i = 0; i < tokenEnds.size() - 1; i++) {
             int end = tokenEnds.get(i).intValue();
             String candidate = clean.substring(0, end).trim();
-            if (!LEADERBOARD_TITLE_PATTERN.matcher(candidate).matches()) continue;
+            if (!LEADERBOARD_TITLE_PATTERN.matcher(candidate).matches()
+                    && LangPatterns.downloadedLeaderboardRankIndex(candidate) == null) continue;
             String remainder = clean.substring(end).trim();
             if (hasIgnTokenAfterTitle(remainder)) return true;
         }
@@ -293,14 +305,24 @@ public final class BuildBattleTitles {
     }
 
     private static boolean isKnownChatTitle(String token) {
-        return token != null && !token.isEmpty() && KNOWN_CHAT_TITLES.contains(token);
+        return token != null && !token.isEmpty() && (KNOWN_CHAT_TITLES.contains(token)
+                || LangPatterns.downloadedRankTitleAliases().contains(token));
     }
 
-    private static String leadingBbTitle(String clean, boolean requireFollowingToken) {
+    private static String leadingBbTitle(String clean, boolean requireFollowingToken, Set<String> aliases) {
+        String best = null;
         for (String title : LEADING_BB_TITLES) {
-            if (isTitlePrefix(clean, title, requireFollowingToken)) return title;
+            if (isTitlePrefix(clean, title, requireFollowingToken)) {
+                best = title;
+                break;
+            }
         }
-        return null;
+        for (String title : aliases) {
+            if ((best == null || title.length() > best.length()) && isTitlePrefix(clean, title, requireFollowingToken)) {
+                best = title;
+            }
+        }
+        return best;
     }
 
     private static boolean isTitlePrefix(String text, String title, boolean requireFollowingToken) {
@@ -372,6 +394,7 @@ public final class BuildBattleTitles {
 
     private static void collectMatchingTitleIndexes(String lowerTitle, String langCode,
                                                     Set<Integer> exact, Set<Integer> prefix) {
+        LangPatterns.collectDownloadedRankTitleIndexes(lowerTitle, langCode, exact, prefix);
         String[] titles = preferredChatTitles(langCode);
         if (titles == null) return;
         for (int i = 0; i < titles.length && i < ACTIVE_BB_TITLE_COUNT; i++) {

@@ -49,6 +49,66 @@ public final class GtbGame {
     public boolean suppressPointBadgesUntilRoundHeader;
     public boolean roundStartScoreBaselinePending;
 
+    /** Unnumbered observed rounds use columns beyond the real round range. */
+    final List<RecoveredRound> recoveredRounds = new ArrayList<RecoveredRound>();
+    final List<RecoveredRound.ScoreFloor> recoveredScoreFloors = new ArrayList<RecoveredRound.ScoreFloor>();
+    int nextRecoveredSequence;
+    RecoveredRound activeRecoveredRound;
+    int recoveredActiveHeaderRound;
+
+    int scoringRoundIndex() {
+        return activeRecoveredRound == null ? currentRound - 1 : activeRecoveredRound.slot;
+    }
+
+    int scoringRoundKey() {
+        return scoringRoundIndex() + 1;
+    }
+
+    int totalMinimum(GtbPlayer player) {
+        int lower = Math.max(player.totalMin(), player.preDisconnectScoreBaseline);
+        for (RecoveredRound.ScoreFloor floor : recoveredScoreFloors) {
+            Integer baseline = floor.baselines.get(player);
+            if (baseline == null) continue;
+            int candidate = baseline.intValue();
+            for (int i = floor.firstRoundIndex; i < totalRounds && i < player.points.length; i++) {
+                candidate += player.points[i].min();
+            }
+            for (RecoveredRound recovered : recoveredRounds) {
+                if (recovered.sequence > floor.sequence) candidate += recovered.entry(player).min();
+            }
+            lower = Math.max(lower, candidate);
+        }
+        for (int i = 0; i < recoveredRounds.size(); i++) {
+            int candidate = recoveredRounds.get(i).lowerBaseline(player);
+            for (int j = i; j < recoveredRounds.size(); j++) {
+                candidate += recoveredRounds.get(j).entry(player).min();
+            }
+            lower = Math.max(lower, candidate);
+        }
+        return lower;
+    }
+
+    int totalMaximum(GtbPlayer player) {
+        if (!recoveredRounds.isEmpty()) {
+            // A later unnumbered segment may follow wholly unobserved rounds;
+            // an older segment's upper bound cannot cap that missing interval.
+            RecoveredRound newest = recoveredRounds.get(recoveredRounds.size() - 1);
+            return Math.max(totalMinimum(player), newest.upperBaseline(player, this) + newest.entry(player).max());
+        }
+        if (recoveredScoreFloors.isEmpty()) return Math.max(player.totalMax(), totalMinimum(player));
+        int upper = Integer.MAX_VALUE;
+        for (RecoveredRound.ScoreFloor floor : recoveredScoreFloors) {
+            Integer baseline = floor.upperBaselines.get(player);
+            if (baseline == null) continue;
+            int candidate = baseline.intValue();
+            for (int i = floor.firstRoundIndex; i < totalRounds && i < player.points.length; i++) {
+                candidate += player.points[i].max();
+            }
+            upper = Math.min(upper, candidate);
+        }
+        return Math.max(totalMinimum(player), upper);
+    }
+
     public State leaveState;
     public int leaveRound = -1;
     public GtbPlayer leaveBuilder;

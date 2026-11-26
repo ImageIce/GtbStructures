@@ -345,6 +345,10 @@ public final class HandheldItemOverlayRenderer {
         int textY = captionStartY(y, height, lines.size(), fontHeight);
         for (CaptionLine line : lines) {
             drawText(graphics, font, line.text, textX, textY, line.color);
+            if (!line.suffix.isEmpty()) {
+                drawText(graphics, font, line.suffix,
+                        textX + textWidth(font, line.text), textY, line.color);
+            }
             textY += CAPTION_LINE_HEIGHT;
         }
     }
@@ -395,7 +399,10 @@ public final class HandheldItemOverlayRenderer {
         if (settings.handheldItemCaptionName) {
             String name = entry == null || entry.name == null || entry.name.isEmpty()
                     ? "(unknown item)" : entry.name;
-            lines.add(new CaptionLine(ellipsize(font, name, textWidth), 0xFFFFFF));
+            String suffix = initialItemSuffix(entry, settings.handheldItemMarkInitial);
+            lines.add(new CaptionLine(
+                    ellipsize(font, name, Math.max(0, textWidth - textWidth(font, suffix))),
+                    0xFFFFFF, suffix));
         }
         ArrayList<String> secondary = new ArrayList<String>();
         if (settings.handheldItemCaptionId) {
@@ -409,6 +416,10 @@ public final class HandheldItemOverlayRenderer {
         }
         addPackedCaptions(lines, font, secondary, textWidth, 0xC8C8C8);
         return lines;
+    }
+
+    static String initialItemSuffix(GameStats.HandheldItemEntry entry, boolean markInitial) {
+        return markInitial && entry != null && entry.initialHeld ? " \u00a7a\u00a7l\u274f" : "";
     }
 
     private static String itemId(GameStats.HandheldItemEntry entry) {
@@ -476,10 +487,16 @@ public final class HandheldItemOverlayRenderer {
     private static final class CaptionLine {
         private final String text;
         private final int color;
+        private final String suffix;
 
         private CaptionLine(String text, int color) {
+            this(text, color, "");
+        }
+
+        private CaptionLine(String text, int color, String suffix) {
             this.text = text;
             this.color = color;
+            this.suffix = suffix;
         }
     }
 

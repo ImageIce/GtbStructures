@@ -510,6 +510,11 @@ public final class PreviewEditorOverlayRenderer {
         }
 
         @Override
+        public boolean drawNativeTooltip(String text, int mouseX, int mouseY) {
+            return NativePreviewTooltip.draw(graphics, font, text, mouseX, mouseY);
+        }
+
+        @Override
         public int fontHeight() {
             try {
                 Object value = fieldAny(font, "fontHeight", "lineHeight",

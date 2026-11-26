@@ -43,8 +43,13 @@ public final class HandheldItemTracker {
     }
 
     public void recordSnapshotForTest(GameStats.RoundData round, String builder, ItemSnapshot snapshot, long now) {
+        recordSnapshotForTest(round, builder, snapshot, now, GameStats.TrackingState.ROUND_BUILD);
+    }
+
+    public void recordSnapshotForTest(GameStats.RoundData round, String builder, ItemSnapshot snapshot, long now,
+                                      GameStats.TrackingState state) {
         ensureRound(round, builder == null ? "" : builder, now);
-        recordSnapshot(round, snapshot, now);
+        recordSnapshot(round, snapshot, now, state == GameStats.TrackingState.ROUND_PRE);
     }
 
     public void closeForTest(long now) {
@@ -68,7 +73,7 @@ public final class HandheldItemTracker {
             closeCurrent(now);
             return;
         }
-        recordSnapshot(round, snapshot, now);
+        recordSnapshot(round, snapshot, now, state == GameStats.TrackingState.ROUND_PRE);
     }
 
     public void beginPreview(String observedKey, long now) {
@@ -274,6 +279,7 @@ public final class HandheldItemTracker {
         int offset = 0;
         for (int i = defaults.length - 1; i >= 0; i--) {
             recordPreviewSnapshot(defaults[i], now + offset);
+            if (i == 0 && previewCurrentEntry != null) previewCurrentEntry.initialHeld = true;
             offset++;
         }
         closePreviewCurrent(now + defaults.length);
@@ -319,10 +325,11 @@ public final class HandheldItemTracker {
                 egg == null ? null : name.replace(" Spawn Egg", ""), "");
     }
 
-    private void recordSnapshot(GameStats.RoundData round, ItemSnapshot snapshot, long now) {
+    private void recordSnapshot(GameStats.RoundData round, ItemSnapshot snapshot, long now, boolean initiallyHeld) {
         if (round == null || snapshot == null || snapshot.key == null || snapshot.key.isEmpty()) return;
 
         if (snapshot.key.equals(currentKey) && currentEntry != null) {
+            currentEntry.initialHeld |= initiallyHeld;
             copySnapshot(snapshot, currentEntry, now);
             if (currentInterval != null) currentInterval.touch(now);
             renderSnapshots.put(snapshot.key, snapshot);
@@ -340,6 +347,7 @@ public final class HandheldItemTracker {
         }
 
         mergeInitialSpawnEggPlaceholder(round, snapshot, entry);
+        entry.initialHeld |= initiallyHeld;
         copySnapshot(snapshot, entry, now);
         GameStats.HandheldItemInterval interval = new GameStats.HandheldItemInterval(now);
         entry.intervals.add(interval);
@@ -365,6 +373,7 @@ public final class HandheldItemTracker {
         if (placeholder == null) return;
 
         resolvedEntry.intervals.addAll(0, placeholder.intervals);
+        resolvedEntry.initialHeld |= placeholder.initialHeld;
         if (resolvedEntry.firstSeen == 0L
                 || (placeholder.firstSeen > 0L && placeholder.firstSeen < resolvedEntry.firstSeen)) {
             resolvedEntry.firstSeen = placeholder.firstSeen;

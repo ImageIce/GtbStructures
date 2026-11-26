@@ -9,7 +9,7 @@
       ],
       "root": "versions/1.8.9/forge",
       "java": 8,
-      "artifact": "build/libs/GtbStructures-1.2.0.jar",
+      "artifact": "build/libs/GtbStructures-1.2.1.jar",
       "releaseTasks": [
         "clean",
         "build"
@@ -23,7 +23,7 @@
       ],
       "root": "versions/1.21.10-1.21.11/fabric",
       "java": 21,
-      "artifact": "build/libs/gtbstructures-fabric-1.21.10-1.21.11-1.2.0.jar",
+      "artifact": "build/libs/gtbstructures-fabric-1.21.10-1.21.11-1.2.1.jar",
       "releaseTasks": [
         "clean",
         "build"
@@ -37,7 +37,7 @@
       ],
       "root": "versions/1.21.10-1.21.11/forge",
       "java": 21,
-      "artifact": "build/libs/gtbstructures-forge-1.21.10-1.21.11-1.2.0.jar",
+      "artifact": "build/libs/gtbstructures-forge-1.21.10-1.21.11-1.2.1.jar",
       "releaseTasks": [
         "clean",
         "build"
@@ -48,7 +48,7 @@
       "aliases": [],
       "root": "versions/26.1/fabric",
       "java": 25,
-      "artifact": "build/libs/gtbstructures-fabric-26.1-1.2.0.jar",
+      "artifact": "build/libs/gtbstructures-fabric-26.1-1.2.1.jar",
       "releaseTasks": [
         "clean",
         "build"
@@ -59,7 +59,7 @@
       "aliases": [],
       "root": "versions/26.2/fabric",
       "java": 25,
-      "artifact": "build/libs/gtbstructures-fabric-26.2-1.2.0.jar",
+      "artifact": "build/libs/gtbstructures-fabric-26.2-1.2.1.jar",
       "releaseTasks": [
         "clean",
         "build"
@@ -70,7 +70,7 @@
       "aliases": [],
       "root": "versions/26.3/fabric",
       "java": 25,
-      "artifact": "build/libs/gtbstructures-fabric-26.3-1.2.0.jar",
+      "artifact": "build/libs/gtbstructures-fabric-26.3-1.2.1.jar",
       "releaseTasks": [
         "clean",
         "build"

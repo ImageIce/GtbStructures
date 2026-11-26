@@ -129,6 +129,7 @@ public class GtbStructures {
     public static boolean hintStructureBackground = false;
     public static boolean handheldItemOverlay = false;
     public static boolean handheldItemBackground = false;
+    public static boolean handheldItemMarkInitial = true;
     public static boolean handheldItemCaptionName = true;
     public static boolean handheldItemCaptionId = true;
     public static boolean handheldItemCaptionMetadata = true;
@@ -152,6 +153,12 @@ public class GtbStructures {
     public static boolean chatCooldownProgressBeats = false;
     public static boolean chatCooldownBackground = true;
     public static boolean chatCooldownBarBackground = false;
+    public static final int MIN_GUESS_SENT_SPAM_COUNT = 1;
+    public static final int MAX_GUESS_SENT_SPAM_COUNT = 10;
+    public static boolean guessSentNotice = true;
+    public static boolean guessSentOnlySpam = true;
+    public static int guessSentMinSpam = 3;
+    public static boolean guessSentShowGuess = true;
     public static boolean gtwShowEnglish = false;
     public static boolean gtwShowCount = true;
     public static String gtwDifficulty = "all";
@@ -335,6 +342,7 @@ public class GtbStructures {
             hintStructureBackground = config.getBoolean("hintStructureBackground", Configuration.CATEGORY_GENERAL, hintBackgroundOverlay, "Whether to draw the scoreboard-style background behind the GTB hint structure overlay");
             handheldItemOverlay = config.getBoolean("handheldItemOverlay", Configuration.CATEGORY_GENERAL, false, "Whether to draw the builder handheld item history overlay during GTB rounds");
             handheldItemBackground = config.getBoolean("handheldItemBackground", Configuration.CATEGORY_GENERAL, false, "Whether to draw a scoreboard-style background behind the builder handheld item history overlay");
+            handheldItemMarkInitial = config.getBoolean("handheldItemMarkInitial", Configuration.CATEGORY_GENERAL, true, "Whether to mark items initially held during theme selection with a green bold square after their names");
             handheldItemCaptionName = config.getBoolean("handheldItemCaptionName", Configuration.CATEGORY_GENERAL, true, "Whether the handheld item overlay shows item names");
             handheldItemCaptionId = config.getBoolean("handheldItemCaptionId", Configuration.CATEGORY_GENERAL, true, "Whether the handheld item overlay shows item IDs");
             handheldItemCaptionMetadata = config.getBoolean("handheldItemCaptionMetadata", Configuration.CATEGORY_GENERAL, true, "Whether the handheld item overlay shows item metadata");
@@ -359,6 +367,10 @@ public class GtbStructures {
             chatCooldownProgressBeats = config.getBoolean("chatCooldownProgressBeats", Configuration.CATEGORY_GENERAL, false, "Whether cooldown SFX includes quieter beats at the elapsed 1s and 2s marks");
             chatCooldownBackground = config.getBoolean("chatCooldownBackground", Configuration.CATEGORY_GENERAL, true, "Whether to draw a scoreboard-style background behind the chat cooldown timer text");
             chatCooldownBarBackground = config.getBoolean("chatCooldownBarBackground", Configuration.CATEGORY_GENERAL, false, "Whether to draw a scoreboard-style background behind the chat cooldown progress bar");
+            guessSentNotice = config.getBoolean("guessSentNotice", Configuration.CATEGORY_GENERAL, true, "Whether to announce guesses sent outside the three-second cooldown during building rounds");
+            guessSentOnlySpam = config.getBoolean("guessSentOnlySpam", Configuration.CATEGORY_GENERAL, true, "Whether sent-guess notices require repeated attempts during the preceding cooldown");
+            guessSentMinSpam = config.getInt("guessSentMinSpam", Configuration.CATEGORY_GENERAL, 3, MIN_GUESS_SENT_SPAM_COUNT, MAX_GUESS_SENT_SPAM_COUNT, "Minimum repeated attempts during a cooldown before showing a sent-guess notice (1-10)");
+            guessSentShowGuess = config.getBoolean("guessSentShowGuess", Configuration.CATEGORY_GENERAL, true, "Whether sent-guess notices include the final text sent to the server");
             handheldItemPosX = config.getFloat("handheldItemPosX", Configuration.CATEGORY_GENERAL, 0.0f, 0f, 1f, "Horizontal center of the builder handheld item overlay (0-1)");
             handheldItemPosY = config.getFloat("handheldItemPosY", Configuration.CATEGORY_GENERAL, 0.03686636f, 0f, 1f, "Vertical center of the builder handheld item overlay (0-1)");
             environmentPosX = config.getFloat("environmentPosX", Configuration.CATEGORY_GENERAL, 0.15f, 0f, 1f, "Horizontal center of the GTB weather/biome overlay (0-1)");
@@ -507,6 +519,7 @@ public class GtbStructures {
             config.get(Configuration.CATEGORY_GENERAL, "hintStructureBackground", false).set(hintStructureBackground);
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemOverlay", handheldItemOverlay).set(handheldItemOverlay);
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemBackground", false).set(handheldItemBackground);
+            config.get(Configuration.CATEGORY_GENERAL, "handheldItemMarkInitial", true).set(handheldItemMarkInitial);
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemCaptionName", true).set(handheldItemCaptionName);
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemCaptionId", true).set(handheldItemCaptionId);
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemCaptionMetadata", true).set(handheldItemCaptionMetadata);
@@ -531,6 +544,10 @@ public class GtbStructures {
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownProgressBeats", false).set(chatCooldownProgressBeats);
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownBackground", true).set(chatCooldownBackground);
             config.get(Configuration.CATEGORY_GENERAL, "chatCooldownBarBackground", false).set(chatCooldownBarBackground);
+            config.get(Configuration.CATEGORY_GENERAL, "guessSentNotice", true).set(guessSentNotice);
+            config.get(Configuration.CATEGORY_GENERAL, "guessSentOnlySpam", true).set(guessSentOnlySpam);
+            config.get(Configuration.CATEGORY_GENERAL, "guessSentMinSpam", 3).set(Math.max(MIN_GUESS_SENT_SPAM_COUNT, Math.min(MAX_GUESS_SENT_SPAM_COUNT, guessSentMinSpam)));
+            config.get(Configuration.CATEGORY_GENERAL, "guessSentShowGuess", true).set(guessSentShowGuess);
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemPosX", handheldItemPosX).set(handheldItemPosX);
             config.get(Configuration.CATEGORY_GENERAL, "handheldItemPosY", handheldItemPosY).set(handheldItemPosY);
             config.get(Configuration.CATEGORY_GENERAL, "environmentPosX", environmentPosX).set(environmentPosX);
@@ -978,7 +995,8 @@ public class GtbStructures {
                         if (!updateNoticeEnabled || mc.thePlayer == null) return;
                         mc.thePlayer.addChatMessage(buildUpdateNoticeMessage(update));
                         for (String line : update.getChangelogLines()) {
-                            mc.thePlayer.addChatMessage(new ChatComponentText("\u00a77" + line));
+                            mc.thePlayer.addChatMessage(new ChatComponentText("\u00a77"
+                                    + line.replace("\u00a7r", "\u00a7r\u00a77")));
                         }
                     }
                 });

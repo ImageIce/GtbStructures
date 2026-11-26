@@ -17,7 +17,7 @@ Download GTBS from [GitHub Releases](https://github.com/ImageIce/GtbStructures/r
 - Received-guess matching supports Hypixel-normalized Russian lookalikes while preserving original translations and outgoing guesses.
 - Preview and layout controls for configuring interface elements outside a live game.
 - Utility commands for queueing, leaving/rejoining, configurable-delay requeueing, and checking builder progress. `/gtbs lrj delay [time]` or `/lrj delay [time]` queries/sets an additional 0.0-10.0 second delay after LRJ becomes ready to rejoin; the default is 0.0 seconds.
-- Update notices include a bounded plain-text preview of the curated GitHub release changelog, with GitHub and Modrinth links. Publish the curated notes in the release description; no separate changelog request is needed. The existing update-notice toggle and one-check-per-session behavior still apply.
+- Update notices show a formatted preview of the GitHub release notes, with GitHub and Modrinth links. Long bullets wrap in chat. The update-notice toggle and one-check-per-session behavior still apply.
 
 Run `/gtbs help` in game for the categorized command list. `/gtbs preview` opens a session-only preview of enabled interface features.
 
@@ -82,7 +82,7 @@ GTBS does not ship a hardcoded player leaderboard or account roster. A fresh ins
 The mod makes read-only HTTP requests to:
 
 - Hypixel's public Build Battle leaderboard, used to refresh the local builder-ranking fallback.
-- The `zmh-program/gtb_platform` raw translation dataset on GitHub, used to refresh theme translations.
+- The [GTB translation source](https://github.com/ImageIce/gtb-translations) on GitHub, used to refresh theme translations and localized parser messages at startup.
 
 Those requests use a GTBS user-agent and do not upload GTBS logs, account credentials, or local statistics. Public leaderboard entries and player ranks observed in game may be cached locally in `.minecraft/config/gtbstructures_builder_leaderboard.txt`.
 
@@ -92,9 +92,9 @@ Build outputs, development runs, logs, crash reports, IDE settings, and heap dum
 
 ## Translation history
 
-Every maintained JAR bundles a translation snapshot and compressed history used to resolve old log entries consistently. Runtime-observed snapshots are stored as deduplicated compressed files under `.minecraft/config/gtbstats/translation-history/`.
+Every maintained JAR bundles a theme snapshot, compressed translation history, and a set of localized chat, scoreboard, and lobby templates. Runtime theme snapshots are stored as deduplicated compressed files under `.minecraft/config/gtbstats/translation-history/`. Validated template updates are cached in `.minecraft/config/gtbstats/stats-translations.cache` so the parser can reuse them offline.
 
-Run `node tools/generate_translation_history_seed.js` to refresh all loader bundles from GitHub. Use `--target=legacy`, `--target=fabric`, or `--target=forge` for one loader, and `--dry-run` to download and validate without writing resources.
+Run `node tools/generate_translation_history_seed.js` to refresh all loader bundles from GitHub. Use `--target=legacy`, `--target=fabric`, or `--target=forge` for one loader, `--dry-run` to validate without writing resources, or `--checkout=<path>` to use a full local checkout of the translation source at a specific revision.
 
 ## Contributing
 

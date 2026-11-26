@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class UpdateChecker {
     public static final UpdateChecker INSTANCE = new UpdateChecker(new GitHubReleaseSource());
 
-    public static final String CURRENT_VERSION = "1.2.0";
+    public static final String CURRENT_VERSION = "1.2.1";
     public static final String GITHUB_LATEST_API =
             "https://api.github.com/repos/ImageIce/GtbStructures/releases/latest";
     public static final String GITHUB_RELEASE_TAG_BASE =

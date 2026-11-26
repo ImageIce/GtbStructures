@@ -231,6 +231,10 @@ public final class HandheldItemOverlayRenderer {
         int textY = captionStartY(y, entry.height, entry.lines.size(), font.lineHeight);
         for (CaptionLine line : entry.lines) {
             graphics.drawString(font, line.text, textX, textY, opaqueColor(line.color), true);
+            if (!line.suffix.isEmpty()) {
+                graphics.drawString(font, line.suffix, textX + font.width(line.text),
+                        textY, opaqueColor(line.color), true);
+            }
             textY += CAPTION_LINE_HEIGHT;
         }
     }
@@ -251,8 +255,11 @@ public final class HandheldItemOverlayRenderer {
         List<CaptionLine> out = new ArrayList<CaptionLine>();
         int maxWidth = Math.max(8, width);
         if (settings.handheldItemCaptionName) {
-            out.add(new CaptionLine(ellipsize(font, entry == null || entry.name == null || entry.name.isEmpty()
-                    ? "(unknown item)" : entry.name, maxWidth), 0xFFFFFF));
+            String name = entry == null || entry.name == null || entry.name.isEmpty()
+                    ? "(unknown item)" : entry.name;
+            String suffix = initialItemSuffix(entry, settings.handheldItemMarkInitial);
+            out.add(new CaptionLine(ellipsize(font, name,
+                    Math.max(0, maxWidth - font.width(suffix))), 0xFFFFFF, suffix));
         }
         List<String> secondary = new ArrayList<String>();
         if (settings.handheldItemCaptionId) {
@@ -270,6 +277,10 @@ public final class HandheldItemOverlayRenderer {
         appendPackedSecondary(out, font, secondary, maxWidth);
         return new EntryLines(entry, out, Math.max(HandheldItemTracker.ROW_HEIGHT,
                 Math.max(1, out.size()) * CAPTION_LINE_HEIGHT + 2));
+    }
+
+    static String initialItemSuffix(GameStats.HandheldItemEntry entry, boolean markInitial) {
+        return markInitial && entry != null && entry.initialHeld ? " \u00a7a\u00a7l\u274f" : "";
     }
 
     private static void appendPackedSecondary(List<CaptionLine> out, Font font, List<String> tokens, int width) {
@@ -445,10 +456,16 @@ public final class HandheldItemOverlayRenderer {
     private static final class CaptionLine {
         private final String text;
         private final int color;
+        private final String suffix;
 
         private CaptionLine(String text, int color) {
+            this(text, color, "");
+        }
+
+        private CaptionLine(String text, int color, String suffix) {
             this.text = text;
             this.color = color;
+            this.suffix = suffix;
         }
     }
 

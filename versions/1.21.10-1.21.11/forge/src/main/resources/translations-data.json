@@ -1356,8 +1356,8 @@
       },
       "cs": {
         "translation": "Antivirus",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T09:58:12-05:00"
       },
       "da": {
         "translation": "Antivirus",
@@ -13614,9 +13614,9 @@
         "approved_at": null
       },
       "cs": {
-        "translation": "Ptačí Budka",
-        "is_approved": false,
-        "approved_at": null
+        "translation": "Ptačí budka",
+        "is_approved": true,
+        "approved_at": "2026-11-06T09:54:32-05:00"
       },
       "da": {
         "translation": "Fuglehus",
@@ -19387,9 +19387,9 @@
         "approved_at": "2020-03-30T11:50:17-04:00"
       },
       "zh_cn": {
-        "translation": "脑",
+        "translation": "脑子",
         "is_approved": true,
-        "approved_at": "2018-02-13T03:12:15-05:00"
+        "approved_at": "2026-10-19T12:41:47-04:00"
       },
       "zh_tw": {
         "translation": "腦子",
@@ -33913,6 +33913,19 @@
         ]
       },
       {
+        "multiword": "薯条",
+        "occurrences": [
+          {
+            "theme": "Chip",
+            "reference": "Chinese Simplified"
+          },
+          {
+            "theme": "French Fries",
+            "reference": "Chinese Simplified"
+          }
+        ]
+      },
+      {
         "multiword": "洋芋片",
         "occurrences": [
           {
@@ -33938,9 +33951,9 @@
         "approved_at": "2020-04-09T07:11:00-04:00"
       },
       "zh_cn": {
-        "translation": "芯片",
+        "translation": "薯条",
         "is_approved": true,
-        "approved_at": "2018-02-13T06:15:42-05:00"
+        "approved_at": "2026-10-19T13:10:17-04:00"
       },
       "zh_tw": {
         "translation": "洋芋片",
@@ -40066,6 +40079,11 @@
       }
     ],
     "translations": {
+      "co": {
+        "translation": "coloured pencil",
+        "is_approved": true,
+        "approved_at": ""
+      },
       "ru": {
         "translation": "Цветные карандаши",
         "is_approved": true,
@@ -46102,8 +46120,8 @@
       },
       "cs": {
         "translation": "Výletní loď",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T09:58:31-05:00"
       },
       "da": {
         "translation": "Cruise Ship",
@@ -50335,8 +50353,8 @@
       },
       "cs": {
         "translation": "Diplom",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T09:58:25-05:00"
       },
       "da": {
         "translation": "Diplom",
@@ -53399,8 +53417,8 @@
       },
       "cs": {
         "translation": "Klika u dveří",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T09:58:41-05:00"
       },
       "da": {
         "translation": "Dørhåndtag",
@@ -68936,6 +68954,19 @@
             "reference": "Portuguese"
           }
         ]
+      },
+      {
+        "multiword": "薯条",
+        "occurrences": [
+          {
+            "theme": "Chip",
+            "reference": "Chinese Simplified"
+          },
+          {
+            "theme": "French Fries",
+            "reference": "Chinese Simplified"
+          }
+        ]
       }
     ],
     "translations": {
@@ -79813,6 +79844,19 @@
             "reference": "Portuguese"
           }
         ]
+      },
+      {
+        "multiword": "жвачка",
+        "occurrences": [
+          {
+            "theme": "Gum",
+            "reference": "Russian"
+          },
+          {
+            "theme": "Gumball",
+            "reference": "Russian"
+          }
+        ]
       }
     ],
     "translations": {
@@ -79976,13 +80020,26 @@
             "reference": "Portuguese"
           }
         ]
+      },
+      {
+        "multiword": "жвачка",
+        "occurrences": [
+          {
+            "theme": "Gum",
+            "reference": "Russian"
+          },
+          {
+            "theme": "Gumball",
+            "reference": "Russian"
+          }
+        ]
       }
     ],
     "translations": {
       "ru": {
         "translation": "Жвачка",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-09-21T04:18:32-04:00"
       },
       "zh_cn": {
         "translation": "口香糖球",
@@ -82514,13 +82571,13 @@
   {
     "id": 214483,
     "theme": "Hanggliding",
-    "shortcut": "planare",
+    "shortcut": "rogalo",
     "multiwords": [],
     "translations": {
       "ru": {
         "translation": "Дельтапланеризм",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-09-21T04:18:41-04:00"
       },
       "zh_cn": {
         "translation": "滑翔翼",
@@ -82534,8 +82591,8 @@
       },
       "cs": {
         "translation": "Rogalo",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T09:58:56-05:00"
       },
       "da": {
         "translation": "Hanggliding",
@@ -82657,8 +82714,8 @@
       },
       "cs": {
         "translation": "Šťastný",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T09:53:58-05:00"
       },
       "da": {
         "translation": "Happy",
@@ -93012,9 +93069,9 @@
         "approved_at": "2019-08-28T09:41:38-04:00"
       },
       "ja": {
-        "translation": "アイアン",
+        "translation": "鉄",
         "is_approved": true,
-        "approved_at": "2026-06-18T21:06:07-04:00"
+        "approved_at": "2026-10-18T07:17:21-04:00"
       },
       "ko": {
         "translation": "철",
@@ -101013,7 +101070,21 @@
     "id": 214699,
     "theme": "Laptop",
     "shortcut": null,
-    "multiwords": [],
+    "multiwords": [
+      {
+        "multiword": "notebook",
+        "occurrences": [
+          {
+            "theme": "Laptop",
+            "reference": "Portuguese, Brazilian"
+          },
+          {
+            "theme": "Notepad",
+            "reference": "Complement"
+          }
+        ]
+      }
+    ],
     "translations": {
       "ru": {
         "translation": "Ноутбук",
@@ -108890,9 +108961,9 @@
         "approved_at": "2018-11-30T13:21:07-05:00"
       },
       "zh_cn": {
-        "translation": "魔法",
+        "translation": "魔术",
         "is_approved": true,
-        "approved_at": "2018-02-28T05:34:22-05:00"
+        "approved_at": "2026-10-19T12:41:43-04:00"
       },
       "zh_tw": {
         "translation": "魔法",
@@ -109150,9 +109221,9 @@
         "approved_at": "2023-08-14T16:53:09-04:00"
       },
       "zh_cn": {
-        "translation": "魔法帽",
+        "translation": "魔术帽",
         "is_approved": true,
-        "approved_at": "2026-03-22T10:18:00-04:00"
+        "approved_at": "2026-10-19T12:43:01-04:00"
       },
       "zh_tw": {
         "translation": "魔術帽",
@@ -109782,9 +109853,9 @@
         "approved_at": "2020-08-20T05:50:54-04:00"
       },
       "uk": {
-        "translation": "Магмовий куб",
+        "translation": "Магмокуб",
         "is_approved": true,
-        "approved_at": "2025-01-01T09:47:13-05:00"
+        "approved_at": "2026-10-15T14:43:20-04:00"
       }
     }
   },
@@ -117992,8 +118063,8 @@
       },
       "cs": {
         "translation": "Motorka",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T09:59:56-05:00"
       },
       "da": {
         "translation": "Motorcykel",
@@ -122947,8 +123018,27 @@
     "id": 214945,
     "theme": "Notepad",
     "shortcut": null,
-    "multiwords": [],
+    "multiwords": [
+      {
+        "multiword": "notebook",
+        "occurrences": [
+          {
+            "theme": "Laptop",
+            "reference": "Portuguese, Brazilian"
+          },
+          {
+            "theme": "Notepad",
+            "reference": "Complement"
+          }
+        ]
+      }
+    ],
     "translations": {
+      "co": {
+        "translation": "notebook",
+        "is_approved": true,
+        "approved_at": ""
+      },
       "ru": {
         "translation": "Блокнот",
         "is_approved": true,
@@ -123252,8 +123342,8 @@
       },
       "ja": {
         "translation": "くるみ割り器",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-10T18:53:18-05:00"
       },
       "ko": {
         "translation": "호두까기 인형",
@@ -123472,8 +123562,8 @@
       },
       "cs": {
         "translation": "Oáza",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T10:00:06-05:00"
       },
       "da": {
         "translation": "Oase",
@@ -132325,8 +132415,8 @@
       },
       "cs": {
         "translation": "Obchod se zvířaty",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T10:00:12-05:00"
       },
       "da": {
         "translation": "Dyrehandel",
@@ -134100,8 +134190,8 @@
       },
       "cs": {
         "translation": "Rám obrazu",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T10:00:20-05:00"
       },
       "da": {
         "translation": "Billedramme",
@@ -142550,9 +142640,9 @@
         "approved_at": "2018-02-14T06:24:48-05:00"
       },
       "zh_tw": {
-        "translation": "椒鹽卷餅",
+        "translation": "椒鹽捲餅",
         "is_approved": true,
-        "approved_at": "2020-08-16T02:18:14-04:00"
+        "approved_at": "2026-09-20T11:16:09-04:00"
       },
       "cs": {
         "translation": "Preclík",
@@ -148266,8 +148356,8 @@
       },
       "cs": {
         "translation": "Ramen",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T10:00:37-05:00"
       },
       "da": {
         "translation": "Nudler",
@@ -149219,8 +149309,8 @@
       },
       "cs": {
         "translation": "Panda červená",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T10:00:46-05:00"
       },
       "da": {
         "translation": "Rød Panda",
@@ -155932,6 +156022,19 @@
             "reference": "Dutch"
           }
         ]
+      },
+      {
+        "multiword": "trezor",
+        "occurrences": [
+          {
+            "theme": "Safe",
+            "reference": "Czech"
+          },
+          {
+            "theme": "Vault",
+            "reference": "Czech"
+          }
+        ]
       }
     ],
     "translations": {
@@ -155952,8 +156055,8 @@
       },
       "cs": {
         "translation": "Trezor",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T10:00:54-05:00"
       },
       "da": {
         "translation": "Sikret",
@@ -177536,7 +177639,7 @@
         "approved_at": "2018-02-14T06:13:03-05:00"
       },
       "zh_tw": {
-        "translation": "Spleef",
+        "translation": "掘一死戰",
         "is_approved": true,
         "approved_at": "2020-08-16T02:35:18-04:00"
       },
@@ -181060,7 +181163,7 @@
         "approved_at": "2022-05-13T05:01:28-04:00"
       },
       "zh_cn": {
-        "translation": "立体声",
+        "translation": "立体音效",
         "is_approved": false,
         "approved_at": null
       },
@@ -181816,7 +181919,7 @@
   {
     "id": 215601,
     "theme": "Storage",
-    "shortcut": "lager",
+    "shortcut": "sklad",
     "multiwords": [
       {
         "multiword": "magazyn",
@@ -181863,8 +181966,8 @@
       },
       "cs": {
         "translation": "Sklad",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T10:01:12-05:00"
       },
       "da": {
         "translation": "Lager",
@@ -183785,8 +183888,8 @@
       },
       "cs": {
         "translation": "Pevnost",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T10:01:16-05:00"
       },
       "da": {
         "translation": "Fæstning",
@@ -192812,6 +192915,11 @@
       }
     ],
     "translations": {
+      "co": {
+        "translation": "theatre",
+        "is_approved": true,
+        "approved_at": ""
+      },
       "ru": {
         "translation": "Театр",
         "is_approved": true,
@@ -195439,8 +195547,8 @@
       },
       "cs": {
         "translation": "Titanik",
-        "is_approved": false,
-        "approved_at": null
+        "is_approved": true,
+        "approved_at": "2026-11-06T10:01:29-05:00"
       },
       "da": {
         "translation": "Titanic",
@@ -199754,6 +199862,11 @@
     "shortcut": "ampel",
     "multiwords": [],
     "translations": {
+      "co": {
+        "translation": "stoplight",
+        "is_approved": true,
+        "approved_at": ""
+      },
       "ru": {
         "translation": "Светофор",
         "is_approved": true,
@@ -202522,7 +202635,7 @@
         "approved_at": "2024-10-04T06:57:17-04:00"
       },
       "zh_cn": {
-        "translation": "花式进球",
+        "translation": "花式射击",
         "is_approved": false,
         "approved_at": null
       },
@@ -207362,6 +207475,19 @@
           {
             "theme": "Vault",
             "reference": "Dutch"
+          }
+        ]
+      },
+      {
+        "multiword": "trezor",
+        "occurrences": [
+          {
+            "theme": "Safe",
+            "reference": "Czech"
+          },
+          {
+            "theme": "Vault",
+            "reference": "Czech"
           }
         ]
       },

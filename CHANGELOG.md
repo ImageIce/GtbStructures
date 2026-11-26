@@ -1,5 +1,33 @@
 # GtbStructures Changelog
 
+## 1.2.1
+
+### Added
+
+- **Sent Guess Notice.** Confirms when your guess is sent during the build phase after the three-second chat cooldown, even if it never appears in chat. The notice shows the final text and requires at least 3 attempts during the preceding cooldown by default. Use `/gtbs guessnotice` or Preview to set the message threshold, or choose to show or hide eligible sends.
+- **Initial item markers.** The vertical Handheld Item Recorder now marks items held during theme selection with a green ❏. Turn it off in Preview or with `/gtbs handhelditem markinitial off`.
+
+### Changed
+
+- **Translation updates.** GTBS now fetches themes and approved parser templates from the [GTB translation source](https://github.com/ImageIce/gtb-translations) at startup. Updates can add new chat, scoreboard, and lobby wording without a mod update. The refreshed bundle works offline and retains translation history for older records.
+- Replaced the mod icon with the classic crafting table texture.
+- Improved settings spacing, aligned the plus and minus controls, and made explanation text easier to read with Minecraft's native chat tooltips in Preview.
+- Modified the usage prompt shown when typing `/troll` by itself on 1.8.9.
+- Update notices preserve basic formatting from the GitHub release notes and wrap long bullets in chat.
+
+### Fixed
+
+- **MVP++ name colors.** The custom scoreboard now correctly uses gold for MVP++ names even when the player uses the aqua rank prefix in chat.
+- **Ambiguous theme points resolution.** Ordinary unaccepted guesses can again help tell apart themes with the same translation and resolve the builder's point award.
+- **Custom scoreboard fixes**
+	- **Builder carryover.** Reset buffered builder announcements when a match ends or a fresh lobby starts, so the previous game's builder stays out of the new roster.
+	- **Scores after rejoining.** The custom scoreboard can show new round gains before it knows the round number. Rejoining again keeps the gains already tracked, and learning the round number places those points in the correct round.
+	- **Roster after skipped builds.** A brief tab list update no longer brings back a builder who left before choosing a theme or causes another player to be marked as left.
+
+### Compatibility
+
+- Supports 1.8.9 Forge, 1.21.10–1.21.11 Fabric and Forge, and 26.1–26.3 Fabric. Fabric builds require Fabric API. Minecraft 26.x builds require Java 25.
+
 ## 1.2.0
 
 ### Added

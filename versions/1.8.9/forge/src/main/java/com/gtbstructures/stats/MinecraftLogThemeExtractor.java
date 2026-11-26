@@ -429,7 +429,7 @@ final class MinecraftLogThemeExtractor {
     }
 
     private boolean parseLanguageSelect(String clean) {
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.langSelectPrefix == null || !clean.startsWith(lp.langSelectPrefix)) {
                 continue;
             }
@@ -464,7 +464,7 @@ final class MinecraftLogThemeExtractor {
                 return true;
             }
         }
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.roundPrefix == null || !clean.startsWith(lp.roundPrefix)) continue;
             String rest = clean.substring(lp.roundPrefix.length());
             if ("ja".equals(lp.lang) && rest.trim().isEmpty()) {
@@ -499,7 +499,7 @@ final class MinecraftLogThemeExtractor {
     }
 
     private boolean parseThemeReveal(String clean, long timestamp) {
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.themeWasPrefix == null || !clean.startsWith(lp.themeWasPrefix)) continue;
             String rest = clean.substring(lp.themeWasPrefix.length());
             if (lp.themeWasSuffix != null && rest.endsWith(lp.themeWasSuffix)) {
@@ -531,7 +531,7 @@ final class MinecraftLogThemeExtractor {
                 || line.indexOf("/16)!") >= 0) {
             return true;
         }
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (containsRaw(line, lp.roundPrefix)
                     || containsRaw(line, lp.themeWasPrefix)
                     || containsRaw(line, lp.winnersKeyword)
@@ -625,7 +625,7 @@ final class MinecraftLogThemeExtractor {
     }
 
     private static boolean isWinnersLine(String clean) {
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.winnersKeyword != null && clean.equals(lp.winnersKeyword)) return true;
         }
         return false;

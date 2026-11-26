@@ -25,6 +25,8 @@ public final class GtbStructuresSettings {
     public static final float DEFAULT_AUTO_REQUEUE_DELAY_SECONDS = 5.0F;
     public static final float MAX_AUTO_REQUEUE_DELAY_SECONDS = 10.0F;
     public static final float DEFAULT_LRJ_DELAY_SECONDS = 0.0F;
+    public static final int MIN_GUESS_SENT_SPAM_COUNT = 1;
+    public static final int MAX_GUESS_SENT_SPAM_COUNT = 10;
 
     private File configFile;
     private int legacyHandheldItemPanelWidth = -1;
@@ -70,6 +72,7 @@ public final class GtbStructuresSettings {
     public boolean handheldItemCaptionId = true;
     public boolean handheldItemCaptionMetadata = true;
     public boolean handheldItemCaptionSpawnEggMob = true;
+    public boolean handheldItemMarkInitial = true;
     public boolean handheldItemVerticalLayout = true;
     public boolean handheldItemVerticalNewestAtBottom = true;
     public boolean handheldItemHorizontalNewestAtRight = true;
@@ -90,6 +93,10 @@ public final class GtbStructuresSettings {
     public boolean chatCooldownProgressBeats = false;
     public boolean chatCooldownBackground = true;
     public boolean chatCooldownBarBackground = false;
+    public boolean guessSentNotice = true;
+    public boolean guessSentOnlySpam = true;
+    public int guessSentMinSpam = 3;
+    public boolean guessSentShowGuess = true;
     public boolean gtwShowEnglish = false;
     /** Missing configs intentionally migrate to the legacy-enabled count suffix. */
     public boolean gtwShowCount = true;
@@ -225,6 +232,7 @@ public final class GtbStructuresSettings {
         handheldItemCaptionId = bool(p, "handheldItemCaptionId", handheldItemCaptionId);
         handheldItemCaptionMetadata = bool(p, "handheldItemCaptionMetadata", handheldItemCaptionMetadata);
         handheldItemCaptionSpawnEggMob = bool(p, "handheldItemCaptionSpawnEggMob", handheldItemCaptionSpawnEggMob);
+        handheldItemMarkInitial = bool(p, "handheldItemMarkInitial", true);
         handheldItemVerticalLayout = bool(p, "handheldItemVerticalLayout", handheldItemVerticalLayout);
         handheldItemVerticalNewestAtBottom = bool(p, "handheldItemVerticalNewestAtBottom", handheldItemVerticalNewestAtBottom);
         handheldItemHorizontalNewestAtRight = bool(p, "handheldItemHorizontalNewestAtRight", handheldItemHorizontalNewestAtRight);
@@ -245,6 +253,10 @@ public final class GtbStructuresSettings {
         chatCooldownProgressBeats = bool(p, "chatCooldownProgressBeats", false);
         chatCooldownBackground = bool(p, "chatCooldownBackground", chatCooldownBackground);
         chatCooldownBarBackground = bool(p, "chatCooldownBarBackground", chatCooldownBarBackground);
+        guessSentNotice = bool(p, "guessSentNotice", true);
+        guessSentOnlySpam = bool(p, "guessSentOnlySpam", true);
+        guessSentMinSpam = integer(p, "guessSentMinSpam", 3);
+        guessSentShowGuess = bool(p, "guessSentShowGuess", true);
         gtwShowEnglish = bool(p, "gtwShowEnglish", gtwShowEnglish);
         gtwShowCount = bool(p, "gtwShowCount", true);
         copyTranslationPrefix = bool(p, "copyTranslationPrefix", copyTranslationPrefix);
@@ -375,6 +387,7 @@ public final class GtbStructuresSettings {
         put(p, "handheldItemCaptionId", handheldItemCaptionId);
         put(p, "handheldItemCaptionMetadata", handheldItemCaptionMetadata);
         put(p, "handheldItemCaptionSpawnEggMob", handheldItemCaptionSpawnEggMob);
+        put(p, "handheldItemMarkInitial", handheldItemMarkInitial);
         put(p, "handheldItemVerticalLayout", handheldItemVerticalLayout);
         put(p, "handheldItemVerticalNewestAtBottom", handheldItemVerticalNewestAtBottom);
         put(p, "handheldItemHorizontalNewestAtRight", handheldItemHorizontalNewestAtRight);
@@ -395,6 +408,10 @@ public final class GtbStructuresSettings {
         put(p, "chatCooldownProgressBeats", chatCooldownProgressBeats);
         put(p, "chatCooldownBackground", chatCooldownBackground);
         put(p, "chatCooldownBarBackground", chatCooldownBarBackground);
+        put(p, "guessSentNotice", guessSentNotice);
+        put(p, "guessSentOnlySpam", guessSentOnlySpam);
+        p.setProperty("guessSentMinSpam", Integer.toString(guessSentMinSpam));
+        put(p, "guessSentShowGuess", guessSentShowGuess);
         put(p, "gtwShowEnglish", gtwShowEnglish);
         put(p, "gtwShowCount", gtwShowCount);
         put(p, "copyTranslationPrefix", copyTranslationPrefix);
@@ -506,6 +523,7 @@ public final class GtbStructuresSettings {
         handheldItemCaptionId = true;
         handheldItemCaptionMetadata = true;
         handheldItemCaptionSpawnEggMob = true;
+        handheldItemMarkInitial = true;
         handheldItemVerticalLayout = true;
         handheldItemVerticalNewestAtBottom = true;
         handheldItemHorizontalNewestAtRight = true;
@@ -526,6 +544,10 @@ public final class GtbStructuresSettings {
         chatCooldownProgressBeats = false;
         chatCooldownBackground = true;
         chatCooldownBarBackground = false;
+        guessSentNotice = true;
+        guessSentOnlySpam = true;
+        guessSentMinSpam = 3;
+        guessSentShowGuess = true;
         gtwShowEnglish = false;
         gtwShowCount = true;
         copyTranslationPrefix = true;
@@ -647,6 +669,8 @@ public final class GtbStructuresSettings {
         handheldItemScale = HudPanelScale.normalize(handheldItemScale);
         environmentScale = HudPanelScale.normalize(environmentScale);
         handheldItemMaxVisible = HandheldItemTracker.clampMaxVisible(handheldItemMaxVisible);
+        guessSentMinSpam = Math.max(MIN_GUESS_SENT_SPAM_COUNT,
+                Math.min(MAX_GUESS_SENT_SPAM_COUNT, guessSentMinSpam));
         handheldItemPanelWidthRatio = normalizeHandheldPanelRatio(handheldItemPanelWidthRatio);
         handheldItemPanelHeightRatio = normalizeHandheldPanelRatio(handheldItemPanelHeightRatio);
         colorNumbers = MinecraftFormatting.normalizeMinecraftColorCode(colorNumbers, "\u00a7e");

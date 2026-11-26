@@ -174,6 +174,7 @@ public class GameExporter {
                         .append(",\"modernKind\":").append(jsonStr(item.modernKind))
                         .append(",\"modernName\":").append(jsonStr(item.modernName))
                         .append(",\"nbt\":").append(jsonStr(item.nbt))
+                        .append(",\"initialHeld\":").append(item.initialHeld)
                         .append(",\"firstSeen\":").append(item.firstSeen)
                         .append(",\"lastSeen\":").append(item.lastSeen)
                         .append(",\"intervals\":[");

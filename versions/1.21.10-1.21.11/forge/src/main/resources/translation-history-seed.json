@@ -1,17 +1,17 @@
 {
   "schemaVersion": 4,
-  "currentHash": "ad805d16105ee95ac2c72b5cc50c12c9d6fe0eb5aad607e1316169f315b978b3",
-  "currentValidFrom": 1789255907000,
-  "upstreamRepository": "https://github.com/zmh-program/gtb_platform",
+  "currentHash": "84f316042b24527f3106490d3df7547d716524e9d717fff21090334d7ad63fe7",
+  "currentValidFrom": 1795520538000,
+  "upstreamRepository": "https://github.com/ImageIce/gtb-translations",
   "upstreamPath": "lib/source/translations-data.json",
   "bundleKind": "GTBHIST3-sequential-delta",
   "approvalHistory": {
     "resource": "translation-approval-history.json.gz",
     "schemaVersion": 1,
-    "sha256": "a21153c687f00d0355b854eb9824156c0bfd7b51911cc84e493084c806c2a179",
+    "sha256": "e2a1bddeed26bcedce742fa13fd12cb03f96fd5c7fa1d84350aede15944423ab",
     "themeCount": 1495,
-    "entryCount": 34174,
-    "eventCount": 34386
+    "entryCount": 34191,
+    "eventCount": 34413
   },
   "versions": [
     {
@@ -217,9 +217,33 @@
     {
       "hash": "ad805d16105ee95ac2c72b5cc50c12c9d6fe0eb5aad607e1316169f315b978b3",
       "validFrom": 1789255907000,
-      "validUntil": 0,
+      "validUntil": 1795517345000,
       "sourceTimestamp": 1789255907000,
       "sourceCommit": "b551829ca2662a6090f3e3701d9952b822037c99",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "2e13847e7878c2e88b181413f8cd0dd5925528666b5d76d0cf3c9b40caec7eed",
+      "validFrom": 1795517345000,
+      "validUntil": 1795518269000,
+      "sourceTimestamp": 1795517345000,
+      "sourceCommit": "ac9c052ace42dec43deee37e79491424ea4b8f17",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "8523df9b8aad7dc9cc6add36451dd737de238829dc56fc967a01e21cb2f15608",
+      "validFrom": 1795518269000,
+      "validUntil": 1795520538000,
+      "sourceTimestamp": 1795518269000,
+      "sourceCommit": "c47a5ed1022aa97206b495d979b67e072ab1bffc",
+      "bundledSnapshot": true
+    },
+    {
+      "hash": "84f316042b24527f3106490d3df7547d716524e9d717fff21090334d7ad63fe7",
+      "validFrom": 1795520538000,
+      "validUntil": 0,
+      "sourceTimestamp": 1795520538000,
+      "sourceCommit": "46d1b7f864684b11152ef4f4e2d719cd94c57b20",
       "bundledSnapshot": true
     }
   ]

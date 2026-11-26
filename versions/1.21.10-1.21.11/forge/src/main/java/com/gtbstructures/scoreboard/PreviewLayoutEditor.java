@@ -74,9 +74,9 @@ public final class PreviewLayoutEditor {
     private static final int CHILD_ROW_INDENT = CHECK_SIZE + 5;
     private static final int SECTION_MARGIN_Y = 3;
     private static final int SECTION_TEXT_HEIGHT = 9;
-    private static final int STEPPER_BUTTON_SIZE = 13;
-    private static final int STEPPER_VALUE_CENTER = 26;
-    private static final int STEPPER_PLUS_X = 39;
+    private static final int STEPPER_BUTTON_SIZE = 9;
+    private static final int STEPPER_VALUE_CENTER = 25;
+    private static final int STEPPER_PLUS_X = 40;
     private static final int SLIDER_ROW_HEIGHT = 16;
     private static final int SLIDER_WIDTH = 74;
     private static final int SLIDER_KNOB_WIDTH = 5;
@@ -101,6 +101,13 @@ public final class PreviewLayoutEditor {
     private final List<Label> labels = new ArrayList<Label>();
     private final Map<String, Float> hoverAmounts = new HashMap<String, Float>();
     private final Map<String, Float> controlHoverAmounts = new HashMap<String, Float>();
+    private static final String GUESS_SENT_CAPTION = "Sent Guess Notice";
+    private static final String GUESS_SENT_SPAM_CAPTION = "Only When Spamming";
+    private static final String GUESS_SENT_SHOW_CAPTION = "Show Sent Guess";
+    private static final String GUESS_SENT_MIN_CAPTION = "Minimum Spam Count";
+    private static final String MARK_INITIAL_CAPTION = "Mark Initial Items";
+    private static final String MARK_INITIAL_TOOLTIP = "\u00a7fInitially held items keep a green \u00a7a\u00a7l\u274f\u00a7f after their name when selected again.";
+    private String pendingTooltip;
     private String hoveredId = "";
     private String selectedId = "";
     private String activePanelId = "";
@@ -648,6 +655,64 @@ public final class PreviewLayoutEditor {
         }
     }
 
+    static int guessSentSettingsHeight(boolean enabled, boolean onlySpam) {
+        return ROW_HEIGHT + (enabled ? ROW_HEIGHT * 2 + (onlySpam ? ROW_HEIGHT : 0) : 0);
+    }
+
+    static int guessSpamCaptionX(int rootX) { return rootX + CHILD_ROW_INDENT * 3; }
+
+    static int handheldVisibleRowsHeaderY(int initialRowY) { return initialRowY + ROW_HEIGHT + 2; }
+
+    static boolean captionContains(int x, int y, int captionWidth, int fontHeight, int mouseX, int mouseY) {
+        int textY = toggleTextY(y, fontHeight);
+        int textX = x + CHECK_SIZE + 5;
+        return mouseX >= textX && mouseX < textX + captionWidth && mouseY >= textY && mouseY < textY + fontHeight;
+    }
+
+    private void drawGuessSentRows(EditorRenderer renderer, int x, int y) {
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        drawToggleRow(renderer, x, y, GUESS_SENT_CAPTION, settings.guessSentNotice);
+        if (!settings.guessSentNotice) return;
+        y += ROW_HEIGHT;
+        drawToggleRow(renderer, x + CHILD_ROW_INDENT, y, GUESS_SENT_SPAM_CAPTION, settings.guessSentOnlySpam);
+        y += ROW_HEIGHT;
+        if (settings.guessSentOnlySpam) {
+            int countX = guessSpamCaptionX(x);
+            renderer.drawString("\u00a7f" + GUESS_SENT_MIN_CAPTION, countX,
+                    toggleTextY(y, renderer.fontHeight()), PANEL_TEXT, true);
+            drawStepper(renderer, countX + renderer.textWidth(GUESS_SENT_MIN_CAPTION) + 6, y, settings.guessSentMinSpam);
+            y += ROW_HEIGHT;
+        }
+        drawToggleRow(renderer, x + CHILD_ROW_INDENT, y, GUESS_SENT_SHOW_CAPTION, settings.guessSentShowGuess);
+    }
+
+    private boolean handleGuessSentRowsClick(EditorRenderer renderer, int x, int y, int mouseX, int mouseY) {
+        GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
+        String action = null;
+        if (toggleHit(renderer, x, y, GUESS_SENT_CAPTION, mouseX, mouseY)) action = "notice";
+        if (action == null && !settings.guessSentNotice) return false;
+        y += ROW_HEIGHT;
+        if (action == null && toggleHit(renderer, x + CHILD_ROW_INDENT, y, GUESS_SENT_SPAM_CAPTION, mouseX, mouseY)) action = "spam";
+        y += ROW_HEIGHT;
+        if (settings.guessSentOnlySpam) {
+            int stepperX = guessSpamCaptionX(x) + renderer.textWidth(GUESS_SENT_MIN_CAPTION) + 6;
+            if (action == null && stepperMinusRect(stepperX, y).contains(mouseX, mouseY)) action = "decrease";
+            if (action == null && stepperPlusRect(stepperX, y).contains(mouseX, mouseY)) action = "increase";
+            y += ROW_HEIGHT;
+        }
+        if (action == null && toggleHit(renderer, x + CHILD_ROW_INDENT, y, GUESS_SENT_SHOW_CAPTION, mouseX, mouseY)) action = "show";
+        if (action == null) return false;
+        recordUndo();
+        if ("notice".equals(action)) settings.guessSentNotice = !settings.guessSentNotice;
+        else if ("spam".equals(action)) settings.guessSentOnlySpam = !settings.guessSentOnlySpam;
+        else if ("show".equals(action)) settings.guessSentShowGuess = !settings.guessSentShowGuess;
+        else settings.guessSentMinSpam = Math.max(GtbStructuresSettings.MIN_GUESS_SENT_SPAM_COUNT,
+                Math.min(GtbStructuresSettings.MAX_GUESS_SENT_SPAM_COUNT,
+                        settings.guessSentMinSpam + ("increase".equals(action) ? 1 : -1)));
+        settings.save();
+        return true;
+    }
+
     private boolean handleLabelsPanelClick(EditorRenderer renderer, int screenWidth, int screenHeight,
                                            int mouseX, int mouseY) {
         if (!labelsPanelOpen) return false;
@@ -768,6 +833,9 @@ public final class PreviewLayoutEditor {
         }
         y += ROW_HEIGHT;
         y = menuSectionYAfter(y);
+        if (handleGuessSentRowsClick(renderer, x, y, mouseX, mouseY)) return true;
+        y += guessSentSettingsHeight(GtbStructuresSettings.INSTANCE.guessSentNotice,
+                GtbStructuresSettings.INSTANCE.guessSentOnlySpam);
         if (toggleHit(renderer, x, y, "Guess Peek", mouseX, mouseY)) {
             GtbStructuresSettings settings = GtbStructuresSettings.INSTANCE;
             recordUndo();
@@ -1127,6 +1195,7 @@ public final class PreviewLayoutEditor {
         drawMouseX = input.mouseX;
         drawMouseY = input.mouseY;
         drawLeftDown = input.leftDown;
+        pendingTooltip = null;
         drawSettingsPanel(renderer, screenWidth, screenHeight);
         int buttonMouseX = input.mouseX;
         int buttonMouseY = input.mouseY;
@@ -1135,8 +1204,12 @@ public final class PreviewLayoutEditor {
             buttonMouseY = Integer.MIN_VALUE;
         }
         drawLabelsButton(renderer, screenWidth, buttonMouseX, buttonMouseY);
-        if (labelsPanelOpen) drawLabelsPanel(renderer, screenWidth, screenHeight);
+        if (labelsPanelOpen) {
+            if (labelsPanelRect(screenWidth, screenHeight).contains(input.mouseX, input.mouseY)) pendingTooltip = null;
+            drawLabelsPanel(renderer, screenWidth, screenHeight);
+        }
         drawDoneButton(renderer, screenWidth, screenHeight, buttonMouseX, buttonMouseY);
+        if (pendingTooltip != null) renderer.drawNativeTooltip(pendingTooltip, input.mouseX, input.mouseY);
     }
 
     private static void drawPadded(EditorRenderer renderer, Label label, int color) {
@@ -1232,6 +1305,8 @@ public final class PreviewLayoutEditor {
             drawLrjDelayRow(renderer, panel, x + CHILD_ROW_INDENT, y);
             y += ROW_HEIGHT;
             y = drawMenuSection(renderer, x, y, "Chat");
+            drawGuessSentRows(renderer, x, y);
+            y += guessSentSettingsHeight(settings.guessSentNotice, settings.guessSentOnlySpam);
             drawToggleRow(renderer, x, y, "Guess Peek", settings.guessPeek);
             y += ROW_HEIGHT;
             if (settings.guessPeek) {
@@ -2170,10 +2245,16 @@ public final class PreviewLayoutEditor {
         } else if ("handheld".equals(key)) {
             drawSliderRow(renderer, x, y, HANDHELD_SCALE_SLIDER);
             y += SLIDER_ROW_HEIGHT;
+
+            drawToggleRow(renderer, x, y, MARK_INITIAL_CAPTION, settings.handheldItemMarkInitial);
+            if (captionContains(x, y, renderer.textWidth(MARK_INITIAL_CAPTION), renderer.fontHeight(), drawMouseX, drawMouseY)) {
+                pendingTooltip = MARK_INITIAL_TOOLTIP;
+            }
+            y = handheldVisibleRowsHeaderY(y);
             drawSection(renderer, x, y, "Visible Rows");
             y += ROW_HEIGHT;
             drawStepper(renderer, x, y, settings.handheldItemMaxVisible);
-            y += STEPPER_BUTTON_SIZE + 4;
+            y += ROW_HEIGHT + 2;
             drawSection(renderer, x, y, "Background");
             y += ROW_HEIGHT;
             drawToggleRow(renderer, x, y, "On", settings.handheldItemBackground);
@@ -2494,7 +2575,14 @@ public final class PreviewLayoutEditor {
         } else if ("handheld".equals(key)) {
             if (handleSliderRowClick(renderer, HANDHELD_SCALE_SLIDER, x, y, mouseX, mouseY)) return true;
             y += SLIDER_ROW_HEIGHT;
-            y += ROW_HEIGHT;
+
+            if (toggleHit(renderer, x, y, MARK_INITIAL_CAPTION, mouseX, mouseY)) {
+                recordUndo();
+                settings.handheldItemMarkInitial = !settings.handheldItemMarkInitial;
+                settings.save();
+                return true;
+            }
+            y = handheldVisibleRowsHeaderY(y) + ROW_HEIGHT;
             if (stepperRowRect(panel, y).contains(mouseX, mouseY)) {
                 if (stepperMinusRect(x, y).contains(mouseX, mouseY)) {
                     recordUndo();
@@ -2507,7 +2595,7 @@ public final class PreviewLayoutEditor {
                 }
                 return true;
             }
-            y += STEPPER_BUTTON_SIZE + 4 + ROW_HEIGHT;
+            y += ROW_HEIGHT * 2 + 2;
             if (toggleHit(renderer, x, y, "On", mouseX, mouseY)) {
                 recordUndo();
                 settings.handheldItemBackground = true;
@@ -2853,21 +2941,23 @@ public final class PreviewLayoutEditor {
         String valueText = String.valueOf(value);
         renderer.drawString("\u00a7f" + valueText,
                 x + STEPPER_VALUE_CENTER - renderer.textWidth(valueText) / 2,
-                y + (STEPPER_BUTTON_SIZE - renderer.fontHeight()) / 2, PANEL_TEXT, true);
+                toggleTextY(y, renderer.fontHeight()), PANEL_TEXT, true);
         drawSmallButton(renderer, plus, true);
     }
 
     private static Rect stepperMinusRect(int x, int y) {
+        y = toggleCheckY(y, SECTION_TEXT_HEIGHT);
         return new Rect(x, y, x + STEPPER_BUTTON_SIZE, y + STEPPER_BUTTON_SIZE);
     }
 
     private static Rect stepperPlusRect(int x, int y) {
+        y = toggleCheckY(y, SECTION_TEXT_HEIGHT);
         return new Rect(x + STEPPER_PLUS_X, y, x + STEPPER_PLUS_X + STEPPER_BUTTON_SIZE,
                 y + STEPPER_BUTTON_SIZE);
     }
 
     private static Rect stepperRowRect(Rect panel, int y) {
-        return new Rect(panel.x1 + PANEL_PAD, y, panel.x2 - PANEL_PAD, y + STEPPER_BUTTON_SIZE);
+        return new Rect(panel.x1 + PANEL_PAD, y, panel.x2 - PANEL_PAD, y + ROW_HEIGHT);
     }
 
     private static void drawSmallButton(EditorRenderer renderer, Rect rect, boolean plus) {
@@ -2916,14 +3006,7 @@ public final class PreviewLayoutEditor {
     }
 
     private static void drawTooltip(EditorRenderer renderer, String text) {
-        int x = INSTANCE.drawMouseX + 9;
-        int width = renderer.textWidth(text) + 6;
-        int height = renderer.fontHeight() + 6;
-        int y = INSTANCE.drawMouseY - height - 7;
-        if (y < 2) y = INSTANCE.drawMouseY + 9;
-        renderer.fill(x, y, x + width, y + height, 0xF0101010);
-        drawOutline(renderer, new Rect(x, y, x + width, y + height), 0xAA7A8492);
-        renderer.drawString(text, x + 3, y + 3, PANEL_TEXT, true);
+        INSTANCE.pendingTooltip = text;
     }
 
     private static void drawColorSwatches(EditorRenderer renderer, int x, int y, String selected) {
@@ -3165,6 +3248,7 @@ public final class PreviewLayoutEditor {
         int rows = 6;
         rows += 2 + (settings.autoRequeue ? 1 : 0);
         rows += 2;
+        rows += guessSentSettingsHeight(settings.guessSentNotice, settings.guessSentOnlySpam) / ROW_HEIGHT;
         rows += 1 + (settings.guessPeek ? 4 : 0);
         rows += 1 + (settings.showAllMatching ? 2 : 0);
         rows += 1 + (settings.themePointReveal ? 1 : 0);
@@ -3629,7 +3713,7 @@ public final class PreviewLayoutEditor {
         String key = label.target.key;
         if ("hint".equals(key)) return 154;
         if ("handheld".equals(key)) {
-            return GtbStructuresSettings.INSTANCE.handheldItemVerticalLayout ? 283 : 259;
+            return GtbStructuresSettings.INSTANCE.handheldItemVerticalLayout ? 294 : 270;
         }
         if ("environment".equals(key) || key.startsWith("environment_")) return 178;
         if ("cooldown".equals(key)) return 154;
@@ -3683,7 +3767,7 @@ public final class PreviewLayoutEditor {
     static int settingsPanelHeightForTest(String key, boolean handheldVerticalLayout) {
         if ("hint".equals(key)) return 154;
         if ("cooldown".equals(key)) return 154;
-        if ("handheld".equals(key)) return handheldVerticalLayout ? 283 : 259;
+        if ("handheld".equals(key)) return handheldVerticalLayout ? 294 : 270;
         if ("environment".equals(key)) return 178;
         return 0;
     }
@@ -4023,6 +4107,8 @@ public final class PreviewLayoutEditor {
                                         boolean trollMode, boolean autoRequeue) {
         int rows = 6;
         rows += 4 + (autoRequeue ? 1 : 0);
+        rows += guessSentSettingsHeight(GtbStructuresSettings.INSTANCE.guessSentNotice,
+                GtbStructuresSettings.INSTANCE.guessSentOnlySpam) / ROW_HEIGHT;
         rows += 1 + (guessPeek ? 4 : 0);
         rows += 1 + (showMatching ? 2 : 0);
         rows += 1 + (themePointReveal ? 1 : 0);
@@ -4845,6 +4931,7 @@ public final class PreviewLayoutEditor {
         private final boolean handheldItemCaptionId;
         private final boolean handheldItemCaptionMetadata;
         private final boolean handheldItemCaptionSpawnEggMob;
+        private final boolean handheldItemMarkInitial;
         private final boolean handheldItemVerticalLayout;
         private final boolean handheldItemVerticalNewestAtBottom;
         private final boolean handheldItemHorizontalNewestAtRight;
@@ -4864,6 +4951,10 @@ public final class PreviewLayoutEditor {
         private final boolean chatCooldownProgressBeats;
         private final boolean chatCooldownBackground;
         private final boolean chatCooldownBarBackground;
+        private final boolean guessSentNotice;
+        private final boolean guessSentOnlySpam;
+        private final int guessSentMinSpam;
+        private final boolean guessSentShowGuess;
         private final boolean scoreboardEnabled;
         private final float scoreboardBackgroundOpacity;
         private final float scoreboardHighlightIntensity;
@@ -4948,6 +5039,7 @@ public final class PreviewLayoutEditor {
             handheldItemCaptionId = settings.handheldItemCaptionId;
             handheldItemCaptionMetadata = settings.handheldItemCaptionMetadata;
             handheldItemCaptionSpawnEggMob = settings.handheldItemCaptionSpawnEggMob;
+            handheldItemMarkInitial = settings.handheldItemMarkInitial;
             handheldItemVerticalLayout = settings.handheldItemVerticalLayout;
             handheldItemVerticalNewestAtBottom = settings.handheldItemVerticalNewestAtBottom;
             handheldItemHorizontalNewestAtRight = settings.handheldItemHorizontalNewestAtRight;
@@ -4967,6 +5059,10 @@ public final class PreviewLayoutEditor {
             chatCooldownProgressBeats = settings.chatCooldownProgressBeats;
             chatCooldownBackground = settings.chatCooldownBackground;
             chatCooldownBarBackground = settings.chatCooldownBarBackground;
+            guessSentNotice = settings.guessSentNotice;
+            guessSentOnlySpam = settings.guessSentOnlySpam;
+            guessSentMinSpam = settings.guessSentMinSpam;
+            guessSentShowGuess = settings.guessSentShowGuess;
             scoreboardEnabled = settings.sbConfig.isCustomEnabled();
             scoreboardBackgroundOpacity = settings.sbConfig.backgroundOpacity;
             scoreboardHighlightIntensity = settings.sbConfig.highlightIntensity;
@@ -5056,6 +5152,7 @@ public final class PreviewLayoutEditor {
             settings.handheldItemCaptionId = handheldItemCaptionId;
             settings.handheldItemCaptionMetadata = handheldItemCaptionMetadata;
             settings.handheldItemCaptionSpawnEggMob = handheldItemCaptionSpawnEggMob;
+            settings.handheldItemMarkInitial = handheldItemMarkInitial;
             settings.handheldItemVerticalLayout = handheldItemVerticalLayout;
             settings.handheldItemVerticalNewestAtBottom = handheldItemVerticalNewestAtBottom;
             settings.handheldItemHorizontalNewestAtRight = handheldItemHorizontalNewestAtRight;
@@ -5075,6 +5172,10 @@ public final class PreviewLayoutEditor {
             settings.chatCooldownProgressBeats = chatCooldownProgressBeats;
             settings.chatCooldownBackground = chatCooldownBackground;
             settings.chatCooldownBarBackground = chatCooldownBarBackground;
+            settings.guessSentNotice = guessSentNotice;
+            settings.guessSentOnlySpam = guessSentOnlySpam;
+            settings.guessSentMinSpam = guessSentMinSpam;
+            settings.guessSentShowGuess = guessSentShowGuess;
             if (scoreboardEnabled && !"vanilla".equals(ScoreboardConfig.normalizeSkin(scoreboardSkin))) {
                 settings.sbConfig.setSkin(scoreboardSkin);
             } else {
@@ -5167,6 +5268,7 @@ public final class PreviewLayoutEditor {
                     && handheldItemCaptionId == settings.handheldItemCaptionId
                     && handheldItemCaptionMetadata == settings.handheldItemCaptionMetadata
                     && handheldItemCaptionSpawnEggMob == settings.handheldItemCaptionSpawnEggMob
+                    && handheldItemMarkInitial == settings.handheldItemMarkInitial
                     && handheldItemVerticalLayout == settings.handheldItemVerticalLayout
                     && handheldItemVerticalNewestAtBottom == settings.handheldItemVerticalNewestAtBottom
                     && handheldItemHorizontalNewestAtRight == settings.handheldItemHorizontalNewestAtRight
@@ -5186,6 +5288,10 @@ public final class PreviewLayoutEditor {
                     && chatCooldownProgressBeats == settings.chatCooldownProgressBeats
                     && chatCooldownBackground == settings.chatCooldownBackground
                     && chatCooldownBarBackground == settings.chatCooldownBarBackground
+                    && guessSentNotice == settings.guessSentNotice
+                    && guessSentOnlySpam == settings.guessSentOnlySpam
+                    && guessSentMinSpam == settings.guessSentMinSpam
+                    && guessSentShowGuess == settings.guessSentShowGuess
                     && scoreboardEnabled == settings.sbConfig.isCustomEnabled()
                     && scoreboardBackgroundOpacity == settings.sbConfig.backgroundOpacity
                     && scoreboardHighlightIntensity == settings.sbConfig.highlightIntensity
@@ -5401,6 +5507,7 @@ public final class PreviewLayoutEditor {
     }
 
     public interface EditorRenderer {
+        default boolean drawNativeTooltip(String text, int mouseX, int mouseY) { return false; }
         int fontHeight();
         int textWidth(String text);
         void fill(int left, int top, int right, int bottom, int color);

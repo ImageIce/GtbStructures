@@ -2,6 +2,7 @@ package com.gtbstructures.scoreboard;
 
 import com.gtbstructures.overlay.ForgeHudLayerBridge;
 import com.gtbstructures.items.SpawnEggItemModelSelector;
+import com.gtbstructures.player.BbRankDisplayRepair;
 import com.mojang.blaze3d.platform.Window;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
@@ -241,6 +242,13 @@ public final class PreviewEditorOverlayRenderer {
         private ForgeEditorRenderer(GuiGraphics graphics, Font font) {
             this.graphics = graphics;
             this.font = font;
+        }
+
+        @Override
+        public boolean drawNativeTooltip(String text, int mouseX, int mouseY) {
+            graphics.setTooltipForNextFrame(font,
+                    BbRankDisplayRepair.legacyComponent("\u00a7f" + text), mouseX, mouseY);
+            return true;
         }
 
         @Override

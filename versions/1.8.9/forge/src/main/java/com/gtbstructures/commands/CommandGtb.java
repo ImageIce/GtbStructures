@@ -40,7 +40,7 @@ public class CommandGtb extends CommandBase {
     private static final String[] SUBCOMMANDS = {
         "hintstructure", "hs", "toggle", "setlocation", "setcolor", "colorlist", "stats", "export", "exportraw", "tracking", "autorequeue", "updatenotice",
         "haveibuilt", "whohasbuilt", "showallmatching", "themepointreveal", "shortcutreminder", "copytranslation", "gtw", "guess", "scoreboard", "fireworks",
-        "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guesspeek", "guesssound", "scrambleguess", "trollmode", "troll", "header", "preview", "overlay", "gtb", "lrj", "help", "search"
+        "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guessnotice", "guesspeek", "guesssound", "scrambleguess", "trollmode", "troll", "header", "preview", "overlay", "gtb", "lrj", "help", "search"
     };
     private static final String PLAY_GTB_COMMAND = "/play build_battle_guess_the_build";
     private static final String LOBBY_COMMAND = "/l";
@@ -132,13 +132,16 @@ public class CommandGtb extends CommandBase {
                 return getListOfStringsMatchingLastWord(args, "classic", "new");
             }
             if (args[0].equalsIgnoreCase("handhelditem")) {
-                return getListOfStringsMatchingLastWord(args, "setlocation", "max", "background", "captions", "layout", "vertical", "horizontal", "size", "scale");
+                return getListOfStringsMatchingLastWord(args, "setlocation", "max", "background", "markinitial", "captions", "layout", "vertical", "horizontal", "size", "scale");
             }
             if (isEnvironmentCommand(args[0])) {
                 return getListOfStringsMatchingLastWord(args, "setlocation", "weather", "biome", "time", "timepreset", "background", "chatnotice", "scale");
             }
             if (args[0].equalsIgnoreCase("cooldowncounter")) {
                 return getListOfStringsMatchingLastWord(args, "setlocation", "setcolor", "timer", "bar", "sfx", "background", "scale");
+            }
+            if (args[0].equalsIgnoreCase("guessnotice")) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "toggle", "spamonly", "spamthreshold", "showguess");
             }
             if (args[0].equalsIgnoreCase("guesspeek")) {
                 return getListOfStringsMatchingLastWord(args, "showlangcodes", "display");
@@ -315,6 +318,9 @@ public class CommandGtb extends CommandBase {
             return null;
         }
         if (args[0].equalsIgnoreCase("handhelditem")) {
+            if (args.length == 3 && args[1].equalsIgnoreCase("markinitial")) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "true", "false", "toggle");
+            }
             if (args.length == 3 && args[1].equalsIgnoreCase("scale")) {
                 return getListOfStringsMatchingLastWord(args, "0.5", "0.75", "1", "1.25", "1.5", "50%", "100%", "150%");
             }
@@ -407,6 +413,16 @@ public class CommandGtb extends CommandBase {
             if (args.length == 4 && args[1].equalsIgnoreCase("setcolor")) {
                 return getListOfStringsMatchingLastWord(args,
                         "0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f");
+            }
+            return null;
+        }
+        if (args[0].equalsIgnoreCase("guessnotice")) {
+            if (args.length == 3 && (args[1].equalsIgnoreCase("spamonly")
+                    || args[1].equalsIgnoreCase("showguess"))) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "true", "false", "toggle");
+            }
+            if (args.length == 3 && args[1].equalsIgnoreCase("spamthreshold")) {
+                return getListOfStringsMatchingLastWord(args, "1", "2", "3", "5", "10");
             }
             return null;
         }
@@ -984,6 +1000,11 @@ public class CommandGtb extends CommandBase {
             return;
         }
 
+        else if (args[0].equalsIgnoreCase("guessnotice")) {
+            handleGuessSent(sender, sliceFrom(args, 1));
+            return;
+        }
+
         else if (args[0].equalsIgnoreCase("guesspeek")) {
             handleGuessPeek(sender, sliceFrom(args, 1));
             return;
@@ -1456,6 +1477,19 @@ public class CommandGtb extends CommandBase {
             return;
         }
 
+        if (args[0].equalsIgnoreCase("markinitial")) {
+            Boolean next = parseBackgroundArgs(sender, args, "/gtbs handhelditem markinitial [on|off|toggle]",
+                    GtbStructures.handheldItemMarkInitial);
+            if (next != null) {
+                GtbStructures.handheldItemMarkInitial = next.booleanValue();
+                GtbStructures.saveConfig();
+            }
+            if (next != null || args.length == 1) {
+                sendBackgroundStatus(sender, "Mark initially held items", GtbStructures.handheldItemMarkInitial);
+            }
+            return;
+        }
+
         if (args[0].equalsIgnoreCase("captions")) {
             handleHandheldItemCaptions(sender, args);
             return;
@@ -1540,7 +1574,7 @@ public class CommandGtb extends CommandBase {
             return;
         }
 
-        sender.addChatMessage(new ChatComponentText(head + "Usage: /gtbs handhelditem [setlocation|max|background|captions|layout|vertical|horizontal|size|scale] ..."));
+        sender.addChatMessage(new ChatComponentText(head + "Usage: /gtbs handhelditem [setlocation|max|background|markinitial|captions|layout|vertical|horizontal|size|scale] ..."));
     }
 
     private static void handleHandheldItemCaptions(ICommandSender sender, String[] args) {
@@ -2298,6 +2332,63 @@ public class CommandGtb extends CommandBase {
                 + (enabled ? "\u00a7aON" : "\u00a7cOFF")));
     }
 
+    private static void handleGuessSent(ICommandSender sender, String[] args) {
+        String usage = "/gtbs guessnotice [on|off|toggle|spamonly|spamthreshold|showguess]";
+        if (args.length == 0) {
+            GtbStructures.guessSentNotice = !GtbStructures.guessSentNotice;
+            GtbStructures.saveConfig();
+            sendBackgroundStatus(sender, "Sent guess notice", GtbStructures.guessSentNotice);
+            return;
+        }
+        if (args[0].equalsIgnoreCase("spamthreshold")) {
+            if (args.length == 1) {
+                sender.addChatMessage(new ChatComponentText(head + "Guess notice spam threshold is currently \u00a7f"
+                        + GtbStructures.guessSentMinSpam));
+                return;
+            }
+            if (args.length == 2) {
+                try {
+                    int value = Integer.parseInt(args[1]);
+                    if (value >= GtbStructures.MIN_GUESS_SENT_SPAM_COUNT
+                            && value <= GtbStructures.MAX_GUESS_SENT_SPAM_COUNT) {
+                        GtbStructures.guessSentMinSpam = value;
+                        GtbStructures.saveConfig();
+                        sender.addChatMessage(new ChatComponentText(head + "Guess notice spam threshold set to \u00a7f" + value));
+                        return;
+                    }
+                } catch (NumberFormatException ignored) { }
+            }
+            sender.addChatMessage(new ChatComponentText(head + "Usage: /gtbs guessnotice spamthreshold [1-10]"));
+            return;
+        }
+        if (args[0].equalsIgnoreCase("spamonly") || args[0].equalsIgnoreCase("showguess")) {
+            boolean onlySpam = args[0].equalsIgnoreCase("spamonly");
+            boolean current = onlySpam ? GtbStructures.guessSentOnlySpam : GtbStructures.guessSentShowGuess;
+            String label = onlySpam ? "Guess notices only when spamming" : "Show sent guess text";
+            Boolean next = parseBackgroundArgs(sender, args, "/gtbs guessnotice "
+                    + (onlySpam ? "spamonly" : "showguess") + " [on|off|toggle]", current);
+            if (next != null) {
+                if (onlySpam) GtbStructures.guessSentOnlySpam = next.booleanValue();
+                else GtbStructures.guessSentShowGuess = next.booleanValue();
+                GtbStructures.saveConfig();
+            }
+            if (next != null || args.length == 1) {
+                sendBackgroundStatus(sender, label, next == null ? current : next.booleanValue());
+            }
+            return;
+        }
+        if (args.length == 1) {
+            Boolean next = parseBooleanOrToggle(sender, args[0], usage, GtbStructures.guessSentNotice);
+            if (next != null) {
+                GtbStructures.guessSentNotice = next.booleanValue();
+                GtbStructures.saveConfig();
+                sendBackgroundStatus(sender, "Sent guess notice", next.booleanValue());
+            }
+            return;
+        }
+        sender.addChatMessage(new ChatComponentText(head + "Usage: " + usage));
+    }
+
     private static void handleTrollMode(ICommandSender sender, String[] args) {
         if (args.length == 0) {
             GtbStructures.trollMode = !GtbStructures.trollMode;
@@ -2350,7 +2441,7 @@ public class CommandGtb extends CommandBase {
         String message = TrollMode.prepareOneShot(joinArgs(args));
         if (message == null) {
             sender.addChatMessage(new ChatComponentText(head + "Usage: " + usage
-                    + " <message> (1-99 characters)"));
+                    + " <message>"));
             return;
         }
         sendTrollMessage(message);
@@ -3026,6 +3117,7 @@ public class CommandGtb extends CommandBase {
             new HelpCategory("items", "ITEMS", "Handheld item overlay and item settings", new HelpLine[] {
                     HelpLine.command("/gtbs handhelditem", "Toggles the builder handheld item history overlay."),
                     HelpLine.command("/gtbs handhelditem background [on|off|toggle]", "Shows or hides the handheld item list background."),
+                    HelpLine.command("/gtbs handhelditem markinitial [on|off|toggle]", "Marks items initially held during theme selection with a green bold square after their names (default ON)."),
                     HelpLine.command("/gtbs handhelditem scale [0.5-1.5|50%-150%]", "Shows or sets the handheld item panel scale."),
                     HelpLine.command("/gtbs handhelditem captions <name|id|metadata|mob> [on|off]", "Shows or sets an item caption. Captions appear only in vertical layout."),
                     HelpLine.command("/gtbs handhelditem layout [vertical|horizontal]", "Switches between captioned vertical items and an icon-only horizontal grid."),
@@ -3047,7 +3139,7 @@ public class CommandGtb extends CommandBase {
                     HelpLine.command("/gtbs environment timepreset [clock|blocks]", "Shows or switches the time icon between clock and colored blocks; each block represents a 3-hour period."),
                     HelpLine.command("/gtbs environment setlocation <x|y> [value]", "Shows or sets the environment overlay bottom position. Value is 0.0-1.0.")
             }),
-            new HelpCategory("chat", "CHAT", "Cooldown counter and guess annotations", new HelpLine[] {
+            new HelpCategory("chat", "CHAT", "Cooldown counter, sent guesses, and guess annotations", new HelpLine[] {
                     HelpLine.command("/gtbs header <content>", "Sets the formatting-aware prefix shown before GTBS notices."),
                     HelpLine.command("/gtbs cooldowncounter", "Toggles the chat cooldown indicator while guessing."),
                     HelpLine.command("/gtbs cooldowncounter scale [0.5-1.5|50%-150%]", "Shows or sets the cooldown panel scale."),
@@ -3057,6 +3149,10 @@ public class CommandGtb extends CommandBase {
                     HelpLine.command("/gtbs cooldowncounter background <timer|bar> [on|off|toggle]", "Shows or hides timer or bar backgrounds."),
                     HelpLine.command("/gtbs cooldowncounter setcolor <bar|timer> [color]", "Shows or sets cooldown bar or timer text color."),
                     HelpLine.command("/gtbs cooldowncounter setlocation <x|y> [value]", "Shows or sets cooldown counter position. Value is 0.0-1.0."),
+                    HelpLine.command("/gtbs guessnotice [on|off|toggle]", "Toggles notices for guesses sent outside the three-second cooldown during building rounds (default ON)."),
+                    HelpLine.command("/gtbs guessnotice spamonly [on|off|toggle]", "Requires repeated attempts during the preceding cooldown before showing a sent-guess notice (default ON)."),
+                    HelpLine.command("/gtbs guessnotice spamthreshold [1-10]", "Shows or sets the minimum attempts during a cooldown for spam-only notices (default 3)."),
+                    HelpLine.command("/gtbs guessnotice showguess [on|off|toggle]", "Includes the final text sent to the server after the notice (default ON)."),
                     HelpLine.command("/gtbs guesspeek", "Toggles English-theme annotations on matching GTB guesses."),
                     HelpLine.command("/gtbs guesspeek display [hover|suffix]", "Shows or sets where guess-peek translations appear."),
                     HelpLine.command("/gtbs guesspeek showlangcodes [on|off]", "Shows or hides source language codes in guess-peek hover text."),
@@ -3329,7 +3425,7 @@ public class CommandGtb extends CommandBase {
         if (key.equals("env") || key.equals("world")) return "environment";
         if (key.equals("overlay") || key.equals("hint") || key.equals("hintstructure") || key.equals("hs")) return "hints";
         if (key.equals("score") || key.equals("sb")) return "scoreboard";
-        if (key.equals("cooldown") || key.equals("cooldowncounter")) return "chat";
+        if (key.equals("cooldown") || key.equals("cooldowncounter") || key.equals("guessnotice")) return "chat";
         if (key.equals("copytranslation") || key.equals("copyt")) return "copy";
         if (key.equals("wordhint") || key.equals("guess")) return "gtw";
         if (key.equals("misc") || key.equals("general")) return "game";

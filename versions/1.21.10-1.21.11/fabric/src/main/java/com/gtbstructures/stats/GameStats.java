@@ -150,7 +150,8 @@ public class GameStats {
     private int pendingSelfGuessScoreRound;
     private long pendingSelfGuessScoreUntilMs;
     private final AcceptedGuessTracker acceptedGuessTracker = new AcceptedGuessTracker();
-    private final LobbyLanguageFallback lobbyLanguageFallback = new LobbyLanguageFallback();
+    private final LangPatterns.LobbyLanguageFallback lobbyLanguageFallback =
+            new LangPatterns.LobbyLanguageFallback();
 
     private static final class InitialRoundHeader {
         final int totalRounds;
@@ -182,6 +183,8 @@ public class GameStats {
                                           boolean guessOrderUncertain) {
             onRoundStart(currentRound, totalRounds);
         }
+        default void onUnnumberedRoundStart(RoundData round) {}
+        default void onRecoveredRoundNumber(RoundData round) {}
         void onBuilderChange(String previous, String current);
         void onCorrectGuess(List<String> players);
         void onCorrectGuessScore(String ign, int points);
@@ -916,6 +919,7 @@ public class GameStats {
         item.modernKind = stringValue(object, "modernKind", null);
         item.modernName = stringValue(object, "modernName", null);
         item.nbt = stringValue(object, "nbt", null);
+        item.initialHeld = boolValue(object, "initialHeld", false);
         item.firstSeen = longValue(object, "firstSeen", 0L);
         item.lastSeen = longValue(object, "lastSeen", 0L);
         JsonArray intervals = arrayValue(object, "intervals");
@@ -1760,7 +1764,7 @@ public class GameStats {
             }
         }
 
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (handleLocalizedGtbChat(raw != null ? raw : text, text, lp, now)) {
                 return;
             }
@@ -1785,7 +1789,7 @@ public class GameStats {
                 return;
             }
         }
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.roundPrefix == null || !text.startsWith(lp.roundPrefix)) continue;
             String rest = text.substring(lp.roundPrefix.length());
             int[] round = parseRoundHeader(rest);
@@ -1800,7 +1804,7 @@ public class GameStats {
 
     static boolean isFirstRoundStartForTrollAutoDisableForTest(String text) {
         if (text == null) return false;
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.roundPrefix == null || !text.startsWith(lp.roundPrefix)) continue;
             int[] round = parseRoundHeader(text.substring(lp.roundPrefix.length()));
             return round != null && round[0] == 1;
@@ -1929,6 +1933,7 @@ public class GameStats {
         if (currentRound == null && previous != null && roundHasEvent(previous, "builder_left")) {
             if (previous.roundNumber <= 0 && roundNumber > 1) {
                 previous.roundNumber = roundNumber - 1;
+                if (gtbHooks != null) gtbHooks.onRecoveredRoundNumber(previous);
             }
             if (previous.totalRounds <= 0) previous.totalRounds = totalRounds;
             if (previous.roundEnd <= 0L) previous.roundEnd = now;
@@ -1937,6 +1942,8 @@ public class GameStats {
         if (fillUnknownCurrentRound(roundNumber, totalRounds)) {
             return;
         }
+
+        deduceUnknownRoundsBefore(rounds.size() - 1, roundNumber);
 
         RoundData round = new RoundData();
         round.roundNumber = roundNumber;
@@ -1961,20 +1968,44 @@ public class GameStats {
     }
 
     private boolean fillUnknownCurrentRound(int roundNumber, int totalRounds) {
-        if (currentRound == null || currentRound.roundNumber > 0) return false;
+        if (currentRound == null || currentRound.roundNumber > 0 || currentRound.roundEnd > 0L) return false;
         if (roundHasEvent(currentRound, "builder_left") || roundHasEvent(currentRound, "afk_skip")) {
             return false;
         }
+        boolean recovered = currentRound.roundNumber < 0;
         currentRound.roundNumber = roundNumber;
         currentRound.totalRounds = totalRounds;
         if (currentRound.language == null) currentRound.language = currentLanguage;
         if (currentRound.langCode == null) currentRound.langCode = currentLangCode;
+        deduceUnknownRoundsBefore(rounds.size() - 2, roundNumber);
         ModernChatCooldownCounter.onRoundStart();
         jaRoundLabelPending = false;
         if (gtbHooks != null) {
+            if (recovered) gtbHooks.onRecoveredRoundNumber(currentRound);
             gtbHooks.onRoundStart(roundNumber, totalRounds);
         }
         return true;
+    }
+
+    /**
+     * Walk backwards from startIdx, filling in unknown round numbers by
+     * counting down from knownRound. A prior preliminary round can still be 0
+     * if the "Round: 1/N" chat line was missed before the next pre-round.
+     */
+    private void deduceUnknownRoundsBefore(int startIdx, int knownRound) {
+        int nextRound = knownRound;
+        for (int i = startIdx; i >= 0; i--) {
+            RoundData r = rounds.get(i);
+            if (r.roundNumber <= 0) {
+                nextRound--;
+                if (nextRound >= 1) {
+                    r.roundNumber = nextRound;
+                    if (gtbHooks != null) gtbHooks.onRecoveredRoundNumber(r);
+                }
+            } else {
+                break;
+            }
+        }
     }
 
     private void handleCorrectGuess(String ign, String raw, LangPatterns lp, long now) {
@@ -2304,6 +2335,7 @@ public class GameStats {
 
         state = TrackingState.NOT_IN_GAME;
         clearLobbyHandoff();
+        pendingNextBuilder = null;
         pauseTime = 0L;
         notInGameTicks = 0;
         activeTimeMs = 0L;
@@ -2811,7 +2843,7 @@ public class GameStats {
         for (int i = 1; i < cleanLines.size(); i++) {
             String line = cleanLines.get(i);
             if (line == null) continue;
-            for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+            for (LangPatterns lp : LangPatterns.patterns()) {
                 if (lp.sbBuilder != null && line.startsWith(lp.sbBuilder)) {
                     String prev = cleanLines.get(i - 1);
                     prev = prev == null ? "" : prev.trim();
@@ -2833,7 +2865,7 @@ public class GameStats {
         for (int i = 1; i < cleanLines.size(); i++) {
             String line = cleanLines.get(i);
             if (line == null) continue;
-            for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+            for (LangPatterns lp : LangPatterns.patterns()) {
                 if (lp.sbTheme != null && line.startsWith(lp.sbTheme)) {
                     String prev = cleanLines.get(i - 1);
                     prev = prev == null ? "" : prev.trim();
@@ -2863,15 +2895,14 @@ public class GameStats {
     }
 
     private String scanSidebarTimer(List<String> cleanLines) {
-        for (LangPatterns pattern : LangPatterns.ALL_PATTERNS) {
-            if (currentLangCode != null && currentLangCode.equals(pattern.lang)) {
+        for (LangPatterns pattern : LangPatterns.patterns()) {
+            if (currentLangCode != null && currentLangCode.equalsIgnoreCase(pattern.lang)) {
                 String value = matchTimerLine(cleanLines, pattern);
                 if (value != null) return value;
-                break;
             }
         }
-        for (LangPatterns pattern : LangPatterns.ALL_PATTERNS) {
-            if (currentLangCode != null && currentLangCode.equals(pattern.lang)) continue;
+        for (LangPatterns pattern : LangPatterns.patterns()) {
+            if (currentLangCode != null && currentLangCode.equalsIgnoreCase(pattern.lang)) continue;
             String value = matchTimerLine(cleanLines, pattern);
             if (value != null) return value;
         }
@@ -3083,7 +3114,6 @@ public class GameStats {
         gap.totalRounds = pausedRoundTotal > 0 ? pausedRoundTotal
                 : previous == null ? 0 : previous.totalRounds;
         gap.roundStart = now;
-        gap.builder = isValidMcUsername(builder) ? builder : null;
         gap.language = currentLanguage;
         gap.langCode = currentLangCode;
         gap.dataGap = true;
@@ -3095,7 +3125,10 @@ public class GameStats {
         currentRound = gap;
         if (inferredRound > 0 && gtbHooks != null) {
             gtbHooks.onInferredRoundStart(inferredRound, gap.totalRounds, true);
+        } else if (gtbHooks != null) {
+            gtbHooks.onUnnumberedRoundStart(gap);
         }
+        gap.builder = isValidMcUsername(builder) ? builder : null;
         if (gap.builder != null) emitBuilderHook(oldBuilder, gap.builder);
     }
 
@@ -3663,14 +3696,14 @@ public class GameStats {
         if (guesser != null || (clean.contains(": ")
                 && LangPatterns.startsWithChatTitle(LangPatterns.stripEmojis(clean).trim()))) return;
 
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.winnersKeyword != null && clean.trim().equals(lp.winnersKeyword)) {
                 EndGameFireworkController.INSTANCE.observeWinnersNotice();
                 break;
             }
         }
 
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.countdown1Sec != null && clean.equals(lp.countdown1Sec)) {
                 GuessSoundController.INSTANCE.onRoundBoundary();
                 EndGameFireworkController.INSTANCE.onRoundBoundary();
@@ -3687,7 +3720,7 @@ public class GameStats {
             }
         }
 
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.builderPrefix == null || !clean.startsWith(lp.builderPrefix)) continue;
             String builder = cleanIgn(clean.substring(lp.builderPrefix.length()));
             if (!builder.isEmpty()) {
@@ -3702,7 +3735,7 @@ public class GameStats {
             return;
         }
 
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.correctGuessSuffix == null) continue;
             String ign = extractCorrectGuessIgn(clean, lp);
             if (ign != null && isLocalPlayerIgn(ign)) {
@@ -3906,7 +3939,7 @@ public class GameStats {
 
     private String parseLobbyJoinIgn(String text) {
         if (text == null || text.isEmpty()) return null;
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             String ign = parseLocalizedLobbyJoinIgn(text, lp);
             if (ign != null) return ign;
         }
@@ -3938,7 +3971,7 @@ public class GameStats {
 
     private String parseLobbyQuitIgn(String text) {
         if (text == null || text.isEmpty()) return null;
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             String ign = parseLocalizedLobbyQuitIgn(text, lp);
             if (ign != null) return ign;
         }
@@ -4335,6 +4368,7 @@ public class GameStats {
         public String modernKind;
         public String modernName;
         public String nbt;
+        public boolean initialHeld;
         public long firstSeen;
         public long lastSeen;
         public List<HandheldItemInterval> intervals = new ArrayList<HandheldItemInterval>();

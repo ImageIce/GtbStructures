@@ -407,6 +407,9 @@ public final class CommandGtbRuntime {
         if ("cooldowncounter".equals(first)) {
             return handleCooldownCounter(sliceFrom(args, 1));
         }
+        if ("guessnotice".equals(first)) {
+            return handleGuessNotice(sliceFrom(args, 1));
+        }
         if ("guesspeek".equals(first)) {
             return handleGuessPeek(sliceFrom(args, 1));
         }
@@ -1255,6 +1258,10 @@ public final class CommandGtbRuntime {
             return handleSimpleBackground(args, "Handheld item background", "/gtbs handhelditem background [on|off]",
                     SETTINGS.handheldItemBackground, value -> SETTINGS.handheldItemBackground = value);
         }
+        if ("markinitial".equalsIgnoreCase(args[0])) {
+            return handleSimpleBackground(args, "Mark initially held items", "/gtbs handhelditem markinitial [on|off|toggle]",
+                    SETTINGS.handheldItemMarkInitial, value -> SETTINGS.handheldItemMarkInitial = value);
+        }
         if ("scale".equalsIgnoreCase(args[0])) {
             return handlePanelScale(args, "handheld", "Handheld item");
         }
@@ -1285,7 +1292,7 @@ public final class CommandGtbRuntime {
         if ("vertical".equalsIgnoreCase(args[0])) return handleHandheldVertical(args);
         if ("horizontal".equalsIgnoreCase(args[0])) return handleHandheldHorizontal(args);
         if ("size".equalsIgnoreCase(args[0])) return handleHandheldSize(args);
-        return Result.messages(CommandGtb.head + "Usage: /gtbs handhelditem [setlocation|max|background|captions|layout|vertical|horizontal|size|scale] ...");
+        return Result.messages(CommandGtb.head + "Usage: /gtbs handhelditem [setlocation|max|background|markinitial|captions|layout|vertical|horizontal|size|scale] ...");
     }
 
     private static Result handleHandheldCaptions(String[] args) {
@@ -1499,6 +1506,52 @@ public final class CommandGtbRuntime {
         if (enabled.booleanValue()) SETTINGS.environmentOverlay = true;
         saveSettings();
         return Result.messages(CommandGtb.head + "Environment " + target + " row is currently " + onOff(enabled.booleanValue()));
+    }
+
+    private static Result handleGuessNotice(String[] args) {
+        String usage = "/gtbs guessnotice [on|off|toggle|spamonly|spamthreshold|showguess]";
+        if (args.length == 0) {
+            SETTINGS.guessSentNotice = !SETTINGS.guessSentNotice;
+            saveSettings();
+            return shortcutStatus("Sent guess notice", SETTINGS.guessSentNotice);
+        }
+        if ("spamthreshold".equalsIgnoreCase(args[0])) {
+            if (args.length == 1) {
+                return Result.messages(CommandGtb.head + "Guess notice spam threshold is currently \u00a7f"
+                        + SETTINGS.guessSentMinSpam);
+            }
+            if (args.length == 2) {
+                try {
+                    int value = Integer.parseInt(args[1]);
+                    if (value >= GtbStructuresSettings.MIN_GUESS_SENT_SPAM_COUNT
+                            && value <= GtbStructuresSettings.MAX_GUESS_SENT_SPAM_COUNT) {
+                        SETTINGS.guessSentMinSpam = value;
+                        saveSettings();
+                        return Result.messages(CommandGtb.head + "Guess notice spam threshold set to \u00a7f" + value);
+                    }
+                } catch (NumberFormatException ignored) { }
+            }
+            return Result.messages(CommandGtb.head + "Usage: /gtbs guessnotice spamthreshold [1-10]");
+        }
+        if ("spamonly".equalsIgnoreCase(args[0])) {
+            return handleSimpleBackground(args, "Guess notices only when spamming",
+                    "/gtbs guessnotice spamonly [on|off|toggle]", SETTINGS.guessSentOnlySpam,
+                    value -> SETTINGS.guessSentOnlySpam = value);
+        }
+        if ("showguess".equalsIgnoreCase(args[0])) {
+            return handleSimpleBackground(args, "Show sent guess text",
+                    "/gtbs guessnotice showguess [on|off|toggle]", SETTINGS.guessSentShowGuess,
+                    value -> SETTINGS.guessSentShowGuess = value);
+        }
+        if (args.length == 1) {
+            Boolean next = parseToggleBoolean(args[0], SETTINGS.guessSentNotice);
+            if (next != null) {
+                SETTINGS.guessSentNotice = next.booleanValue();
+                saveSettings();
+                return shortcutStatus("Sent guess notice", SETTINGS.guessSentNotice);
+            }
+        }
+        return Result.messages(CommandGtb.head + "Usage: " + usage);
     }
 
     private static Result handleCooldownCounter(String[] args) {

@@ -172,6 +172,12 @@ final class TranslationHistory {
         } else if (!hash.equalsIgnoreCase(active.hash)
                 && boundary > active.validFrom) {
             activate(hash, boundary, "bundled");
+        } else if (!hash.equalsIgnoreCase(active.hash) && hash.equalsIgnoreCase(seed.currentHash)) {
+            SeedVersion cached = seed.versionByHash(active.hash);
+            // Observation time can be later than the publication of a newer bundled revision.
+            if (cached != null && cached.validFrom < boundary) {
+                activate(hash, Math.max(System.currentTimeMillis(), active.validFrom + 1L), "bundled");
+            }
         }
 
         active = openInterval();

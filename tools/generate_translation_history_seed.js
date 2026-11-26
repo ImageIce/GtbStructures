@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 
 const crypto = require("crypto");
-const { execFile } = require("child_process");
+const { execFile, execFileSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const zlib = require("zlib");
 
-const REPO_ROOT = path.resolve(__dirname, "../../..");
-const UPSTREAM_REPOSITORY = "https://github.com/zmh-program/gtb_platform";
+const REPO_ROOT = path.resolve(__dirname, "..");
+const MIRROR = "ImageIce/gtb-translations";
+const UPSTREAM_REPOSITORY = `https://github.com/${MIRROR}`;
+const PREVIOUS_REPOSITORY = "https://github.com/zmh-program/gtb_platform";
 const UPSTREAM_PATH = "lib/source/translations-data.json";
-const API_BASE = "https://api.github.com/repos/zmh-program/gtb_platform";
-const RAW_BASE = "https://raw.githubusercontent.com/zmh-program/gtb_platform";
+const STATS_PATH = "lib/source/stats-translations.json";
+const API_BASE = `https://api.github.com/repos/${MIRROR}`;
+const RAW_BASE = `https://raw.githubusercontent.com/${MIRROR}`;
 const MANIFEST_FILE = "translation-history-seed.json";
 const SNAPSHOT_BUNDLE_FILE = "translation-history-snapshots.bin";
 const APPROVAL_HISTORY_FILE = "translation-approval-history.json.gz";
@@ -32,9 +35,9 @@ const DELTA_COPY = 0;
 const DELTA_ADD = 1;
 
 const TARGETS = {
-  legacy: "minecraft-mods/GtbStructures-main/versions/1.8.9/forge/src/main/resources",
-  fabric: "minecraft-mods/GtbStructures-main/versions/1.21.10-1.21.11/fabric/src/main/resources",
-  forge: "minecraft-mods/GtbStructures-main/versions/1.21.10-1.21.11/forge/src/main/resources",
+  legacy: "versions/1.8.9/forge/src/main/resources",
+  fabric: "versions/1.21.10-1.21.11/fabric/src/main/resources",
+  forge: "versions/1.21.10-1.21.11/forge/src/main/resources",
 };
 
 function selectedTargets() {
@@ -96,11 +99,11 @@ function request(url, accept) {
   });
 }
 
-async function fetchCommitHistory() {
+async function fetchCommitHistory(revision) {
   const commits = [];
   for (let page = 1; ; page += 1) {
     const url = `${API_BASE}/commits?path=${encodeURIComponent(UPSTREAM_PATH)}`
-      + `&per_page=100&page=${page}`;
+      + `&sha=${revision}&per_page=100&page=${page}`;
     const body = await request(url, "application/vnd.github+json");
     const batch = JSON.parse(body.toString("utf8"));
     if (!Array.isArray(batch)) throw new Error("GitHub commit response was not an array");
@@ -109,6 +112,24 @@ async function fetchCommitHistory() {
   }
   if (commits.length === 0) throw new Error("GitHub returned no translation history");
   return commits.reverse();
+}
+
+function readGit(directory, args) {
+  return execFileSync("git", ["-C", directory, ...args], { maxBuffer: 16 * 1024 * 1024 });
+}
+
+function readCheckoutRecords(directory, revision) {
+  if (readGit(directory, ["rev-parse", "--is-shallow-repository"]).toString("ascii").trim() !== "false") {
+    throw new Error("Use a full mirror checkout to preserve the complete translation history");
+  }
+  const lines = readGit(directory, ["log", "--reverse", "--format=%H %at", revision, "--", UPSTREAM_PATH])
+    .toString("ascii").trim();
+  if (!lines) throw new Error("Mirror checkout contains no translation history");
+  return lines.split(/\r?\n/).map((line) => {
+    const [commit, timestamp] = line.split(" ");
+    const bytes = readGit(directory, ["show", `${commit}:${UPSTREAM_PATH}`]);
+    return snapshotRecord(commit, Number(timestamp) * 1000, bytes);
+  });
 }
 
 async function mapLimit(values, limit, mapper) {
@@ -139,21 +160,19 @@ function validateTranslationJson(bytes, commit) {
 
 async function fetchSnapshots(commits) {
   return mapLimit(commits, FETCH_CONCURRENCY, async (commit) => {
-    const sourceTimestamp = Date.parse(commit.commit.author.date);
-    if (!Number.isFinite(sourceTimestamp) || sourceTimestamp <= 0) {
-      throw new Error(`Invalid author timestamp for ${commit.sha}`);
-    }
     const rawUrl = `${RAW_BASE}/${commit.sha}/${UPSTREAM_PATH}`;
     const bytes = await request(rawUrl, "application/json");
-    validateTranslationJson(bytes, commit.sha);
     process.stderr.write(`Fetched ${commit.sha.slice(0, 8)} (${bytes.length} bytes).\n`);
-    return {
-      commit: commit.sha,
-      sourceTimestamp,
-      hash: sha256(bytes),
-      rawBytes: bytes,
-    };
+    return snapshotRecord(commit.sha, Date.parse(commit.commit.author.date), bytes);
   });
+}
+
+function snapshotRecord(commit, sourceTimestamp, bytes) {
+  if (!Number.isSafeInteger(sourceTimestamp) || sourceTimestamp <= 0) {
+    throw new Error(`Invalid author timestamp for ${commit}`);
+  }
+  validateTranslationJson(bytes, commit);
+  return { commit, sourceTimestamp, hash: sha256(bytes), rawBytes: bytes };
 }
 
 function buildHistory(records) {
@@ -563,7 +582,7 @@ function buildApprovalHistoryResource(versions, snapshots) {
 function validateV2Manifest(manifest, label) {
   if (manifest === null || typeof manifest !== "object"
       || manifest.schemaVersion !== V2_MANIFEST_SCHEMA
-      || manifest.upstreamRepository !== UPSTREAM_REPOSITORY
+      || !isHistoryRepository(manifest.upstreamRepository)
       || manifest.upstreamPath !== UPSTREAM_PATH
       || !Array.isArray(manifest.versions)
       || manifest.versions.length === 0) {
@@ -576,7 +595,7 @@ function validateV3Manifest(manifest, label) {
   if (manifest === null || typeof manifest !== "object"
       || (manifest.schemaVersion !== V3_MANIFEST_SCHEMA
         && manifest.schemaVersion !== MANIFEST_SCHEMA)
-      || manifest.upstreamRepository !== UPSTREAM_REPOSITORY
+      || !isHistoryRepository(manifest.upstreamRepository)
       || manifest.upstreamPath !== UPSTREAM_PATH
       || manifest.bundleKind !== "GTBHIST3-sequential-delta"
       || !Array.isArray(manifest.versions)
@@ -584,6 +603,10 @@ function validateV3Manifest(manifest, label) {
     throw new Error(`${label} is not a supported schema-3 or schema-4 translation history manifest`);
   }
   return validateManifestVersions(manifest, label);
+}
+
+function isHistoryRepository(repository) {
+  return repository === UPSTREAM_REPOSITORY || repository === PREVIOUS_REPOSITORY;
 }
 
 function validateManifestVersions(manifest, label) {
@@ -1032,8 +1055,26 @@ async function main() {
     );
     return;
   }
-  const commits = await fetchCommitHistory();
-  const records = await fetchSnapshots(commits);
+  const checkout = process.argv.find((arg) => arg.startsWith("--checkout="));
+  const directory = checkout === undefined ? null : path.resolve(checkout.slice("--checkout=".length));
+  const revision = directory === null
+    ? JSON.parse((await request(`${API_BASE}/commits/main`, "application/vnd.github+json")).toString("utf8")).sha
+    : readGit(directory, ["rev-parse", "HEAD"]).toString("ascii").trim();
+  if (typeof revision !== "string" || !/^[a-f0-9]{40}$/.test(revision)) {
+    throw new Error("Invalid GTB mirror revision");
+  }
+  const stats = directory === null
+    ? await request(`${RAW_BASE}/${revision}/${STATS_PATH}`, "application/json")
+    : readGit(directory, ["show", `${revision}:${STATS_PATH}`]);
+  const templates = JSON.parse(stats.toString("utf8"));
+  for (const key of ["gtb.builder_announcement", "gtb.correct_guess", "hypixel.lobby_join"]) {
+    if (typeof templates?.[key]?.source !== "string") {
+      throw new Error(`Missing stats template ${key} at ${revision}`);
+    }
+  }
+  const records = directory === null
+    ? await fetchSnapshots(await fetchCommitHistory(revision))
+    : readCheckoutRecords(directory, revision);
   const { versions, snapshots } = buildHistory(records);
   const latest = versions[versions.length - 1];
   const latestSnapshot = snapshots.get(latest.hash);
@@ -1054,6 +1095,7 @@ async function main() {
       writeAtomic(path.join(absoluteDir, MANIFEST_FILE), manifestBytes);
       writeAtomic(path.join(absoluteDir, SNAPSHOT_BUNDLE_FILE), bundleBytes);
       writeAtomic(path.join(absoluteDir, APPROVAL_HISTORY_FILE), approvalHistory.bytes);
+      writeAtomic(path.join(absoluteDir, path.basename(STATS_PATH)), stats);
     }
   }
 
@@ -1071,7 +1113,8 @@ async function main() {
       + `${latest.sourceCommit} is valid from ${latest.validFrom}.\n`
       + `${process.argv.includes("--dry-run") ? "Would refresh" : "Refreshed"} `
       + `${staleTargets.length} stale current snapshot(s)`
-      + `${staleTargets.length === 0 ? "." : `: ${staleTargets.join(", ")}.`}\n`,
+      + `${staleTargets.length === 0 ? "." : `: ${staleTargets.join(", ")}.`}\n`
+      + `Stats templates from ${revision}: ${stats.length} bytes, SHA-256 ${sha256(stats)}.\n`,
   );
 }
 

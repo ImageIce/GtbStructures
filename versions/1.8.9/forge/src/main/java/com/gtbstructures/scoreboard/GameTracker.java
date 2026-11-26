@@ -142,6 +142,17 @@ public final class GameTracker implements GameStats.GtbHooks {
         }
         boolean previousRoundEnded = game.state == GtbGame.State.ROUND_END;
         game.roundEndBuilder = null;
+        if (currentRound > 0 && game.recoveredActiveHeaderRound == currentRound) {
+            game.recoveredActiveHeaderRound = 0;
+            updateKnownRoundCount(totalRounds);
+            game.roundCountUnknown = false;
+            game.pendingRejoinFromRound = -1;
+            game.pendingRejoinFromUserBuildRound = false;
+            game.suppressPointBadgesUntilRoundHeader = false;
+            game.state = GtbGame.State.ROUND_BUILD;
+            resetPendingFloor();
+            return;
+        }
         if (currentRound > 0 && game.currentRound == currentRound) {
             updateKnownRoundCount(totalRounds);
             game.roundCountUnknown = false;
@@ -250,6 +261,85 @@ public final class GameTracker implements GameStats.GtbHooks {
         resetRejoinGuessEvidence();
     }
 
+    @Override
+    public void onUnnumberedRoundStart(GameStats.RoundData round) {
+        if (game == null || round == null || round.roundNumber > 0) return;
+        for (RecoveredRound recovered : game.recoveredRounds) {
+            if (recovered.source == round) {
+                game.activeRecoveredRound = recovered;
+                return;
+            }
+        }
+        if (game.activeRecoveredRound != null) game.activeRecoveredRound.ended = true;
+        int slot = Math.max(game.totalRounds, game.currentRound);
+        for (GtbPlayer player : game.players.values()) {
+            if (player.points != null) slot = Math.max(slot, player.points.length);
+        }
+        RecoveredRound recovered = new RecoveredRound(round, slot, game);
+        for (GtbPlayer player : game.players.values()) ensurePointsCapacity(player, slot + 1);
+        game.recoveredRounds.add(recovered);
+        game.activeRecoveredRound = recovered;
+        resetRoundLocalAfterRejoinBuilderChange();
+        game.currentBuilder = null;
+        game.roundCountUnknown = true;
+        game.rejoinGuessOrderUncertain = true;
+        game.suppressPointBadgesUntilRoundHeader = false;
+        game.roundStartScoreBaselinePending = false;
+        game.roundStartTrueScore = new HashMap<String, Integer>();
+        game.oneSecondAlertReached = false;
+        game.state = GtbGame.State.ROUND_BUILD;
+        if (round.langCode != null) game.currentLangCode = round.langCode;
+        markCurrentRejoinRoundScoreUncertainty();
+        resetPendingFloor();
+    }
+
+    @Override
+    public void onRecoveredRoundNumber(GameStats.RoundData round) {
+        if (game == null || round == null || round.roundNumber <= 0) return;
+        RecoveredRound recovered = null;
+        for (RecoveredRound candidate : game.recoveredRounds) {
+            if (candidate.source == round) { recovered = candidate; break; }
+        }
+        if (recovered == null) return;
+        int target = round.roundNumber - 1;
+        int key = recovered.slot + 1;
+        RecoveredRound.ScoreFloor floor = new RecoveredRound.ScoreFloor(target, recovered.sequence);
+        for (GtbPlayer player : game.players.values()) {
+            ensurePointsCapacity(player, Math.max(round.totalRounds, round.roundNumber));
+            floor.baselines.put(player, Integer.valueOf(recovered.lowerBaseline(player)));
+            floor.upperBaselines.put(player, Integer.valueOf(recovered.upperBaseline(player, game)));
+            if (game.activeRecoveredRound == recovered && recovered.freshBaseline(player) == null) {
+                String baselineKey = findKeyIgnoreCase(game.roundStartTrueScore, player.name);
+                if (baselineKey != null) game.roundStartTrueScore.remove(baselineKey);
+            }
+            PointEntry award = recovered.entry(player);
+            player.points[recovered.slot] = PointEntry.zero();
+            if (award.kind != PointEntry.Kind.ZERO) player.points[target] = award;
+            if (player.pendingBuilderScoreRound == key) player.pendingBuilderScoreRound = round.roundNumber;
+            if (player.authoritativeBuilderScoreRound == key) player.authoritativeBuilderScoreRound = round.roundNumber;
+            if (player.suppressedPointBadgeRound == key) player.suppressedPointBadgeRound = round.roundNumber;
+            if (player.builderAssignmentActivityRound == key) player.builderAssignmentActivityRound = round.roundNumber;
+            if (recovered.ended && player.rejoinRoundScoreUncertain) {
+                player.disconnectUncertainRounds.add(Integer.valueOf(round.roundNumber));
+                player.rejoinRoundScoreUncertain = false;
+            }
+        }
+        if (recovered.builder != null) recovered.builder.buildRound = round.roundNumber;
+        game.recoveredScoreFloors.add(floor);
+        game.recoveredRounds.remove(recovered);
+        if (game.activeRecoveredRound == recovered) {
+            game.activeRecoveredRound = null;
+            if (!recovered.ended && round.roundEnd == 0) {
+                int missed = round.roundNumber - game.currentRound - 1;
+                if (missed > 0) injectMissedRoundForks(game.currentRound, round.roundNumber, missed);
+                game.currentRound = round.roundNumber;
+                game.recoveredActiveHeaderRound = round.roundNumber;
+                game.roundCountUnknown = false;
+                if (game.currentBuilder == null) game.currentBuilder = recovered.builder;
+            }
+        }
+    }
+
     /** Bump per-player missed-round counters and inject {0,1,2,3} forks for fully
      *  unobserved rounds during a disconnect window. Local user is exempt
      *  (we observed those rounds, just not whose builder/who guessed). */
@@ -289,7 +379,7 @@ public final class GameTracker implements GameStats.GtbHooks {
             return;
         }
         resolveConfirmedInitialRoundIdentity(p);
-        if (game.roundCountUnknown && game.pendingRejoinFromRound >= 0
+        if (game.activeRecoveredRound == null && game.roundCountUnknown && game.pendingRejoinFromRound >= 0
                 && game.currentBuilder == null) {
             resetRoundLocalAfterRejoinBuilderChange();
         }
@@ -299,8 +389,12 @@ public final class GameTracker implements GameStats.GtbHooks {
         // round number 鈥?let onRoundStart handle it. For abrupt round changes
         // where onRoundStart fires before the new builder is announced, this
         // catches the late assignment.
-        if (game.state == GtbGame.State.ROUND_BUILD && game.currentRound > 0) {
+        if (game.activeRecoveredRound == null
+                && game.state == GtbGame.State.ROUND_BUILD && game.currentRound > 0) {
             p.buildRound = game.currentRound;
+        }
+        if (game.activeRecoveredRound != null && !game.activeRecoveredRound.ended) {
+            game.activeRecoveredRound.builder = p;
         }
         onBuilderAssigned(p);
 
@@ -316,7 +410,8 @@ public final class GameTracker implements GameStats.GtbHooks {
             return;
         }
         if (isAbandonedLocalBuildRound()) return;
-        int r = game.currentRound - 1;
+        if (game.activeRecoveredRound != null && game.activeRecoveredRound.ended) return;
+        int r = game.scoringRoundIndex();
         if (r < 0) return;
         StringBuilder awarded = new StringBuilder();
         boolean awardedAnyNewGuess = false;
@@ -382,9 +477,9 @@ public final class GameTracker implements GameStats.GtbHooks {
         GtbPlayer p = ensurePlayer(ign, "self_guess_points");
         if (p == null || p == game.currentBuilder) return;
         resolveConfirmedInitialRoundIdentity(p);
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         if (r < 0) return;
-        ensurePointsCapacity(p, Math.max(game.totalRounds, game.currentRound));
+        ensurePointsCapacity(p, Math.max(game.totalRounds, game.scoringRoundKey()));
         if (r >= p.points.length) return;
         p.points[r] = PointEntry.definite(points);
         p.suppressedPointBadgeRound = 0;
@@ -428,7 +523,9 @@ public final class GameTracker implements GameStats.GtbHooks {
 
             return;
         }
-        if (game.currentRound > game.lastCompletedRound) {
+        if (game.activeRecoveredRound != null) {
+            game.activeRecoveredRound.ended = true;
+        } else if (game.currentRound > game.lastCompletedRound) {
             game.lastCompletedRound = game.currentRound;
         }
         boolean actuallySkipped = skipped
@@ -480,7 +577,9 @@ public final class GameTracker implements GameStats.GtbHooks {
             if (GameStats.INSTANCE.isLeaver(game.currentBuilder.name)) {
                 game.currentBuilder.leaverState = GtbPlayer.LeaverState.LEAVER;
             }
-            if (game.state == GtbGame.State.ROUND_BUILD && game.currentRound > 0) {
+            if (game.activeRecoveredRound != null) {
+                game.activeRecoveredRound.builder = game.currentBuilder;
+            } else if (game.state == GtbGame.State.ROUND_BUILD && game.currentRound > 0) {
                 game.currentBuilder.buildRound = game.currentRound;
             } else if (game.state == GtbGame.State.ROUND_PRE) {
                 game.currentBuilder.buildRound = Math.max(1, game.currentRound + 1);
@@ -527,13 +626,15 @@ public final class GameTracker implements GameStats.GtbHooks {
             if (!isPlausibleObservedScore(rawObserved)) {
                 continue;
             }
+            boolean recoveredBaseline = game.activeRecoveredRound != null
+                    && game.activeRecoveredRound.observeBaseline(p, rawObserved, game);
             if (!settleRoundStartBaseline
                     && !game.uncertainBuilderBaselinesThisRound.contains(p)
                     && (p == game.currentBuilder || p.buildRound == game.currentRound)
                     && !hasLocalRejoinUncertainty() && !p.unresolvedIdentity
                     && p.roundsMissedDuringDisconnect == 0 && p.presentAtGameStart) {
                 Integer baseline = scoreIgnoreCase(game.roundStartTrueScore, p.name);
-                if (baseline == null) baseline = exactTotalExceptRound(p.points, game.currentRound - 1);
+                if (baseline == null) baseline = exactTotalExceptRound(p.points, game.scoringRoundIndex());
                 int delta = baseline == null ? -1 : rawObserved - baseline.intValue();
                 if (delta >= 1 && delta <= 3) {
                     game.scoreboardBuilderPointsThisRound.put(p.name, Integer.valueOf(delta));
@@ -575,17 +676,22 @@ public final class GameTracker implements GameStats.GtbHooks {
             if (settleRoundStartBaseline && !absorbedAsRoundStartBaseline) {
                 game.uncertainBuilderBaselinesThisRound.add(p);
             }
-            if (!absorbedAsRoundStartBaseline) {
+            if (!absorbedAsRoundStartBaseline && !recoveredBaseline) {
                 applyVisibleScoreDelta(p, stableObserved, prior,
                         scoreIgnoreCase(previousVisible, e.getKey()));
             }
             resolvePendingBuilderFromLeaderboard(p, stableObserved, prior);
-            collapseForks(p, stableObserved);
+            if (game.recoveredRounds.isEmpty() && game.totalMinimum(p) <= p.totalMin()) {
+                collapseForks(p, stableObserved);
+            }
             clearDisconnectScoreUncertainty(p);
             latest.put(scoreKey, Integer.valueOf(stableObserved));
         }
         game.visibleTrueScore = visible;
         game.latestTrueScore = latest;
+        if (game.activeRecoveredRound != null) {
+            seedRejoinGuessFloorFromCurrentRound();
+        }
         if (settleRoundStartBaseline && !visible.isEmpty()) {
             for (GtbPlayer player : game.players.values()) {
                 if (scoreIgnoreCase(visible, player.name) == null) {
@@ -618,7 +724,10 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     private boolean isPlausibleObservedScore(int score) {
         if (score < 0) return false;
-        if (game == null || game.roundCountUnknown || game.currentRound <= 0) return true;
+        if (game == null) return true;
+        if (game.roundCountUnknown || game.currentRound <= 0) {
+            return game.totalRounds <= 0 || score <= game.totalRounds * 3;
+        }
         return score <= game.currentRound * 3;
     }
 
@@ -912,8 +1021,12 @@ public final class GameTracker implements GameStats.GtbHooks {
         game.leaveBuilder = game.currentBuilder;
         if (game.leaveBuilder != null && game.leaveBuilder.isUser
                 && game.leaveState == GtbGame.State.ROUND_BUILD) {
-            game.userRoundSkipped = true;
-            game.abandonedLocalBuildRound = game.leaveRound;
+            if (game.activeRecoveredRound != null) {
+                game.activeRecoveredRound.localBuildAbandoned = true;
+            } else {
+                game.userRoundSkipped = true;
+                game.abandonedLocalBuildRound = game.leaveRound;
+            }
         }
         // Mark the local user absent for the in-progress round so its silence
         // doesn't count toward the away threshold.
@@ -969,6 +1082,19 @@ public final class GameTracker implements GameStats.GtbHooks {
     @Override
     public void onUserRejoinSameRound(String builder) {
         if (game == null) return;
+        if (game.activeRecoveredRound != null) {
+            GtbPlayer current = ensurePlayer(builder, "recovered_same_round_builder");
+            if (current != null) {
+                game.currentBuilder = current;
+                if (!game.activeRecoveredRound.ended) game.activeRecoveredRound.builder = current;
+            }
+            game.roundCountUnknown = true;
+            game.suppressPointBadgesUntilRoundHeader = false;
+            seedRejoinGuessFloorFromCurrentRound();
+            clearSameRoundConsumedScoreUncertainty();
+            resetPendingFloor();
+            return;
+        }
         boolean localBuildWasAbandoned = game.pendingRejoinFromUserBuildRound;
         boolean rejoinedWithLocalBuilder = false;
         suppressInvalidatedLocalBuilderBadge(builder);
@@ -1010,9 +1136,9 @@ public final class GameTracker implements GameStats.GtbHooks {
         if (rejoinBuilder == null || rejoinBuilder.isEmpty()) return;
         GtbPlayer user = localUser();
         if (user == null || user.name == null || user.name.equalsIgnoreCase(rejoinBuilder)) return;
-        user.suppressedPointBadgeRound = game.currentRound;
-        if (user.pendingBuilderScoreRound == game.currentRound) user.pendingBuilderScoreRound = 0;
-        if (user.authoritativeBuilderScoreRound == game.currentRound) {
+        user.suppressedPointBadgeRound = game.scoringRoundKey();
+        if (user.pendingBuilderScoreRound == game.scoringRoundKey()) user.pendingBuilderScoreRound = 0;
+        if (user.authoritativeBuilderScoreRound == game.scoringRoundKey()) {
             user.authoritativeBuilderScoreRound = 0;
         }
         if (user.buildRound == game.currentRound) user.buildRound = 0;
@@ -1151,11 +1277,11 @@ public final class GameTracker implements GameStats.GtbHooks {
         String key = findKeyIgnoreCase(game.players, ign);
         if (key != null) {
             GtbPlayer existing = game.players.get(key);
-            ensurePointsCapacity(existing, Math.max(game.totalRounds, game.currentRound));
+            ensurePointsCapacity(existing, Math.max(game.totalRounds, game.scoringRoundKey()));
             return existing;
         }
         GtbPlayer p = new GtbPlayer(ign);
-        ensurePointsCapacity(p, Math.max(game.totalRounds, game.currentRound));
+        ensurePointsCapacity(p, Math.max(game.totalRounds, game.scoringRoundKey()));
         p.presentAtGameStart = false;
         p.unresolvedIdentity = true;
         p.firstSeenTick = tickCounter;
@@ -1206,7 +1332,7 @@ public final class GameTracker implements GameStats.GtbHooks {
         if (game == null || totalRounds <= 0) return;
         game.totalRounds = totalRounds;
         game.awaitingAuthoritativeRoundTotal = false;
-        int capacity = Math.max(game.totalRounds, game.currentRound);
+        int capacity = Math.max(game.totalRounds, game.scoringRoundKey());
         for (GtbPlayer p : game.players.values()) {
             ensurePointsCapacity(p, capacity);
         }
@@ -1244,13 +1370,18 @@ public final class GameTracker implements GameStats.GtbHooks {
         game.roundStartTrueScore = new HashMap<String, Integer>(game.latestTrueScore);
         for (GtbPlayer p : game.players.values()) {
             addObservedScoreFloor(game.roundStartTrueScore, p);
+            Integer baseline = scoreIgnoreCase(game.roundStartTrueScore, p.name);
+            if (baseline != null && baseline.intValue() < game.totalMinimum(p)) {
+                String key = findKeyIgnoreCase(game.roundStartTrueScore, p.name);
+                if (key != null) game.roundStartTrueScore.remove(key);
+            }
         }
     }
 
     private void advanceRetainedScoreFromRoundStart(GtbPlayer p, int delta, boolean allowUser) {
         if (game == null || p == null || p.name == null || delta <= 0) return;
         if (!allowUser && p.isUser) return;
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         Integer baseline = retainedBaselineForRound(p, r);
         if (baseline == null) return;
         int next = baseline.intValue() + delta;
@@ -1294,8 +1425,8 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     private boolean absorbRoundStartScoreBaseline(GtbPlayer p, int observed) {
         if (game == null || p == null || p.points == null) return false;
-        if (p.pendingBuilderScoreRound == game.currentRound) return false;
-        int r = game.currentRound - 1;
+        if (p.pendingBuilderScoreRound == game.scoringRoundKey()) return false;
+        int r = game.scoringRoundIndex();
         if (r < 0 || r >= p.points.length) return false;
         PointEntry slot = p.points[r];
         if (slot == null || slot.kind != PointEntry.Kind.ZERO) return false;
@@ -1319,7 +1450,7 @@ public final class GameTracker implements GameStats.GtbHooks {
         if (previousVisible.intValue() != prior.intValue()) return;
         int delta = observed - previousVisible.intValue();
         if (delta <= 0 || delta > 3) return;
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         if (r < 0 || r >= p.points.length) return;
 
         PointEntry slot = p.points[r];
@@ -1343,15 +1474,18 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     private boolean applyVisibleCurrentRoundResidual(GtbPlayer p, int observed) {
         if (game == null || p == null || p.name == null || p.points == null) return false;
-        if (game.roundCountUnknown || game.pendingRejoinFromRound >= 0) return false;
+        if (game.activeRecoveredRound == null
+                && (game.roundCountUnknown || game.pendingRejoinFromRound >= 0)) return false;
         if (isAbandonedLocalBuildRound()) return true;
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         if (r < 0 || r >= p.points.length) return false;
 
         PointEntry slot = p.points[r];
         if (slot == null) return false;
 
-        Integer baseline = scoreIgnoreCase(game.roundStartTrueScore, p.name);
+        Integer baseline = game.activeRecoveredRound == null
+                ? scoreIgnoreCase(game.roundStartTrueScore, p.name)
+                : game.activeRecoveredRound.freshBaseline(p);
         if (baseline == null) {
             if (hasLocalRejoinUncertainty()
                     || (game.currentRound > 1 && !game.initialRoundHeaderConfirmed)) {
@@ -1425,7 +1559,7 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     private GtbPlayer exactCurrentRoundNonBuilderWithAward(int award, GtbPlayer excluded) {
         if (game == null || game.currentRound <= 0) return null;
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         for (GtbPlayer candidate : game.players.values()) {
             if (candidate == null || candidate == excluded || candidate == game.currentBuilder
                     || candidate.points == null || r >= candidate.points.length) {
@@ -1442,7 +1576,7 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     private void resolveObservedRejoinGuessAwards(int priorGuesses, boolean gapScorersComplete) {
         if (game == null || game.currentRound <= 0) return;
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         for (int i = 0; i < game.rejoinObservedGuessOrder.size(); i++) {
             String ign = game.rejoinObservedGuessOrder.get(i);
             String key = findKeyIgnoreCase(game.players, ign);
@@ -1460,6 +1594,9 @@ public final class GameTracker implements GameStats.GtbHooks {
         game.correctGuessesThisRound = Math.max(game.correctGuessesThisRound,
                 priorGuesses + game.rejoinObservedGuessOrder.size());
         game.rejoinGuessOrderUncertain = false;
+        if (game.activeRecoveredRound != null && priorGuesses == 0 && gapScorersComplete) {
+            game.activeRecoveredRound.firstGuessProven = true;
+        }
         if (gapScorersComplete) {
             game.rejoinBuilderChangedBeforeRoundHeader = false;
             clearRejoinRoundScoreUncertainty();
@@ -1474,7 +1611,7 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     private void seedRejoinGuessFloorFromCurrentRound() {
         if (game == null || game.currentRound <= 0 || game.currentBuilder == null) return;
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         int floor = game.rejoinPriorGuessFloor;
         for (GtbPlayer candidate : game.players.values()) {
             if (candidate == null || candidate == game.currentBuilder
@@ -1507,13 +1644,15 @@ public final class GameTracker implements GameStats.GtbHooks {
         if (game.currentTheme == null || game.currentTheme.isEmpty()) return;
         GtbPlayer builder = builderAwaitingThemeAward();
         if (builder == null) return;
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         if (r < 0 || builder.points == null || r >= builder.points.length) return;
         boolean multiword = TranslationData.isDisplayedMultiwordTheme(
                 game.currentLangCode, game.currentTheme);
         Integer scoreboardPoint = scoreIgnoreCase(game.scoreboardBuilderPointsThisRound, builder.name);
         GameStats.RoundData liveRound = GameStats.INSTANCE.getCurrentRound();
-        if (liveRound != null && liveRound.roundNumber == game.currentRound
+        if (liveRound != null && (game.activeRecoveredRound == null
+                ? liveRound.roundNumber == game.currentRound
+                : liveRound == game.activeRecoveredRound.source)
                 && liveRound.builder != null && liveRound.builder.equalsIgnoreCase(builder.name)) {
             com.gtbstructures.stats.ScoreDelta delta = GameStats.INSTANCE.currentRoundDeltaFor(liveRound.builder);
             if (delta != null && delta.isDefinite() && "scoreboard".equals(delta.source)
@@ -1565,11 +1704,12 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     private GtbPlayer builderAwaitingThemeAward() {
         if (game == null) return null;
+        if (game.activeRecoveredRound != null) return game.activeRecoveredRound.builder;
         if (game.currentBuilder != null) return game.currentBuilder;
         if (hasPendingRejoinRoundUncertainty()) return null;
         if (game.currentRound <= 0) return null;
         for (GtbPlayer p : game.players.values()) {
-            if (p != null && p.pendingBuilderScoreRound == game.currentRound) return p;
+            if (p != null && p.pendingBuilderScoreRound == game.scoringRoundKey()) return p;
         }
         for (GtbPlayer p : game.players.values()) {
             if (p != null && p.buildRound == game.currentRound) return p;
@@ -1584,7 +1724,7 @@ public final class GameTracker implements GameStats.GtbHooks {
         if (game.currentTheme != null && !game.currentTheme.isEmpty()) return;
         if (!isEnglishRound()) return;
         if (game.currentHintStructure == null || game.currentHintStructure.isEmpty()) return;
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         if (r < 0 || r >= game.currentBuilder.points.length) return;
 
         PointEntry award = ThemePointAward.computeEnglishHintStructure(game.currentHintStructure);
@@ -1604,7 +1744,7 @@ public final class GameTracker implements GameStats.GtbHooks {
         PointEntry settled = builder.points[roundIndex];
         if (settled == null || settled.kind != PointEntry.Kind.DEFINITE) return;
 
-        builder.authoritativeBuilderScoreRound = game.currentRound;
+        builder.authoritativeBuilderScoreRound = game.scoringRoundKey();
         Integer total = authoritativeBuilderTotal(builder);
         if (total == null || builder.name == null) return;
 
@@ -1618,8 +1758,10 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     private Integer retainedBaselineForRound(GtbPlayer p, int roundIndex) {
         if (game == null || p == null || p.name == null) return null;
+        if (game.activeRecoveredRound != null) return game.activeRecoveredRound.freshBaseline(p);
         Integer baseline = scoreIgnoreCase(game.roundStartTrueScore, p.name);
         if (baseline != null) return baseline;
+        if (game.totalMinimum(p) > p.totalMin()) return null;
         if (roundIndex >= 0) {
             baseline = exactTotalExceptRound(p.points, roundIndex);
             if (baseline != null) return baseline;
@@ -1703,7 +1845,7 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     private void clearSameRoundConsumedScoreUncertainty() {
         if (game == null || game.currentRound <= 0) return;
-        int roundIndex = game.currentRound - 1;
+        int roundIndex = game.scoringRoundIndex();
         for (GtbPlayer p : game.players.values()) {
             if (p == null || p.points == null || roundIndex >= p.points.length) continue;
             PointEntry entry = p.points[roundIndex];
@@ -1719,7 +1861,7 @@ public final class GameTracker implements GameStats.GtbHooks {
         if (p == null) return;
         p.rejoinRoundScoreUncertain = false;
         if (game != null && game.currentRound > 0) {
-            p.disconnectUncertainRounds.remove(Integer.valueOf(game.currentRound));
+            p.disconnectUncertainRounds.remove(Integer.valueOf(game.scoringRoundKey()));
         }
     }
 
@@ -1731,6 +1873,9 @@ public final class GameTracker implements GameStats.GtbHooks {
     }
 
     private boolean isAbandonedLocalBuildRound() {
+        if (game != null && game.activeRecoveredRound != null) {
+            return game.activeRecoveredRound.localBuildAbandoned;
+        }
         return game != null && game.currentRound > 0
                 && game.currentRound == game.abandonedLocalBuildRound;
     }
@@ -1787,7 +1932,9 @@ public final class GameTracker implements GameStats.GtbHooks {
             observed = latest;
         }
         if (observed == null) return null;
-        Integer exactOtherRounds = exactTotalExceptRound(player.points, roundIndex);
+        Integer exactOtherRounds = game.activeRecoveredRound == null
+                ? exactTotalExceptRound(player.points, roundIndex)
+                : game.activeRecoveredRound.freshBaseline(player);
         if (exactOtherRounds == null) return null;
         int residual = observed.intValue() - exactOtherRounds.intValue();
         if (residual < 0 || residual > 3) return null;
@@ -1800,15 +1947,18 @@ public final class GameTracker implements GameStats.GtbHooks {
 
     static Integer authoritativeBuilderTotal(GtbPlayer player, GtbGame game) {
         if (game == null || game.currentRound <= 0 || player == null
-                || player.authoritativeBuilderScoreRound != game.currentRound
-                || player.points == null || game.currentRound > player.points.length) {
+                || player.authoritativeBuilderScoreRound != game.scoringRoundKey()
+                || player.points == null || game.scoringRoundIndex() >= player.points.length) {
             return null;
         }
-        PointEntry award = player.points[game.currentRound - 1];
+        PointEntry award = player.points[game.scoringRoundIndex()];
         if (award == null || award.kind != PointEntry.Kind.DEFINITE
                 || award.value < 1 || award.value > 3) return null;
-        Integer baseline = scoreIgnoreCase(game.roundStartTrueScore, player.name);
-        if (baseline == null && game.currentRound == 1) baseline = Integer.valueOf(0);
+        Integer baseline = game.activeRecoveredRound == null
+                ? scoreIgnoreCase(game.roundStartTrueScore, player.name)
+                : game.activeRecoveredRound.freshBaseline(player);
+        if (baseline == null && game.activeRecoveredRound == null
+                && game.currentRound == 1) baseline = Integer.valueOf(0);
         // Zero-filled historical slots do not prove a cumulative baseline.
         // Keep the sidebar authoritative when that earlier total is unknown.
         if (baseline == null || baseline.intValue() < 0) return null;
@@ -1825,21 +1975,23 @@ public final class GameTracker implements GameStats.GtbHooks {
         if (game == null || game.currentBuilder == null) return;
         if (game.correctGuessesThisRound <= 0) return;
         if (game.state != GtbGame.State.ROUND_BUILD || game.currentRound <= 0) return;
-        if (game.currentBuilder.buildRound != game.currentRound) return;
+        if (game.activeRecoveredRound == null && game.currentBuilder.buildRound != game.currentRound) return;
         if (game.currentTheme != null && !game.currentTheme.isEmpty()) return;
         awardBuilderFromEnglishHintIfReady();
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         if (r < 0 || game.currentBuilder.points == null || r >= game.currentBuilder.points.length) return;
         if (game.currentBuilder.points[r].kind != PointEntry.Kind.ZERO) return;
-        game.currentBuilder.pendingBuilderScoreRound = game.currentRound;
+        game.currentBuilder.pendingBuilderScoreRound = game.scoringRoundKey();
         clearCurrentRejoinRoundUncertainty(game.currentBuilder);
     }
 
     private void resolvePendingBuilderFromLeaderboard(GtbPlayer p, int observed, Integer prior) {
         if (game == null || p == null) return;
-        if (p.pendingBuilderScoreRound != game.currentRound) return;
+        if (game.activeRecoveredRound != null
+                && game.activeRecoveredRound.freshBaseline(p) == null) return;
+        if (p.pendingBuilderScoreRound != game.scoringRoundKey()) return;
         if (game.currentBuilder != p && p.buildRound != game.currentRound) return;
-        int r = game.currentRound - 1;
+        int r = game.scoringRoundIndex();
         if (r < 0 || p.points == null || r >= p.points.length) return;
         PointEntry slot = p.points[r];
         if (slot == null) return;
@@ -2034,13 +2186,13 @@ public final class GameTracker implements GameStats.GtbHooks {
                 ? p.silentRoundsBeforeBuilderAssignment
                 : p.silentRoundsConsecutive;
         onActivity(p);
-        p.builderAssignmentActivityRound = game.currentRound;
+        p.builderAssignmentActivityRound = game.scoringRoundKey();
         p.silentRoundsBeforeBuilderAssignment = previousSilent;
     }
 
     private void restoreBuilderAssignmentOnlyActivity(GtbPlayer p) {
         if (p == null || game == null) return;
-        if (p.builderAssignmentActivityRound != game.currentRound) return;
+        if (p.builderAssignmentActivityRound != game.scoringRoundKey()) return;
         if (p.silentRoundsBeforeBuilderAssignment > p.silentRoundsConsecutive) {
             p.silentRoundsConsecutive = p.silentRoundsBeforeBuilderAssignment;
         }
@@ -2158,6 +2310,9 @@ public final class GameTracker implements GameStats.GtbHooks {
     private void applyStableFloorIfReady() {
         if (game == null || pendingFloorScores == null) return;
         if (tickCounter - pendingFloorSinceTick < STABLE_FLOOR_TICKS) return;
+        if (game.activeRecoveredRound != null) {
+            game.activeRecoveredRound.observeOffSidebarBounds(game, pendingFloorScores);
+        }
         if (game.roundCountUnknown || game.pendingRejoinFromRound >= 0) {
             if (game.rejoinGuessOrderUncertain && pendingFloorValue > 0) {
                 reconcileOffLeaderboardForksAgainstFloor(pendingFloorScores);

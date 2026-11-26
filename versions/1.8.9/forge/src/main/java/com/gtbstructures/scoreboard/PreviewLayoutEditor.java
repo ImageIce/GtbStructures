@@ -90,9 +90,10 @@ public final class PreviewLayoutEditor {
     private static final int CHILD_ROW_INDENT = CHECK_SIZE + 5;
     private static final int SECTION_MARGIN_Y = 3;
     private static final int SECTION_TEXT_HEIGHT = 9;
-    private static final int STEPPER_BUTTON_SIZE = 13;
-    private static final int STEPPER_VALUE_CENTER = 26;
-    private static final int STEPPER_PLUS_X = 39;
+    // Odd-sized buttons and signs share a pixel center with the seven-pixel numeral ink.
+    private static final int STEPPER_BUTTON_SIZE = 9;
+    private static final int STEPPER_VALUE_CENTER = 25;
+    private static final int STEPPER_PLUS_X = 40;
     private static final int SLIDER_ROW_HEIGHT = 16;
     private static final int SLIDER_WIDTH = 74;
     private static final int SLIDER_KNOB_WIDTH = 5;
@@ -120,6 +121,16 @@ public final class PreviewLayoutEditor {
     private static final String LRJ_BYPASS_PROTECTION_CAPTION =
             "Bypass /l Protection For /lrj";
     private static final String LRJ_DELAY_CAPTION = "LRJ Delay";
+    private static final String GUESS_SENT_CAPTION = "Sent Guess Notice";
+    private static final String GUESS_SENT_SPAM_CAPTION = "Only When Spamming";
+    private static final String GUESS_SENT_MIN_CAPTION = "Minimum Spam Count";
+    private static final String GUESS_SENT_SHOW_CAPTION = "Show Sent Guess";
+    private static final String INITIAL_ITEMS_CAPTION = "Mark Initial Items";
+    private static final String INITIAL_ITEMS_TOOLTIP =
+            "\u00a7fItems held during theme selection keep a \u00a7a\u00a7l\u274f\u00a7r\u00a7f after their name.";
+
+    private String pendingTooltip;
+    private NativeChatTooltip nativeTooltip;
 
     private final List<Label> labels = new ArrayList<Label>();
     private final Map<String, Float> hoverAmounts = new HashMap<String, Float>();
@@ -989,17 +1000,108 @@ public final class PreviewLayoutEditor {
         drawMouseX = mouseX;
         drawMouseY = mouseY;
         drawLeftDown = Mouse.isButtonDown(0);
+        pendingTooltip = null;
         beginForegroundDraw();
         try {
             drawSettingsPanel(mc, sr);
             drawLabelsButton(mc, sr, mouseX, mouseY);
             if (labelsPanelOpen) {
+                if (labelsPanelRect(sr).contains(mouseX, mouseY)) pendingTooltip = null;
                 drawLabelsPanel(mc, sr);
             }
             drawDoneButton(mc, sr, mouseX, mouseY);
+            if (pendingTooltip != null) {
+                if (nativeTooltip == null) nativeTooltip = new NativeChatTooltip();
+                nativeTooltip.render(mc, sr, pendingTooltip, mouseX, mouseY);
+            }
         } finally {
             endForegroundDraw();
         }
+    }
+
+    static int guessSentSettingsHeight(boolean enabled, boolean onlySpam) {
+        return ROW_HEIGHT + (enabled ? ROW_HEIGHT * 2 + (onlySpam ? ROW_HEIGHT : 0) : 0);
+    }
+
+    private void drawGuessSentRows(FontRenderer fr, int x, int y) {
+        drawToggleRow(fr, x, y, GUESS_SENT_CAPTION, GtbStructures.guessSentNotice, true, false);
+        if (!GtbStructures.guessSentNotice) return;
+        int childX = x + CHILD_ROW_INDENT;
+        y += ROW_HEIGHT;
+        drawToggleRow(fr, childX, y, GUESS_SENT_SPAM_CAPTION, GtbStructures.guessSentOnlySpam, true, false);
+        y += ROW_HEIGHT;
+        if (GtbStructures.guessSentOnlySpam) {
+            int countX = guessSpamCaptionX(x);
+            fr.drawStringWithShadow("\u00a7f" + GUESS_SENT_MIN_CAPTION,
+                    countX, toggleTextY(y, fr.FONT_HEIGHT), PANEL_TEXT);
+            drawStepper(fr, guessSpamStepperX(countX, fr.getStringWidth(GUESS_SENT_MIN_CAPTION)), y,
+                    GtbStructures.guessSentMinSpam, GtbStructures.MIN_GUESS_SENT_SPAM_COUNT,
+                    GtbStructures.MAX_GUESS_SENT_SPAM_COUNT);
+            y += ROW_HEIGHT;
+        }
+        drawToggleRow(fr, childX, y, GUESS_SENT_SHOW_CAPTION, GtbStructures.guessSentShowGuess, true, false);
+    }
+
+    private boolean handleGuessSentRowsClick(FontRenderer fr, int x, int y, int mouseX, int mouseY) {
+        if (toggleHit(fr, x, y, GUESS_SENT_CAPTION, mouseX, mouseY)) {
+            setGuessSentOption("enabled");
+            return true;
+        }
+        if (!GtbStructures.guessSentNotice) return false;
+        int childX = x + CHILD_ROW_INDENT;
+        y += ROW_HEIGHT;
+        if (toggleHit(fr, childX, y, GUESS_SENT_SPAM_CAPTION, mouseX, mouseY)) {
+            setGuessSentOption("onlyspam");
+            return true;
+        }
+        y += ROW_HEIGHT;
+        if (GtbStructures.guessSentOnlySpam) {
+            int stepperX = guessSpamStepperX(guessSpamCaptionX(x),
+                    fr.getStringWidth(GUESS_SENT_MIN_CAPTION));
+            if (stepperMinusRect(stepperX, y).contains(mouseX, mouseY)) {
+                setGuessSentOption("decrease");
+                return true;
+            }
+            if (stepperPlusRect(stepperX, y).contains(mouseX, mouseY)) {
+                setGuessSentOption("increase");
+                return true;
+            }
+            y += ROW_HEIGHT;
+        }
+        if (toggleHit(fr, childX, y, GUESS_SENT_SHOW_CAPTION, mouseX, mouseY)) {
+            setGuessSentOption("showguess");
+            return true;
+        }
+        return false;
+    }
+
+    private void setGuessSentOption(String option) {
+        recordUndo();
+        if ("enabled".equals(option)) GtbStructures.guessSentNotice = !GtbStructures.guessSentNotice;
+        else if ("onlyspam".equals(option)) GtbStructures.guessSentOnlySpam = !GtbStructures.guessSentOnlySpam;
+        else if ("showguess".equals(option)) GtbStructures.guessSentShowGuess = !GtbStructures.guessSentShowGuess;
+        else GtbStructures.guessSentMinSpam = Math.max(GtbStructures.MIN_GUESS_SENT_SPAM_COUNT,
+                Math.min(GtbStructures.MAX_GUESS_SENT_SPAM_COUNT,
+                        GtbStructures.guessSentMinSpam + ("increase".equals(option) ? 1 : -1)));
+        GtbStructures.saveConfig();
+    }
+
+    private static int guessSpamStepperX(int captionX, int captionWidth) {
+        return captionX + captionWidth + 6;
+    }
+
+    static int guessSpamCaptionX(int rootX) {
+        return rootX + CHILD_ROW_INDENT * 3;
+    }
+
+    static int handheldVisibleRowsHeaderY(int initialRowY) {
+        return initialRowY + ROW_HEIGHT + 2;
+    }
+
+    static boolean captionContains(int x, int y, int captionWidth, int fontHeight, int mouseX, int mouseY) {
+        int captionX = x + CHECK_SIZE + 5;
+        int textY = toggleTextY(y, fontHeight);
+        return new Rect(captionX, textY, captionX + captionWidth, textY + fontHeight).contains(mouseX, mouseY);
     }
 
     private static void drawLabelsButton(Minecraft mc, ScaledResolution sr, int mouseX, int mouseY) {
@@ -1078,6 +1180,9 @@ public final class PreviewLayoutEditor {
             drawLrjDelayRow(fr, x + CHILD_ROW_INDENT, y);
             y += ROW_HEIGHT;
             y = drawMenuSection(fr, x, y, "Chat");
+            drawGuessSentRows(fr, x, y);
+            y += guessSentSettingsHeight(GtbStructures.guessSentNotice,
+                    GtbStructures.guessSentOnlySpam);
             drawToggleRow(fr, x, y, "Guess Peek", GtbStructures.guessPeek, true, false);
             y += ROW_HEIGHT;
             if (GtbStructures.guessPeek) {
@@ -1617,6 +1722,8 @@ public final class PreviewLayoutEditor {
                 GtbStructures.autoRequeue);
         return PANEL_PAD * 2 + TITLE_HEIGHT + 4
                 + rows * ROW_HEIGHT
+                + guessSentSettingsHeight(GtbStructures.guessSentNotice,
+                        GtbStructures.guessSentOnlySpam)
                 + (HEADER_CONTROL_ROW_HEIGHT - ROW_HEIGHT)
                 + MENU_SECTION_COUNT * sectionBlockHeight();
     }
@@ -2495,6 +2602,9 @@ public final class PreviewLayoutEditor {
         if (handleLrjDelayRowClick(fr, x + CHILD_ROW_INDENT, y, mouseX, mouseY)) return true;
         y += ROW_HEIGHT;
         y = menuSectionYAfterForClick(y);
+        if (handleGuessSentRowsClick(fr, x, y, mouseX, mouseY)) return true;
+        y += guessSentSettingsHeight(GtbStructures.guessSentNotice,
+                GtbStructures.guessSentOnlySpam);
         if (toggleHit(fr, x, y, "Guess Peek", mouseX, mouseY)) {
             recordUndo();
             GtbStructures.guessPeek = !GtbStructures.guessPeek;
@@ -3540,10 +3650,16 @@ public final class PreviewLayoutEditor {
         } else if ("handheld".equals(key)) {
             drawSliderRow(fr, x, y, HANDHELD_SCALE_SLIDER);
             y += SLIDER_ROW_HEIGHT;
+            drawToggleRow(fr, x, y, INITIAL_ITEMS_CAPTION, GtbStructures.handheldItemMarkInitial, true, false);
+            if (captionContains(x, y, fr.getStringWidth(INITIAL_ITEMS_CAPTION), fr.FONT_HEIGHT,
+                    drawMouseX, drawMouseY)) {
+                pendingTooltip = INITIAL_ITEMS_TOOLTIP;
+            }
+            y = handheldVisibleRowsHeaderY(y);
             drawSection(fr, x, y, "Visible Rows");
             y += ROW_HEIGHT;
             drawStepper(fr, x, y, GtbStructures.handheldItemMaxVisible, 2, 10);
-            y += STEPPER_BUTTON_SIZE + 4;
+            y += ROW_HEIGHT + 2;
             drawSection(fr, x, y, "Background");
             y += ROW_HEIGHT;
             drawToggleRow(fr, x, y, "On", GtbStructures.handheldItemBackground, false, false);
@@ -3859,7 +3975,13 @@ public final class PreviewLayoutEditor {
         } else if ("handheld".equals(key)) {
             if (handleSliderRowClick(fr, HANDHELD_SCALE_SLIDER, x, y, mouseX, mouseY)) return true;
             y += SLIDER_ROW_HEIGHT;
-            y += ROW_HEIGHT;
+            if (toggleHit(fr, x, y, INITIAL_ITEMS_CAPTION, mouseX, mouseY)) {
+                recordUndo();
+                GtbStructures.handheldItemMarkInitial = !GtbStructures.handheldItemMarkInitial;
+                GtbStructures.saveConfig();
+                return true;
+            }
+            y = handheldVisibleRowsHeaderY(y) + ROW_HEIGHT;
             if (stepperRowRect(panel, y).contains(mouseX, mouseY)) {
                 if (stepperMinusRect(x, y).contains(mouseX, mouseY)) {
                     recordUndo();
@@ -3872,7 +3994,7 @@ public final class PreviewLayoutEditor {
                 }
                 return true;
             }
-            y += STEPPER_BUTTON_SIZE + 4 + ROW_HEIGHT;
+            y += ROW_HEIGHT + 2 + ROW_HEIGHT;
             if (toggleHit(fr, x, y, "On", mouseX, mouseY)) {
                 recordUndo();
                 GtbStructures.handheldItemBackground = true;
@@ -4169,7 +4291,7 @@ public final class PreviewLayoutEditor {
     private static int settingsPanelHeightForKey(String key, String scoreboardSkin,
                                                   boolean handheldVertical) {
         if ("hint".equals(key)) return 138 + SLIDER_ROW_HEIGHT;
-        if ("handheld".equals(key)) return handheldVertical ? 283 : 259;
+        if ("handheld".equals(key)) return handheldVertical ? 294 : 270;
         if ("environment".equals(key) || (key != null && key.startsWith("environment_"))) {
             return ENVIRONMENT_SETTINGS_PANEL_HEIGHT + SLIDER_ROW_HEIGHT;
         }
@@ -4324,7 +4446,7 @@ public final class PreviewLayoutEditor {
                 x + CHECK_SIZE + 5, textY, active ? PANEL_TEXT : PANEL_MUTED);
         if (option == ScoreboardConfig.DisplayOption.EXPANDED
                 && triStateButtonRect(x, y, fr.FONT_HEIGHT).contains(INSTANCE.drawMouseX, INSTANCE.drawMouseY)) {
-            drawTooltip(fr, "\u00a7fOnly when expanded");
+            INSTANCE.pendingTooltip = "\u00a7fOnly when expanded";
         }
     }
 
@@ -4371,17 +4493,24 @@ public final class PreviewLayoutEditor {
         drawSmallButton(minus, false);
         String valueText = String.valueOf(value);
         fr.drawStringWithShadow("\u00a7f" + valueText, x + STEPPER_VALUE_CENTER - fr.getStringWidth(valueText) / 2,
-                y + (STEPPER_BUTTON_SIZE - fr.FONT_HEIGHT) / 2, PANEL_TEXT);
+                toggleTextY(y, fr.FONT_HEIGHT), PANEL_TEXT);
         drawSmallButton(plus, true);
     }
 
     private static Rect stepperMinusRect(int x, int y) {
+        y = toggleCheckY(y, SECTION_TEXT_HEIGHT);
         return new Rect(x, y, x + STEPPER_BUTTON_SIZE, y + STEPPER_BUTTON_SIZE);
     }
 
     private static Rect stepperPlusRect(int x, int y) {
+        y = toggleCheckY(y, SECTION_TEXT_HEIGHT);
         return new Rect(x + STEPPER_PLUS_X, y, x + STEPPER_PLUS_X + STEPPER_BUTTON_SIZE,
                 y + STEPPER_BUTTON_SIZE);
+    }
+
+    static int[] stepperBoundsForTest(int x, int y, boolean plus) {
+        Rect bounds = plus ? stepperPlusRect(x, y) : stepperMinusRect(x, y);
+        return new int[] {bounds.x1, bounds.y1, bounds.x2, bounds.y2};
     }
 
     private static void drawSmallButton(Rect rect, boolean plus) {
@@ -4426,17 +4555,6 @@ public final class PreviewLayoutEditor {
                 Gui.drawRect(x + 3, y + 3 + dy, x + 3 + width, y + 4 + dy, c);
             }
         }
-    }
-
-    private static void drawTooltip(FontRenderer fr, String text) {
-        int x = INSTANCE.drawMouseX + 9;
-        int width = fr.getStringWidth(text) + 6;
-        int height = fr.FONT_HEIGHT + 6;
-        int y = INSTANCE.drawMouseY - height - 7;
-        if (y < 2) y = INSTANCE.drawMouseY + 9;
-        Gui.drawRect(x, y, x + width, y + height, 0xF0101010);
-        drawOutline(new Rect(x, y, x + width, y + height), 0xAA7A8492);
-        fr.drawStringWithShadow(text, x + 3, y + 3, PANEL_TEXT);
     }
 
     private static void drawColorSwatches(int x, int y, String selected) {
@@ -4756,7 +4874,7 @@ public final class PreviewLayoutEditor {
     }
 
     private static Rect stepperRowRect(Rect panel, int y) {
-        return new Rect(panel.x1 + PANEL_PAD, y, panel.x2 - PANEL_PAD, y + STEPPER_BUTTON_SIZE);
+        return new Rect(panel.x1 + PANEL_PAD, y, panel.x2 - PANEL_PAD, y + ROW_HEIGHT);
     }
 
     private static void drawOutline(Rect rect, int color) {
@@ -5445,6 +5563,59 @@ public final class PreviewLayoutEditor {
         }
     }
 
+    static boolean guessSentSettingsUndoRedoForTest() {
+        ConfigSnapshot original = ConfigSnapshot.capture();
+        PreviewLayoutEditor editor = new PreviewLayoutEditor();
+        try {
+            for (String option : new String[] {"enabled", "onlyspam", "showguess", "increase"}) {
+                if ("increase".equals(option)) GtbStructures.guessSentMinSpam = 3;
+                ConfigSnapshot before = ConfigSnapshot.capture();
+                editor.setGuessSentOption(option);
+                ConfigSnapshot after = ConfigSnapshot.capture();
+                if (before.matchesCurrent()) return false;
+                editor.undoConfigChange();
+                if (!before.matchesCurrent()) return false;
+                editor.redoConfigChange();
+                if (!after.matchesCurrent()) return false;
+            }
+            GtbStructures.guessSentMinSpam = GtbStructures.MIN_GUESS_SENT_SPAM_COUNT;
+            editor.setGuessSentOption("decrease");
+            if (GtbStructures.guessSentMinSpam != GtbStructures.MIN_GUESS_SENT_SPAM_COUNT) return false;
+            GtbStructures.guessSentMinSpam = GtbStructures.MAX_GUESS_SENT_SPAM_COUNT;
+            editor.setGuessSentOption("increase");
+            if (GtbStructures.guessSentMinSpam != GtbStructures.MAX_GUESS_SENT_SPAM_COUNT) return false;
+            ConfigSnapshot beforeInitial = ConfigSnapshot.capture();
+            editor.recordUndo();
+            GtbStructures.handheldItemMarkInitial = !GtbStructures.handheldItemMarkInitial;
+            ConfigSnapshot afterInitial = ConfigSnapshot.capture();
+            if (beforeInitial.matchesCurrent()) return false;
+            editor.undoConfigChange();
+            if (!beforeInitial.matchesCurrent()) return false;
+            editor.redoConfigChange();
+            return afterInitial.matchesCurrent();
+        } finally {
+            original.apply();
+        }
+    }
+
+    static boolean guessSentMenuCollapseForTest() {
+        ConfigSnapshot original = ConfigSnapshot.capture();
+        try {
+            GtbStructures.modEnabled = true;
+            GtbStructures.guessSentNotice = false;
+            int collapsed = labelsPanelHeight();
+            GtbStructures.guessSentNotice = true;
+            GtbStructures.guessSentOnlySpam = false;
+            int children = labelsPanelHeight();
+            GtbStructures.guessSentOnlySpam = true;
+            int spamCount = labelsPanelHeight();
+            return children - collapsed == 2 * ROW_HEIGHT
+                    && spamCount - children == ROW_HEIGHT;
+        } finally {
+            original.apply();
+        }
+    }
+
     static boolean fireworkSoundSnapshotRoundTripForTest() {
         boolean original = GtbStructures.endGameFireworkSounds;
         ConfigSnapshot before = ConfigSnapshot.capture();
@@ -5455,6 +5626,11 @@ public final class PreviewLayoutEditor {
     }
 
     private static final class ConfigSnapshot {
+        private final boolean guessSentNotice;
+        private final boolean guessSentOnlySpam;
+        private final int guessSentMinSpam;
+        private final boolean guessSentShowGuess;
+        private final boolean handheldItemMarkInitial;
         private final boolean modEnabled;
         private final boolean enabled;
         private final boolean hintBackgroundOverlay;
@@ -5608,6 +5784,11 @@ public final class PreviewLayoutEditor {
             autoRequeueDelaySeconds = GtbStructures.autoRequeueDelaySeconds;
             lrjDelaySeconds = GtbStructures.lrjDelaySeconds;
             lrjBypassLobbyProtection = GtbStructures.lrjBypassLobbyProtection;
+            guessSentNotice = GtbStructures.guessSentNotice;
+            guessSentOnlySpam = GtbStructures.guessSentOnlySpam;
+            guessSentMinSpam = GtbStructures.guessSentMinSpam;
+            guessSentShowGuess = GtbStructures.guessSentShowGuess;
+            handheldItemMarkInitial = GtbStructures.handheldItemMarkInitial;
             guessPeek = GtbStructures.guessPeek;
             guessPeekShowLangCodes = GtbStructures.guessPeekShowLangCodes;
             guessPeekDisplay = GtbStructures.normalizeGuessPeekDisplay(GtbStructures.guessPeekDisplay);
@@ -5721,6 +5902,11 @@ public final class PreviewLayoutEditor {
             GtbStructures.autoRequeueDelaySeconds = autoRequeueDelaySeconds;
             GtbStructures.lrjDelaySeconds = lrjDelaySeconds;
             GtbStructures.lrjBypassLobbyProtection = lrjBypassLobbyProtection;
+            GtbStructures.guessSentNotice = guessSentNotice;
+            GtbStructures.guessSentOnlySpam = guessSentOnlySpam;
+            GtbStructures.guessSentMinSpam = guessSentMinSpam;
+            GtbStructures.guessSentShowGuess = guessSentShowGuess;
+            GtbStructures.handheldItemMarkInitial = handheldItemMarkInitial;
             GtbStructures.guessPeek = guessPeek;
             GtbStructures.guessPeekShowLangCodes = guessPeekShowLangCodes;
             GtbStructures.guessPeekDisplay = guessPeekDisplay;
@@ -5830,6 +6016,11 @@ public final class PreviewLayoutEditor {
                     && Float.compare(lrjDelaySeconds, GtbStructures.lrjDelaySeconds) == 0
                     && lrjBypassLobbyProtection
                     == GtbStructures.lrjBypassLobbyProtection
+                    && guessSentNotice == GtbStructures.guessSentNotice
+                    && guessSentOnlySpam == GtbStructures.guessSentOnlySpam
+                    && guessSentMinSpam == GtbStructures.guessSentMinSpam
+                    && guessSentShowGuess == GtbStructures.guessSentShowGuess
+                    && handheldItemMarkInitial == GtbStructures.handheldItemMarkInitial
                     && guessPeek == GtbStructures.guessPeek
                     && guessPeekShowLangCodes == GtbStructures.guessPeekShowLangCodes
                     && guessPeekDisplay.equals(GtbStructures.normalizeGuessPeekDisplay(

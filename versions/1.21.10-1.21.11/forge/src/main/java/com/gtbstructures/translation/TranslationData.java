@@ -1,6 +1,7 @@
 package com.gtbstructures.translation;
 
 import com.gtbstructures.gtw.GtwLogic;
+import com.gtbstructures.stats.LangPatterns;
 import com.gtbstructures.stats.ScoreDelta;
 
 import java.io.ByteArrayOutputStream;
@@ -9,6 +10,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -31,15 +36,18 @@ import java.util.logging.Logger;
  * point values for non-English rounds.
  *
  * Source JSON: lib/source/translations-data.json from
- * https://github.com/zmh-program/gtb_platform. The mod ships a bundled snapshot
+ * https://github.com/ImageIce/gtb-translations. The mod ships a bundled snapshot
  * in its resources and tries to refresh from GitHub once per launch (async).
  */
 public class TranslationData {
 
     private static final Logger LOGGER = Logger.getLogger("GtbStructures");
 
-    private static final String REMOTE_URL =
-            "https://raw.githubusercontent.com/zmh-program/gtb_platform/main/lib/source/translations-data.json";
+    private static final String MIRROR_ROOT =
+            "https://raw.githubusercontent.com/ImageIce/gtb-translations/main/lib/source/";
+    private static final String STATS_RESOURCE = "stats-translations.json";
+    private static final int MAX_THEME_BYTES = 32 * 1024 * 1024;
+    private static final int MAX_STATS_BYTES = 2 * 1024 * 1024;
     private static final int CONNECT_TIMEOUT_MS = 8000;
     private static final int READ_TIMEOUT_MS = 8000;
     private static final int DISPLAY_PREFIX_LENGTH = 20;
@@ -174,6 +182,7 @@ public class TranslationData {
             @Override
             public void run() {
                 loadFromBestSource();
+                refreshLanguageTemplates(gameDir);
                 TranslationHistory.StoredData refreshed = tryRefresh();
                 if (refreshed != null) publish(refreshed);
             }
@@ -193,32 +202,76 @@ public class TranslationData {
 
     private static TranslationHistory.StoredData tryRefresh() {
         if (!TranslationHistory.isConfigured()) return null;
-        HttpURLConnection conn = null;
         try {
-            URL url = new URL(REMOTE_URL);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
-            conn.setReadTimeout(READ_TIMEOUT_MS);
-            conn.setRequestProperty("User-Agent", "GtbStructures/1.1");
-            int code = conn.getResponseCode();
-            if (code != 200) {
-                LOGGER.warning("Translation data refresh: HTTP " + code);
-                return null;
-            }
-            InputStream in = conn.getInputStream();
-            byte[] body = readAll(in);
-            in.close();
+            String json = fetchMirror("translations-data.json", MAX_THEME_BYTES);
             TranslationHistory.StoredData stored = TranslationHistory.recordRemote(
-                    new String(body, "UTF-8"), System.currentTimeMillis());
+                    json, System.currentTimeMillis());
             if (stored != null) {
-                LOGGER.info("Translation data refreshed and archived (" + body.length + " bytes)");
+                LOGGER.info("Translation data refreshed from the GTB mirror and archived");
             }
             return stored;
         } catch (Exception e) {
             LOGGER.warning("Translation data refresh failed: " + e.getMessage());
             return null;
+        }
+    }
+
+    private static String fetchMirror(String resource, int maxBytes) throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) new URL(MIRROR_ROOT + resource).openConnection();
+        try {
+            conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            conn.setReadTimeout(READ_TIMEOUT_MS);
+            conn.setRequestProperty("User-Agent", "GtbStructures");
+            int code = conn.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK) throw new IOException(resource + " HTTP " + code);
+            try (InputStream in = conn.getInputStream()) {
+                return new String(readAll(in, maxBytes), StandardCharsets.UTF_8);
+            }
         } finally {
-            if (conn != null) conn.disconnect();
+            conn.disconnect();
+        }
+    }
+
+    private static void refreshLanguageTemplates(File gameDir) {
+        String bundled;
+        try (InputStream in = TranslationData.class.getResourceAsStream("/" + STATS_RESOURCE)) {
+            if (in == null) throw new IOException("Missing bundled " + STATS_RESOURCE);
+            bundled = new String(readAll(in, MAX_STATS_BYTES), StandardCharsets.UTF_8);
+            LangPatterns.installTranslationTemplates(bundled);
+        } catch (Exception e) {
+            LOGGER.warning("Bundled language templates unavailable: " + e.getMessage());
+            return;
+        }
+        if (gameDir == null) return;
+        Path cache = new File(gameDir, "config/gtbstats/stats-translations.cache").toPath();
+        String bundleId = TranslationHistory.sha256Utf8(bundled) + "\n";
+        String current = bundled;
+        if (Files.isRegularFile(cache)) {
+            try (InputStream in = Files.newInputStream(cache)) {
+                String saved = new String(readAll(in, MAX_STATS_BYTES + bundleId.length()), StandardCharsets.UTF_8);
+                if (saved.startsWith(bundleId)) {
+                    String cached = saved.substring(bundleId.length());
+                    LangPatterns.installTranslationTemplates(cached);
+                    current = cached;
+                }
+            } catch (Exception e) {
+                LOGGER.warning("Cached language templates unavailable: " + e.getMessage());
+            }
+        }
+        try {
+            String refreshed = fetchMirror(STATS_RESOURCE, MAX_STATS_BYTES);
+            if (refreshed.equals(current)) return;
+            LangPatterns.installTranslationTemplates(refreshed);
+            Files.createDirectories(cache.getParent());
+            Path staged = Files.createTempFile(cache.getParent(), "stats-translations-", ".tmp");
+            try {
+                Files.write(staged, (bundleId + refreshed).getBytes(StandardCharsets.UTF_8));
+                Files.move(staged, cache, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } finally {
+                Files.deleteIfExists(staged);
+            }
+        } catch (Exception e) {
+            LOGGER.warning("Language template refresh failed: " + e.getMessage());
         }
     }
 
@@ -248,10 +301,17 @@ public class TranslationData {
     }
 
     private static byte[] readAll(InputStream in) throws IOException {
+        return readAll(in, MAX_THEME_BYTES);
+    }
+
+    private static byte[] readAll(InputStream in, int maxBytes) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         byte[] tmp = new byte[8192];
         int n;
-        while ((n = in.read(tmp)) > 0) buf.write(tmp, 0, n);
+        while ((n = in.read(tmp)) != -1) {
+            if (buf.size() + n > maxBytes) throw new IOException("Translation resource exceeds size limit");
+            buf.write(tmp, 0, n);
+        }
         return buf.toByteArray();
     }
 
@@ -1274,11 +1334,6 @@ public class TranslationData {
     }
 
     private static Set<String> ruledOutEnglishThemesFromGuess(String guess) {
-        // Hypixel may display normalized Cyrillic as Latin; that same text may
-        // also be an unrelated literal Latin guess, so it cannot rule themes out.
-        if (HypixelGuessChat.containsLatinLookalikeOutput(guess)) {
-            return Collections.emptySet();
-        }
         String key = normalizedGuessCacheKey(guess);
         if (key.isEmpty()) return Collections.emptySet();
 
@@ -1287,21 +1342,41 @@ public class TranslationData {
 
         // The immutable active-guess index already contains every normalized
         // English name, approved translation, and exact complement mapping.
-        // Avoid rescanning every translation through GtwLogic.gtbMatches here.
+        // Only inspect received-index candidates when there is an actual strict
+        // match to exclude. Ordinary Latin letters alone do not imply ambiguity.
         Set<String> frozen = findActiveGuessThemes(guess);
+        if (!frozen.isEmpty() && HypixelGuessChat.containsLatinLookalikeOutput(guess)
+                && hasLookalikeGuessSource(guess, SNAPSHOT)) {
+            frozen = Collections.emptySet();
+        }
         RULED_OUT_GUESS_CACHE.put(key, frozen);
         return frozen;
     }
 
+    private static boolean hasLookalikeGuessSource(String guess, Snapshot snapshot) {
+        for (String englishTheme : receivedGuessCandidates(guess, snapshot)) {
+            ShortcutThemeData data = snapshot.shortcutThemes.get(
+                    englishTheme.toLowerCase(Locale.ROOT));
+            if (data == null) continue;
+            for (Map.Entry<String, String> translation : data.translations.entrySet()) {
+                String lang = translation.getKey();
+                String source = translation.getValue();
+                // A known source that only matches after lossy rendering leaves
+                // the submitted spelling uncertain, so retain every candidate.
+                if (!GtwLogic.gtbMatches(guess, source, lang)
+                        && HypixelGuessChat.matchesObserved(guess, source, lang)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static String normalizedGuessCacheKey(String guess) {
         if (guess == null) return "";
-        String normalized = Normalizer.normalize(guess.trim(), Normalizer.Form.NFC);
-        if (normalized.isEmpty()) return "";
-        // gtbMatches only permits adding a trailing lowercase 's'. Preserve
-        // that one case-sensitive distinction while folding every other case.
-        boolean uppercaseTrailingS = normalized.charAt(normalized.length() - 1) == 'S';
-        return (uppercaseTrailingS ? "\u0001" : "\u0000")
-                + normalized.toLowerCase(Locale.ROOT);
+        // Rendering is case-sensitive: Latin B can be emitted by Cyrillic ve,
+        // while lowercase b cannot. Do not share exclusions between those forms.
+        return Normalizer.normalize(guess.trim(), Normalizer.Form.NFC);
     }
 
     public static List<String> filterRuledOutEnglishThemes(Collection<String> candidates,

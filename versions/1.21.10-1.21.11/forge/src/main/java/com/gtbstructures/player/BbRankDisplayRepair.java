@@ -229,7 +229,7 @@ public final class BbRankDisplayRepair {
         return same(currentPrefix, appliedPrefix) ? originalPrefix : currentPrefix;
     }
 
-    static Component legacyComponent(String legacy) {
+    public static Component legacyComponent(String legacy) {
         MutableComponent root = Component.empty();
         List<ChatFormatting> formats = new ArrayList<ChatFormatting>();
         int segmentStart = 0;

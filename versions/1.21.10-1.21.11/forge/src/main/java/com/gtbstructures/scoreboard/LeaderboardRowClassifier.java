@@ -1,7 +1,10 @@
 package com.gtbstructures.scoreboard;
 
+import com.gtbstructures.stats.LangPatterns;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 final class LeaderboardRowClassifier {
     private static final int CACHE_LIMIT = 256;
@@ -28,12 +31,14 @@ final class LeaderboardRowClassifier {
     static final class Session {
         private final GtbGame game;
         private final String[] playerNames;
+        private final Set<String> rankTitleAliases;
         private final Map<String, Classification> cache =
                 new LinkedHashMap<String, Classification>();
 
         Session(GtbGame game) {
             this.game = game;
             this.playerNames = snapshotPlayerNames(game);
+            this.rankTitleAliases = LangPatterns.downloadedRankTitleAliases();
         }
 
         synchronized Classification classify(String formattedLeft) {
@@ -54,7 +59,7 @@ final class LeaderboardRowClassifier {
         }
 
         boolean matches(GtbGame candidate) {
-            if (game != candidate) return false;
+            if (game != candidate || rankTitleAliases != LangPatterns.downloadedRankTitleAliases()) return false;
             if (candidate == null || candidate.players == null) {
                 return playerNames.length == 0;
             }

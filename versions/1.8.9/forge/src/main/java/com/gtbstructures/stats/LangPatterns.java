@@ -78,6 +78,7 @@ public class LangPatterns {
     // ── Pattern Registry ────────────────────────────────────────────────
 
     static final List<LangPatterns> ALL_PATTERNS = new ArrayList<>();
+    private static volatile LanguageTemplates downloadedTemplates;
     static final Set<String> CHAT_TITLES = new HashSet<>();
     private static final String[] GUESSER_CHAT_PREFIXES = {
             "[GUESSER CHAT]",
@@ -218,7 +219,7 @@ public class LangPatterns {
         public final String prefix;
         public final String suffix;
 
-        private ThemeRevealPattern(String prefix, String suffix) {
+        ThemeRevealPattern(String prefix, String suffix) {
             this.prefix = prefix;
             this.suffix = suffix;
         }
@@ -260,12 +261,18 @@ public class LangPatterns {
     }
 
     public static List<ThemeRevealPattern> themeRevealPatterns() {
-        return THEME_REVEAL_PATTERNS;
+        LanguageTemplates templates = downloadedTemplates;
+        return templates == null ? THEME_REVEAL_PATTERNS : templates.revealPatterns;
     }
 
     public static ThemeRevealPattern themeRevealPatternForLang(String langCode) {
         String code = langCode == null || langCode.trim().isEmpty()
                 ? "en" : langCode.trim().toLowerCase(java.util.Locale.ROOT).replace('-', '_');
+        LanguageTemplates templates = downloadedTemplates;
+        if (templates != null) {
+            ThemeRevealPattern downloaded = templates.reveals.get(code);
+            if (downloaded != null) return downloaded;
+        }
         if ("zh_cn".equals(code)) return findThemeRevealPattern("\u4e3b\u9898\u662f", "");
         if ("zh_tw".equals(code)) return findThemeRevealPattern("\u4e3b\u984c\u662f", "");
         if ("fr".equals(code)) return findThemeRevealPattern("Le theme est ", "");
@@ -305,7 +312,8 @@ public class LangPatterns {
         for (String message : ALREADY_CORRECT_GUESS_MESSAGES) {
             if (message.equals(text)) return true;
         }
-        return false;
+        LanguageTemplates templates = downloadedTemplates;
+        return templates != null && templates.alreadyGuessed.contains(text);
     }
 
     private static final String[] ALREADY_CORRECT_GUESS_MESSAGES = {
@@ -326,18 +334,27 @@ public class LangPatterns {
     public static Integer selfCorrectGuessPoints(String cleanLine) {
         if (cleanLine == null) return null;
         Matcher m = SELF_CORRECT_GUESS_POINTS_PATTERN.matcher(cleanLine.trim());
-        if (!m.matches()) return null;
-        return Integer.valueOf(Integer.parseInt(m.group(1)));
+        if (m.matches()) return Integer.valueOf(m.group(1));
+        LanguageTemplates templates = downloadedTemplates;
+        if (templates != null) {
+            for (Pattern pattern : templates.selfGuessPoints) {
+                m = pattern.matcher(cleanLine.trim());
+                if (m.matches()) return Integer.valueOf(m.group(1));
+            }
+        }
+        return null;
     }
 
     static boolean isMiniServerTransferMessage(String cleanLine) {
-        return matchesVariableTemplate(cleanLine, NEW_SERVER_TRANSFER_TEMPLATES,
-                MINI_SESSION_ID_PATTERN);
+        LanguageTemplates templates = downloadedTemplates;
+        return matchesVariableTemplate(cleanLine, NEW_SERVER_TRANSFER_TEMPLATES, MINI_SESSION_ID_PATTERN)
+                || (templates != null && LanguageTemplates.matches(templates.transfers, cleanLine));
     }
 
     public static boolean isLobbyProtectionMessage(String cleanLine) {
-        return matchesVariableTemplate(cleanLine, LOBBY_PROTECTION_TEMPLATES,
-                NON_EMPTY_TEXT_PATTERN);
+        LanguageTemplates templates = downloadedTemplates;
+        return matchesVariableTemplate(cleanLine, LOBBY_PROTECTION_TEMPLATES, NON_EMPTY_TEXT_PATTERN)
+                || (templates != null && LanguageTemplates.matches(templates.lobbyProtection, cleanLine));
     }
 
     private static boolean matchesVariableTemplate(String cleanLine, String[][] templates,
@@ -356,11 +373,27 @@ public class LangPatterns {
         return false;
     }
 
+    /** Publish a complete set of validated aliases so readers can keep using an existing snapshot. */
+    public static void installTranslationTemplates(String json) {
+        downloadedTemplates = LanguageTemplates.compile(json, ALL_PATTERNS,
+                EN_BB_TITLES, THEME_REVEAL_PATTERNS, CHAT_TITLES);
+    }
+
+    static List<LangPatterns> patterns() {
+        LanguageTemplates templates = downloadedTemplates;
+        return templates == null ? ALL_PATTERNS : templates.patterns;
+    }
+
+    static Set<String> chatTitles() {
+        LanguageTemplates templates = downloadedTemplates;
+        return templates == null ? CHAT_TITLES : templates.chatTitles;
+    }
+
     static BuilderLeftMessageKind builderLeftMessageKind(String cleanLine) {
         if (cleanLine == null || cleanLine.isEmpty()) return BuilderLeftMessageKind.NONE;
         BuilderLeftMessageKind best = BuilderLeftMessageKind.NONE;
         int bestLen = -1;
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.builderLeftV1 != null && cleanLine.contains(lp.builderLeftV1)
                     && lp.builderLeftV1.length() > bestLen) {
                 best = BuilderLeftMessageKind.PLOT_OWNER_LEFT_GAME;
@@ -1227,7 +1260,7 @@ public class LangPatterns {
         // Check each non-last token against CHAT_TITLES (rank prefix may be interleaved)
         for (int i = 0; i < tokens.length - 1; i++) {
             String token = stripLeadingRankPrefixes(tokens[i]);
-            if (CHAT_TITLES.contains(token)) return true;
+            if (chatTitles().contains(token)) return true;
         }
 
         // Leaderboard title check (e.g. "#1 Builder <ign>" or
@@ -1238,7 +1271,8 @@ public class LangPatterns {
         if (lastSpace > 0) {
             String leaderboardPart = beforeColon.substring(0, lastSpace).trim();
             leaderboardPart = stripLeadingRankPrefixes(leaderboardPart);
-            if (LEADERBOARD_TITLE_PATTERN.matcher(leaderboardPart).matches()) return true;
+            if (chatTitles().contains(leaderboardPart)
+                    || LEADERBOARD_TITLE_PATTERN.matcher(leaderboardPart).matches()) return true;
         }
         return false;
     }
@@ -1250,15 +1284,25 @@ public class LangPatterns {
     public static String stripGuesserChatPrefix(String cleanText) {
         if (cleanText == null) return null;
         String clean = stripEmojis(cleanText).trim();
-        for (String prefix : GUESSER_CHAT_PREFIXES) {
-            if (!clean.startsWith(prefix)) continue;
-            int end = prefix.length();
-            if (end < clean.length() && !Character.isWhitespace(clean.charAt(end))) {
-                continue;
+        LanguageTemplates templates = downloadedTemplates;
+        if (templates != null) {
+            for (String prefix : templates.guesserPrefixes) {
+                String stripped = stripGuesserPrefix(clean, prefix);
+                if (stripped != null) return stripped;
             }
-            return clean.substring(end).trim();
+        }
+        for (String prefix : GUESSER_CHAT_PREFIXES) {
+            String stripped = stripGuesserPrefix(clean, prefix);
+            if (stripped != null) return stripped;
         }
         return null;
+    }
+
+    private static String stripGuesserPrefix(String clean, String prefix) {
+        if (!clean.startsWith(prefix)) return null;
+        int end = prefix.length();
+        if (end < clean.length() && !Character.isWhitespace(clean.charAt(end))) return null;
+        return clean.substring(end).trim();
     }
 
     private static boolean startsWithLeaderboardChatTitle(String beforeColon) {
@@ -1314,13 +1358,13 @@ public class LangPatterns {
         if (title == null) return null;
         String trimmed = title.trim();
         if (trimmed.isEmpty()) return trimmed;
-        if (CHAT_TITLES.contains(trimmed)) return trimmed;
+        if (chatTitles().contains(trimmed)) return trimmed;
         String lower = trimmed.toLowerCase(Locale.ROOT);
         String preferred = matchPreferredChatTitle(lower, langCode);
         if (preferred != null) return preferred;
         String best = null;
         int matches = 0;
-        for (String candidate : CHAT_TITLES) {
+        for (String candidate : chatTitles()) {
             if (candidate == null) continue;
             if (!candidate.toLowerCase(Locale.ROOT).startsWith(lower)) continue;
             matches++;
@@ -1377,8 +1421,15 @@ public class LangPatterns {
         Matcher m = LEADERBOARD_TITLE_PREFIX_HASH.matcher(clean);
         if (!m.matches()) m = LEADERBOARD_TITLE_PREFIX_ORDINAL.matcher(clean);
         if (!m.matches()) m = LEADERBOARD_TITLE_SUFFIX_NUMBER.matcher(clean);
-        if (!m.matches()) return null;
-        return leaderboardRankIndex(m.group(1));
+        if (m.matches()) return leaderboardRankIndex(m.group(1));
+        LanguageTemplates templates = downloadedTemplates;
+        if (templates != null) {
+            for (Pattern pattern : templates.leaderboardRanks) {
+                m = pattern.matcher(clean);
+                if (m.matches()) return leaderboardRankIndex(m.group(1));
+            }
+        }
+        return null;
     }
 
     /** Parse a leaderboard rank marker from a packet prefix/suffix fragment.
@@ -1532,7 +1583,17 @@ public class LangPatterns {
 
     private static void collectMatchingTitleIndexes(String lowerTitle, String langCode,
                                                     Set<Integer> exact, Set<Integer> prefix) {
-        String[] titles = preferredChatTitles(langCode);
+        collectMatchingTitleIndexes(lowerTitle, preferredChatTitles(langCode), exact, prefix);
+        LanguageTemplates templates = downloadedTemplates;
+        if (templates != null) {
+            collectMatchingTitleIndexes(lowerTitle,
+                    langCode == null ? null : templates.rankTitles.get(langCode.toLowerCase(Locale.ROOT)),
+                    exact, prefix);
+        }
+    }
+
+    private static void collectMatchingTitleIndexes(String lowerTitle, String[] titles,
+                                                     Set<Integer> exact, Set<Integer> prefix) {
         if (titles == null) return;
         for (int i = 0; i < titles.length && i < ACTIVE_BB_TITLE_COUNT; i++) {
             String title = titles[i];
@@ -1711,15 +1772,10 @@ public class LangPatterns {
 
     private static String leadingBbTitle(String clean, boolean requireFollowingToken) {
         String bestTitle = null;
-        for (LangPatterns lp : ALL_PATTERNS) {
-            if (lp == null || lp.lang == null) continue;
-            String[] titles = preferredChatTitles(lp.lang);
-            if (titles == null) continue;
-            for (String title : titles) {
-                if (!isTitlePrefix(clean, title, requireFollowingToken)) continue;
-                if (bestTitle == null || title.length() > bestTitle.length()) {
-                    bestTitle = title;
-                }
+        for (String title : chatTitles()) {
+            if (isTitlePrefix(clean, title, requireFollowingToken)
+                    && (bestTitle == null || title.length() > bestTitle.length())) {
+                bestTitle = title;
             }
         }
         return bestTitle;
@@ -1747,7 +1803,9 @@ public class LangPatterns {
     static boolean isGtbTitle(String titleClean) {
         if (titleClean == null) return false;
         String stripped = stripEmojis(titleClean).trim();
-        return stripped.contains("GUESS THE BUILD")
+        LanguageTemplates templates = downloadedTemplates;
+        return (templates != null && templates.scoreboardTitles.contains(stripped))
+                || stripped.contains("GUESS THE BUILD")
                 || stripped.contains("\u5efa\u7b51\u731c\u731c\u4e50")
                 || stripped.contains("\u4f60\u84cb\u6211\u731c");
     }
@@ -1755,7 +1813,7 @@ public class LangPatterns {
     /** Check if a GUI title matches any language's theme selection GUI title. */
     static boolean isThemeSelectionGui(String title) {
         if (title == null) return false;
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.guiTitle != null && title.equals(lp.guiTitle)) return true;
         }
         return false;
@@ -1766,7 +1824,7 @@ public class LangPatterns {
      * Matches Theme:/Builder:/Time:/Starts In: and their translations.
      */
     static boolean isScoreboardLabel(String cleanLine) {
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbTheme != null && cleanLine.startsWith(lp.sbTheme)) return true;
             if (lp.sbBuilder != null && cleanLine.startsWith(lp.sbBuilder)) return true;
             if (lp.sbTime != null && cleanLine.startsWith(lp.sbTime)) return true;
@@ -1791,7 +1849,7 @@ public class LangPatterns {
 
     public static boolean isScoreboardBuilderLabel(String cleanLine) {
         if (cleanLine == null) return false;
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbBuilder != null && cleanLine.startsWith(lp.sbBuilder)) return true;
         }
         return false;
@@ -1799,7 +1857,7 @@ public class LangPatterns {
 
     public static boolean isScoreboardThemeLabel(String cleanLine) {
         if (cleanLine == null) return false;
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbTheme != null && cleanLine.startsWith(lp.sbTheme)) return true;
         }
         return false;
@@ -1807,7 +1865,7 @@ public class LangPatterns {
 
     /** Detect the game language from scoreboard patterns. */
     static String detectLanguageFromScoreboard(List<String> cleanLines) {
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbStartsIn != null) {
                 for (String line : cleanLines) {
                     if (lp.sbStartsInIsSuffix) {
@@ -1818,14 +1876,14 @@ public class LangPatterns {
                 }
             }
         }
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbTime != null) {
                 for (String line : cleanLines) {
                     if (line.startsWith(lp.sbTime)) return lp.lang;
                 }
             }
         }
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbNextRound != null) {
                 for (String line : cleanLines) {
                     if (startsWithRoundEndLabel(line, lp.sbNextRound)) return lp.lang;
@@ -1842,7 +1900,7 @@ public class LangPatterns {
     static GameStats.TrackingState getStateFromScoreboard(List<String> cleanLines, boolean scoreboardShowsGtb) {
         if (!scoreboardShowsGtb || cleanLines.isEmpty()) return GameStats.TrackingState.NOT_IN_GAME;
 
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbMode != null) {
                 for (String line : cleanLines) {
                     if (line.equals(lp.sbMode)) return GameStats.TrackingState.LOBBY;
@@ -1854,7 +1912,7 @@ public class LangPatterns {
         // in-game sidebar also has "1. IGN score" leaderboard lines.  During a
         // real round these coexist with a phase label (Time:/Starts In:/Next
         // Round:); during POST_GAME none of those labels are present.
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbStartsIn != null) {
                 for (String line : cleanLines) {
                     if (lp.sbStartsInIsSuffix) {
@@ -1866,7 +1924,7 @@ public class LangPatterns {
             }
         }
 
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbNextRound != null) {
                 for (String line : cleanLines) {
                     if (startsWithRoundEndLabel(line, lp.sbNextRound)) {
@@ -1876,7 +1934,7 @@ public class LangPatterns {
             }
         }
 
-        for (LangPatterns lp : ALL_PATTERNS) {
+        for (LangPatterns lp : patterns()) {
             if (lp.sbTime != null) {
                 for (String line : cleanLines) {
                     if (line.startsWith(lp.sbTime)) return GameStats.TrackingState.ROUND_BUILD;
@@ -1986,5 +2044,182 @@ public class LangPatterns {
             if (patterns.lang != null) codes.add(patterns.lang);
         }
         return Collections.unmodifiableList(codes);
+    }
+
+    /** Detects the server language from public-lobby join announcements. */
+    static final class LobbyLanguageFallback {
+        private static final String PLAYER_TOKEN = "%%player%%";
+        static final Pattern PLAYER_DISPLAY = Pattern.compile(
+                "(?:\\[MVP\\+{1,2}\\]\\s*)?[A-Za-z0-9_]{1,16}");
+        private static final String[][] MVP_LOBBY_JOIN_TEMPLATES = new String[][] {
+                {"en", "%%player%% %%gold%%joined the lobby!"},
+                {"zh_cn", "%%player%%%%gold%%进入了大厅！"},
+                {"zh_tw", "%%player%%%%gold%% 加入了大廳！"},
+                {"cs", "%%gold%%Hráč %%player%% %%gold%%se připojil do lobby!"},
+                {"da", "%%player%% %%gold%%tilsluttede sig lobbyen."},
+                {"nl", "%%player%% %%gold%%is de lobby binnen gekomen!"},
+                {"fi", "%%player%% %%gold%%saapui lobbyyn!"},
+                {"fr", "%%player%% %%gold%%a rejoint le lobby!"},
+                {"de", "%%player%% %%gold%%hat die Lobby betreten!"},
+                {"hu", "%%player%% %%gold%%csatlakozott a lobbyba!"},
+                {"it", "%%player%% %%gold%%è entrato nella lobby!"},
+                {"ja", "%%player%% %%gold%%がロビーに参加しました！"},
+                {"ko", "%%player%%%%gold%% 님이 로ビー에 접속했습니다!"},
+                {"no", "%%player%% %%gold%%ble med i lobbyen!"},
+                {"pirate", "%%player%% %%gold%%boarded th' port!"},
+                {"pl", "%%gold%%Gracz %%player%% %%gold%%wszedł do poczekalni!"},
+                {"pt", "%%player%% %%gold%%entrou no lobby!"},
+                {"pt_br", "%%player%% %%gold%%entrou no lobby!"},
+                {"ro", "%%player%% %%gold%%s-a alăturat lobby-ului!"},
+                {"ru", "%%player%% %%gold%%зашёл в лобби!"},
+                {"es", "%%gold%%;%%player%% %%gold%%se ha unido al lobby!"},
+                {"sv", "%%player%% %%gold%%anslöt sig till lobbyn!"},
+                {"tr", "%%player%% %%gold%%lobiye katıldı!"},
+                {"uk", "%%gold%%Гравець %%player%% %%gold%%приєднався до лобі!"},
+                // Halloween lobby announcements.
+                {"en", "%%player%% %%gold%%spooked into the lobby!"},
+                {"zh_cn", "%%player%%%%gold%%潜入了大厅！"},
+                {"zh_tw", "%%player%% %%gold%%飄入了大廳！"},
+                {"cs", "%%gold%%Hráč %%player%% %%gold%%byl zastrašen do lobby!"},
+                {"da", "%%player%% %%gold%%skræmte sig ind i lobbyen!"},
+                {"nl", "%%player%% %%gold%%griezelde de lobby in!"},
+                {"fi", "%%player%% %%gold%%hyppäsi lobbyyn!"},
+                {"fr", "%%player%% %%gold%%a effrayé le lobby!"},
+                {"de", "%%player%% %%gold%%ist in die Lobby gespukt!"},
+                {"hu", "%%player%% %%gold%%beijesztett a lobbyba!"},
+                {"it", "%%player%% %%gold%%ha spaventato la lobby!"},
+                {"ja", "%%player%% %%gold%%が不気味にロビーに来ました！"},
+                {"ko", "%%player%%%%gold%% 님이 깜짝스럽게 로비에 등장했습니다!"},
+                {"no", "%%player%% %%gold%%spøkte inn i lobbyen!"},
+                {"pirate", "%%player%% %%gold%%spooked int' th' port!"},
+                {"pl", "%%gold%%Gracz %%player%% %%gold%%nawiedził poczekalnię!"},
+                {"pt", "%%player%% %%gold%%assustou o lobby!"},
+                {"pt_br", "%%player%% %%gold%%assustou o lobby!"},
+                {"ro", "%%player%% %%gold%%s-a spăimântat în lobby!"},
+                {"ru", "%%player%% %%gold%%страшно ворвался в лобби!"},
+                {"es", "%%gold%%%%player%% %%gold%%asustó al lobby!"},
+                {"sv", "%%player%% %%gold%%skrämde sig i lobbyn!"},
+                {"tr", "%%player%% %%gold%%korkutucu bir şekilde lobiye giriş yaptı!"},
+                {"uk", "%%gold%%Гравець %%player%% %%gold%%моторошно залетів до лобі!"},
+                // Holiday and Christmas share translations; English has both verbs.
+                {"en", "%%player%% %%gold%%sled into the lobby!"},
+                {"en", "%%player%% %%gold%%slid into the lobby!"},
+                {"zh_cn", "%%player%%%%gold%%滑进了大厅！"},
+                {"zh_cn", "%%player%%%%gold%%滑入了大厅！"},
+                {"zh_tw", "%%player%% %%gold%%滑進了大廳！"},
+                {"cs", "%%gold%%Hráč %%player%% %%gold%%se sklouznul do lobby!"},
+                {"da", "%%player%% %%gold%%gled ind i lobbyen!"},
+                {"nl", "%%player%% %%gold%%is de lobby ingeschaatst!"},
+                {"fi", "%%player%% %%gold%%kelkkaili lobbyyn!"},
+                {"fr", "%%player%% %%gold%%est arrivé en traîneau dans le lobby!"},
+                {"de", "%%player%% %%gold%%schlitterte in die Lobby!"},
+                {"hu", "%%player%% %%gold%%beszánkózott a lobbyba!"},
+                {"it", "%%player%% %%gold%%è slittato nella lobby!"},
+                {"ja", "%%player%% %%gold%%がそりに乗ってロビーに来ました！"},
+                {"ko", "%%player%%%%gold%% 님이 썰매를 타고 로비에 도착했습니다!"},
+                {"no", "%%player%% %%gold%%akte inn i lobbyen!"},
+                {"pirate", "%%player%% %%gold%%be sleddin' int' th' port!"},
+                {"pl", "%%player%% %%gold%%wlatuje na saniach do poczekalni!"},
+                {"pt", "%%player%% %%gold%%deslizou até ao lobby!"},
+                {"pt_br", "%%player%% %%gold%%deslizou no lobby!"},
+                {"ro", "%%player%% %%gold%%a ajuns cu săniuța în lobby!"},
+                {"ru", "%%player%% %%gold%%приехал на санях!"},
+                {"es", "%%gold%%%%player%% %%gold%%se deslizó al lobby!"},
+                {"sv", "%%player%% %%gold%%släde in i lobbyn!"},
+                {"tr", "%%player%% %%gold%%lobiye kayarak giriş yaptı!"},
+                {"uk", "%%gold%%Гравець %%player%% %%gold%%заїхав до лобі на санях!"}
+        };
+
+        private boolean detectionOpen = true;
+
+        String confirmFromChat(String cleanText) {
+            if (!detectionOpen) return null;
+            String langCode = detect(cleanText);
+            if (langCode != null) {
+                detectionOpen = false;
+            }
+            return langCode;
+        }
+
+        void disableForServerSession() {
+            detectionOpen = false;
+        }
+
+        void resetForServerSession() {
+            detectionOpen = true;
+        }
+
+        boolean isDetectionOpenForTest() {
+            return detectionOpen;
+        }
+
+        static int templateCountForTest() {
+            return MVP_LOBBY_JOIN_TEMPLATES.length;
+        }
+
+        private static String detect(String cleanText) {
+            if (cleanText == null) return null;
+            String text = cleanText.trim();
+            if (text.isEmpty()) return null;
+            for (String[] entry : MVP_LOBBY_JOIN_TEMPLATES) {
+                if (matchesTemplate(entry[1], text)) {
+                    return entry[0];
+                }
+            }
+            LanguageTemplates templates = downloadedTemplates;
+            if (templates != null) {
+                if (text.startsWith(">>> ") && text.endsWith(" <<<") && text.length() >= 8) {
+                    text = text.substring(4, text.length() - 4).trim();
+                }
+                for (Map.Entry<String, List<Pattern>> entry : templates.lobbyJoins.entrySet()) {
+                    if (LanguageTemplates.matches(entry.getValue(), text)) return entry.getKey();
+                }
+            }
+            return null;
+        }
+
+        private static boolean matchesTemplate(String template, String text) {
+            return matchesPlainTemplate(template, text) || matchesMvpPlusPlusTemplate(template, text);
+        }
+
+        private static boolean matchesMvpPlusPlusTemplate(String template, String text) {
+            if (!text.startsWith(">>> ") || !text.endsWith(" <<<")) return false;
+            String inner = text.substring(4, text.length() - 4).trim();
+            return matchesPlainTemplate(template, inner);
+        }
+
+        private static boolean matchesPlainTemplate(String template, String text) {
+            String plain = stripTokensExceptPlayer(template);
+            int player = plain.indexOf(PLAYER_TOKEN);
+            if (player < 0) return false;
+            String prefix = plain.substring(0, player);
+            String suffix = plain.substring(player + PLAYER_TOKEN.length());
+            if (!text.startsWith(prefix) || !text.endsWith(suffix)) return false;
+            String between = text.substring(prefix.length(), text.length() - suffix.length()).trim();
+            return PLAYER_DISPLAY.matcher(between).matches();
+        }
+
+        private static String stripTokensExceptPlayer(String template) {
+            StringBuilder out = new StringBuilder(template.length());
+            for (int i = 0; i < template.length(); ) {
+                int start = template.indexOf("%%", i);
+                if (start < 0) {
+                    out.append(template.substring(i));
+                    break;
+                }
+                out.append(template, i, start);
+                int end = template.indexOf("%%", start + 2);
+                if (end < 0) {
+                    out.append(template.substring(start));
+                    break;
+                }
+                String token = template.substring(start, end + 2);
+                if (PLAYER_TOKEN.equals(token)) {
+                    out.append(PLAYER_TOKEN);
+                }
+                i = end + 2;
+            }
+            return out.toString();
+        }
     }
 }

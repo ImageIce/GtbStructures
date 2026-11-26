@@ -314,7 +314,7 @@ public final class CustomScoreboardLogic {
         if (game == null) return false;
         if (isLeaver(player)) return false;
         Integer visible = scoreIgnoreCase(game.visibleTrueScore, player.name);
-        int knownLowerBound = Math.max(player.totalMin(),
+        int knownLowerBound = Math.max(game.totalMinimum(player),
                 Math.max(player.observedScoreFloor, player.preDisconnectScoreBaseline));
         boolean currentlyVisible = visible != null
                 && visible.intValue() >= knownLowerBound;
@@ -346,8 +346,8 @@ public final class CustomScoreboardLogic {
         if (player == null || game == null || player.name == null) return "";
         if (game.correctGuessesThisRound <= 0) return "";
         if (game.currentRound <= 0 || player.pendingBuilderScoreRound <= 0) return "";
-        if (player.pendingBuilderScoreRound != game.currentRound) return "";
-        int roundIndex = game.currentRound - 1;
+        if (player.pendingBuilderScoreRound != game.scoringRoundKey()) return "";
+        int roundIndex = game.scoringRoundIndex();
         if (roundIndex < 0 || player.points == null || roundIndex >= player.points.length) return "";
         PointEntry entry = player.points[roundIndex];
         if (entry == null || entry.kind != PointEntry.Kind.ZERO) return "";
@@ -405,7 +405,8 @@ public final class CustomScoreboardLogic {
 
     public static int effectiveScore(GtbPlayer player, GtbGame game) {
         int lo = player == null ? 0
-                : Math.max(player.totalMin(), player.preDisconnectScoreBaseline);
+                : game == null ? Math.max(player.totalMin(), player.preDisconnectScoreBaseline)
+                : game.totalMinimum(player);
         if (player != null && player.name != null) {
             Integer observed = authoritativeScore(player, game);
             Integer tracked = trackedExactScoreIfNewer(player, game, observed);
@@ -426,19 +427,20 @@ public final class CustomScoreboardLogic {
         Integer builderTotal = GameTracker.authoritativeBuilderTotal(player, game);
         if (builderTotal != null) return builderTotal;
 
-        int lo = player.totalMin();
-        int hi = player.totalMax();
+        int lo = game.totalMinimum(player);
+        int hi = game.totalMaximum(player);
         if (lo != hi) return null;
         if (hi <= observed.intValue()) return null;
         return Integer.valueOf(hi);
     }
 
     public static String formatChip(GtbPlayer player, GtbGame game) {
-        if (game == null || player == null || game.roundCountUnknown) return "";
+        if (game == null || player == null
+                || (game.roundCountUnknown && game.activeRecoveredRound == null)) return "";
         if (game.suppressPointBadgesUntilRoundHeader) return "";
         if (game.currentRound <= 0 || player.points == null) return "";
-        if (player.suppressedPointBadgeRound == game.currentRound) return "";
-        int roundIndex = game.currentRound - 1;
+        if (player.suppressedPointBadgeRound == game.scoringRoundKey()) return "";
+        int roundIndex = game.scoringRoundIndex();
         if (roundIndex >= player.points.length) return "";
         PointEntry entry = player.points[roundIndex];
         if (entry == null || entry.kind == PointEntry.Kind.ZERO) return "";
@@ -471,7 +473,8 @@ public final class CustomScoreboardLogic {
         Integer tracked = trackedExactScoreIfNewer(player, game, observed);
         if (tracked != null) return totalColor(isBuilder, false) + tracked.intValue();
 
-        int lo = Math.max(player.totalMin(), player.preDisconnectScoreBaseline);
+        int lo = game == null ? Math.max(player.totalMin(), player.preDisconnectScoreBaseline)
+                : game.totalMinimum(player);
         if (observed != null && observed.intValue() >= lo) {
             return totalColor(isBuilder, false) + observed.intValue();
         }
@@ -522,7 +525,8 @@ public final class CustomScoreboardLogic {
 
     private static int clampedOffLeaderboardMax(GtbPlayer player, GtbGame game) {
         if (player == null) return 0;
-        int hi = Math.max(player.totalMax(), player.preDisconnectScoreBaseline);
+        int hi = game == null ? Math.max(player.totalMax(), player.preDisconnectScoreBaseline)
+                : game.totalMaximum(player);
         Integer floor = leaderboardFloor(game);
         return floor == null ? hi : Math.min(hi, floor.intValue());
     }
@@ -545,6 +549,7 @@ public final class CustomScoreboardLogic {
         if (player == null || player.name == null || player.points == null || game == null) {
             return values;
         }
+        if (!game.recoveredRounds.isEmpty() || game.totalMinimum(player) > player.totalMin()) return values;
 
         Integer visible = authoritativeScore(player, game);
         Integer exactOtherRounds = exactTotalExceptRound(player.points, roundIndex);

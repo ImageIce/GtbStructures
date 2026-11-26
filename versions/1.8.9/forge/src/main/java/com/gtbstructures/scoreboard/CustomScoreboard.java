@@ -390,7 +390,7 @@ public final class CustomScoreboard {
         if (g == null) return false;
         if (isLeaver(pl)) return false;
         Integer visibleScore = pl.name == null ? null : scoreIgnoreCase(g.visibleTrueScore, pl.name);
-        int knownLowerBound = Math.max(pl.totalMin(),
+        int knownLowerBound = Math.max(g.totalMinimum(pl),
                 Math.max(pl.observedScoreFloor, pl.preDisconnectScoreBaseline));
         boolean currentlyVisible = visibleScore != null
                 && visibleScore.intValue() >= knownLowerBound;
@@ -436,8 +436,8 @@ public final class CustomScoreboard {
         if (pl == null || g == null || pl.name == null) return "";
         if (g.correctGuessesThisRound <= 0) return "";
         if (g.currentRound <= 0 || pl.pendingBuilderScoreRound <= 0) return "";
-        if (pl.pendingBuilderScoreRound != g.currentRound) return "";
-        int r = g.currentRound - 1;
+        if (pl.pendingBuilderScoreRound != g.scoringRoundKey()) return "";
+        int r = g.scoringRoundIndex();
         if (r < 0 || pl.points == null || r >= pl.points.length) return "";
         if (pl.points[r].kind != PointEntry.Kind.ZERO) return "";
         return " \u00a77(\u00a7b+\u00a77)";
@@ -610,7 +610,8 @@ public final class CustomScoreboard {
      *    clamp, a fork-max of e.g. 8 would float them above a leaderboard player
      *    at 5, which is wrong. */
     static int effectiveScore(GtbPlayer pl, GtbGame g) {
-        int lo = pl == null ? 0 : Math.max(pl.totalMin(), pl.preDisconnectScoreBaseline);
+        int lo = pl == null ? 0 : g == null
+                ? Math.max(pl.totalMin(), pl.preDisconnectScoreBaseline) : g.totalMinimum(pl);
         if (pl != null && pl.name != null) {
             Integer lb = authoritativeScore(pl, g);
             Integer tracked = trackedExactScoreIfNewer(pl, g, lb);
@@ -629,8 +630,8 @@ public final class CustomScoreboard {
         Integer builderTotal = GameTracker.authoritativeBuilderTotal(pl, g);
         if (builderTotal != null) return builderTotal;
 
-        int lo = pl.totalMin();
-        int hi = pl.totalMax();
+        int lo = g.totalMinimum(pl);
+        int hi = g.totalMaximum(pl);
         if (lo != hi) return null;
         if (hi <= observed.intValue()) return null;
         return Integer.valueOf(hi);
@@ -638,7 +639,8 @@ public final class CustomScoreboard {
 
     private static int clampedOffLeaderboardMax(GtbPlayer pl, GtbGame g) {
         if (pl == null) return 0;
-        int hi = Math.max(pl.totalMax(), pl.preDisconnectScoreBaseline);
+        int hi = g == null ? Math.max(pl.totalMax(), pl.preDisconnectScoreBaseline)
+                : g.totalMaximum(pl);
         Integer floor = leaderboardFloor(g);
         return floor == null ? hi : Math.min(hi, floor.intValue());
     }
@@ -657,6 +659,7 @@ public final class CustomScoreboard {
                                                    PointEntry entry) {
         List<Integer> values = new ArrayList<Integer>(entry.fork);
         if (pl == null || pl.name == null || pl.points == null || g == null) return values;
+        if (!g.recoveredRounds.isEmpty() || g.totalMinimum(pl) > pl.totalMin()) return values;
 
         Integer visible = authoritativeScore(pl, g);
         Integer exactOtherRounds = exactTotalExceptRound(pl.points, roundIndex);
@@ -710,11 +713,11 @@ public final class CustomScoreboard {
 
     /** Chip for current round's slot. ZERO → empty; DEFINITE → "+N"; FORK → "+max(+other,...)". */
     static String formatChip(GtbPlayer pl, GtbGame g) {
-        if (g == null || pl == null || g.roundCountUnknown) return "";
+        if (g == null || pl == null || (g.roundCountUnknown && g.activeRecoveredRound == null)) return "";
         if (g.suppressPointBadgesUntilRoundHeader) return "";
         if (g.currentRound <= 0 || pl.points == null) return "";
-        if (pl.suppressedPointBadgeRound == g.currentRound) return "";
-        int r = g.currentRound - 1;
+        if (pl.suppressedPointBadgeRound == g.scoringRoundKey()) return "";
+        int r = g.scoringRoundIndex();
         if (r >= pl.points.length) return "";
         PointEntry e = pl.points[r];
         if (e == null || e.kind == PointEntry.Kind.ZERO) return "";
@@ -755,7 +758,8 @@ public final class CustomScoreboard {
         Integer lb = authoritativeScore(pl, g);
         Integer tracked = trackedExactScoreIfNewer(pl, g, lb);
         if (tracked != null) return totalColor(isBuilder, false) + tracked.intValue();
-        int lo = Math.max(pl.totalMin(), pl.preDisconnectScoreBaseline);
+        int lo = g == null ? Math.max(pl.totalMin(), pl.preDisconnectScoreBaseline)
+                : g.totalMinimum(pl);
         // A leaderboard observation below the proven minimum is stale (e.g.
         // the all-zero game-start board carried across a leave/rejoin); fall
         // through to the tracked range instead of resetting the row to it.

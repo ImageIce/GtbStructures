@@ -23,6 +23,7 @@ public final class ModernChatCooldownCounter {
     }
 
     public static void onRoundStart() {
+        SuccessfulGuessNotice.onRoundStart();
         cooldownEndMs = 0L;
         pendingRestartSentAtMs = 0L;
         progressSoundMark = 0;
@@ -30,6 +31,7 @@ public final class ModernChatCooldownCounter {
     }
 
     public static void onUserCorrectGuess() {
+        SuccessfulGuessNotice.onUserCorrectGuess();
         cooldownEndMs = 0L;
         pendingRestartSentAtMs = 0L;
         progressSoundMark = 0;
@@ -96,6 +98,7 @@ public final class ModernChatCooldownCounter {
             onDisconnect();
             return SOUND_NONE;
         }
+        SuccessfulGuessNotice.tick();
         boolean previewTesting = previewCooldownEndMs > 0L;
         int previewSound = updatePreviewTest(now, previewActive, counterEnabled, sfxEnabled, progressBeats);
         int liveSound = onTick(counterEnabled && liveEnabled, state, now, sfxEnabled, progressBeats);
@@ -122,6 +125,7 @@ public final class ModernChatCooldownCounter {
     }
 
     public static void onDisconnect() {
+        SuccessfulGuessNotice.onDisconnect();
         resetLiveState();
         cancelPreviewTest();
     }

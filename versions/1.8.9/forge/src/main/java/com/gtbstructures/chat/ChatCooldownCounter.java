@@ -10,6 +10,8 @@ import com.gtbstructures.stats.GameStats;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
@@ -18,6 +20,7 @@ import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.network.play.client.C01PacketChatMessage;
+import net.minecraft.util.ChatComponentText;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
@@ -45,6 +48,11 @@ public final class ChatCooldownCounter {
     private static final int TIMER_BG_PAD_Y = 1;
 
     private final Queue<SentChat> pending = new ConcurrentLinkedQueue<SentChat>();
+    private final Queue<SentGuess> pendingGuesses = new ConcurrentLinkedQueue<SentGuess>();
+    private final GuessSentNotice guessNotice = new GuessSentNotice();
+    private volatile long guessNoticeEpoch;
+    private GameStats.RoundData guessNoticeRound;
+    private boolean guessNoticeSuppressed;
     private Channel channel;
     private long cooldownEndMs;
     private long pendingRestartSentAtMs;
@@ -61,6 +69,8 @@ public final class ChatCooldownCounter {
         if (event.phase != TickEvent.Phase.END) return;
         if (!runtimeEnabledForMaster(GtbStructures.modEnabled)) {
             resetRuntimeState();
+            resetGuessNotice();
+            guessNoticeSuppressed = false;
             cancelPreviewTest();
             return;
         }
@@ -68,16 +78,21 @@ public final class ChatCooldownCounter {
         if (mc == null || mc.theWorld == null || mc.thePlayer == null
                 || mc.getNetHandler() == null) {
             resetRuntimeState();
+            resetGuessNotice();
+            guessNoticeSuppressed = false;
             cancelPreviewTest();
             return;
         }
         Channel activeChannel = mc.getNetHandler().getNetworkManager().channel();
         if (activeChannel == null || !activeChannel.isOpen()) {
             resetRuntimeState();
+            resetGuessNotice();
+            guessNoticeSuppressed = false;
             cancelPreviewTest();
             return;
         }
         registerIfNeeded();
+        drainGuessNotices(mc);
         drainPending();
         long now = System.currentTimeMillis();
         boolean previewTesting = previewCooldownEndMs > 0L;
@@ -162,6 +177,8 @@ public final class ChatCooldownCounter {
 
     void resetForTest() {
         resetRuntimeState();
+        resetGuessNotice();
+        guessNoticeSuppressed = false;
         cancelPreviewTest();
     }
 
@@ -215,6 +232,8 @@ public final class ChatCooldownCounter {
     }
 
     public void onRoundStart() {
+        resetGuessNotice();
+        guessNoticeSuppressed = false;
         cooldownEndMs = 0L;
         pendingRestartSentAtMs = 0L;
         pending.clear();
@@ -223,6 +242,8 @@ public final class ChatCooldownCounter {
     }
 
     public void onUserCorrectGuess() {
+        resetGuessNotice();
+        guessNoticeSuppressed = true;
         cooldownEndMs = 0L;
         pendingRestartSentAtMs = 0L;
         pending.clear();
@@ -249,6 +270,7 @@ public final class ChatCooldownCounter {
             Channel ch = mc.getNetHandler().getNetworkManager().channel();
             if (ch == null || !ch.isOpen()) return;
             if (ch == channel && ch.pipeline().get(HANDLER) != null) return;
+            if (ch != channel) resetGuessNotice();
             installHandler(ch);
             channel = ch;
         } catch (Throwable ignored) {
@@ -280,6 +302,40 @@ public final class ChatCooldownCounter {
         while ((sent = pending.poll()) != null) {
             boolean enabled = GtbStructures.chatCooldownCounter && GameStats.INSTANCE.isTrackingEnabled();
             applyOutbound(enabled, GameStats.INSTANCE.getState(), sent.message, sent.t);
+        }
+    }
+
+    private void resetGuessNotice() {
+        guessNoticeEpoch++;
+        pendingGuesses.clear();
+        guessNotice.reset();
+        guessNoticeRound = null;
+    }
+
+    private void drainGuessNotices(Minecraft mc) {
+        GameStats.TrackingState state = GameStats.INSTANCE.getState();
+        GameStats.RoundData round = GameStats.INSTANCE.getCurrentRound();
+        if (state != GameStats.TrackingState.ROUND_BUILD) guessNoticeSuppressed = false;
+        if (!GtbStructures.guessSentNotice || !GameStats.INSTANCE.isTrackingEnabled()
+                || guessNoticeSuppressed || !shouldRenderForRound(true, false, state,
+                round, mc.thePlayer.getName())) {
+            resetGuessNotice();
+            return;
+        }
+        if (guessNoticeRound != round) {
+            guessNotice.reset();
+            guessNoticeRound = round;
+        }
+        SentGuess sent;
+        while ((sent = pendingGuesses.poll()) != null) {
+            if (sent.epoch != guessNoticeEpoch || sent.round != round
+                    || sent.state != GameStats.TrackingState.ROUND_BUILD) continue;
+            String notice = guessNotice.onOutbound(sent.message, sent.t,
+                    GtbStructures.guessSentOnlySpam, GtbStructures.guessSentMinSpam,
+                    GtbStructures.guessSentShowGuess);
+            if (notice != null) {
+                mc.thePlayer.addChatMessage(new ChatComponentText(ChatHeader.prefix() + notice));
+            }
         }
     }
 
@@ -385,6 +441,11 @@ public final class ChatCooldownCounter {
 
     String pendingMessageForTest() {
         SentChat sent = pending.peek();
+        return sent == null ? null : sent.message;
+    }
+
+    String pendingGuessForTest() {
+        SentGuess sent = pendingGuesses.poll();
         return sent == null ? null : sent.message;
     }
 
@@ -500,6 +561,32 @@ public final class ChatCooldownCounter {
                     } catch (Throwable ignored) {
                         // Best-effort capture.
                     }
+                    if (GtbStructures.guessSentNotice) {
+                        try {
+                            final String message = ((C01PacketChatMessage) msg).getMessage();
+                            if (isNormalChatMessage(message)) {
+                                final SentGuess sent = new SentGuess(System.currentTimeMillis(),
+                                        message, guessNoticeEpoch, GameStats.INSTANCE.getState(),
+                                        GameStats.INSTANCE.getCurrentRound());
+                                final ChannelPromise originalPromise = promise;
+                                final boolean wasVoidPromise = promise == ctx.voidPromise();
+                                // 1.8.9 Netty has no unvoid(); use a real promise only when needed.
+                                if (wasVoidPromise) promise = ctx.newPromise();
+                                promise.addListener(new ChannelFutureListener() {
+                                    @Override
+                                    public void operationComplete(ChannelFuture future) {
+                                        if (future.isSuccess()) {
+                                            if (sent.epoch == guessNoticeEpoch) pendingGuesses.add(sent);
+                                        } else if (wasVoidPromise && !future.isCancelled()) {
+                                            originalPromise.tryFailure(future.cause());
+                                        }
+                                    }
+                                });
+                            }
+                        } catch (Throwable ignored) {
+                            // Notification capture must never prevent the outgoing guess.
+                        }
+                    }
                 }
             }
             super.write(ctx, msg, promise);
@@ -523,6 +610,23 @@ public final class ChatCooldownCounter {
         SentChat(long t, String message) {
             this.t = t;
             this.message = message;
+        }
+    }
+
+    private static final class SentGuess {
+        final long t;
+        final String message;
+        final long epoch;
+        final GameStats.TrackingState state;
+        final GameStats.RoundData round;
+
+        SentGuess(long t, String message, long epoch, GameStats.TrackingState state,
+                  GameStats.RoundData round) {
+            this.t = t;
+            this.message = message;
+            this.epoch = epoch;
+            this.state = state;
+            this.round = round;
         }
     }
 }

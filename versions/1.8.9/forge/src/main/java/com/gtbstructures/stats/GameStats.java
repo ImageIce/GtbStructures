@@ -229,6 +229,7 @@ public class GameStats {
         public String modernKind;
         public String modernName;
         public String nbt;
+        public boolean initialHeld;
         public long firstSeen;
         public long lastSeen;
         public List<HandheldItemInterval> intervals = new ArrayList<HandheldItemInterval>();
@@ -253,6 +254,8 @@ public class GameStats {
                                           boolean guessOrderUncertain) {
             onRoundStart(currentRound, totalRounds);
         }
+        default void onUnnumberedRoundStart(RoundData round) {}
+        default void onRecoveredRoundNumber(RoundData round) {}
         void onBuilderChange(String previous, String current);
         void onCorrectGuess(List<String> players);
         void onCorrectGuessScore(String ign, int points);
@@ -439,7 +442,7 @@ public class GameStats {
     // Until this flips true, currentLanguage is only the seed from lastLangCode
     // and may be wrong — getStatusSummary annotates it as unverified.
     private boolean languageObservedThisGame;
-    private final LobbyLanguageFallback lobbyLanguageFallback = new LobbyLanguageFallback();
+    private final LangPatterns.LobbyLanguageFallback lobbyLanguageFallback = new LangPatterns.LobbyLanguageFallback();
 
     // Cached sidebar values, captured each scoreboard tick by captureSidebarTimer /
     // captureSidebarTheme. The custom scoreboard panel reads these so it doesn't
@@ -1520,7 +1523,7 @@ public class GameStats {
         // The 1s countdown is sometimes the only language clue available before round 1
         // (e.g. mid-game rejoin while a friend is in pirate). Autodetect runs in any state.
         // Tab snapshot only schedules from LOBBY (Hypixel populates the minigame tab there).
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.countdown1Sec != null && clean.equals(lp.countdown1Sec)) {
                 disableLobbyLanguageFallback();
                 maybeAutoDetectLanguage(lp);
@@ -1569,7 +1572,7 @@ public class GameStats {
         }
 
         // Try all language patterns
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             // ── Round ──
             if (lp.roundPrefix != null && clean.startsWith(lp.roundPrefix)) {
                 String rest = clean.substring(lp.roundPrefix.length());
@@ -1777,7 +1780,7 @@ public class GameStats {
             GtbStructures.autoDisableTrollModeAtGameStart();
             return;
         }
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.roundPrefix == null || !clean.startsWith(lp.roundPrefix)) continue;
             String rest = clean.substring(lp.roundPrefix.length());
             if ("ja".equals(lp.lang) && rest.trim().isEmpty()) {
@@ -1789,7 +1792,7 @@ public class GameStats {
 
     static boolean isFirstRoundStartForTrollAutoDisableForTest(String clean) {
         if (clean == null) return false;
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.roundPrefix == null || !clean.startsWith(lp.roundPrefix)) continue;
             String rest = clean.substring(lp.roundPrefix.length()).trim();
             Matcher round = ROUND_NUM_PATTERN.matcher(rest);
@@ -2477,6 +2480,8 @@ public class GameStats {
             if (gtbHooks != null) {
                 gtbHooks.onInferredRoundStart(inferredRound, pausedRoundTotal, true);
             }
+        } else if (gtbHooks != null) {
+            gtbHooks.onUnnumberedRoundStart(currentRound);
         }
         if (sbBuilder != null && !sbBuilder.isEmpty()) setBuilder(sbBuilder);
         currentRound.events.add(new GameEvent(now, "rejoin_round_change",
@@ -2936,6 +2941,7 @@ public class GameStats {
             if (currentRound.language == null) currentRound.language = currentLanguage;
             if (currentRound.langCode == null) currentRound.langCode = currentLangCode;
             deduceUnknownRoundsBefore(rounds.size() - 2, round);
+            if (gtbHooks != null) gtbHooks.onRecoveredRoundNumber(currentRound);
             if (gtbHooks != null) gtbHooks.onRoundStart(round, total);
             return;
         }
@@ -2989,6 +2995,7 @@ public class GameStats {
                 nextRound--;
                 if (nextRound >= 1) {
                     r.roundNumber = nextRound;
+                    if (gtbHooks != null) gtbHooks.onRecoveredRoundNumber(r);
                 }
             } else {
                 break;
@@ -3234,6 +3241,7 @@ public class GameStats {
 
         state = TrackingState.NOT_IN_GAME;
         clearLobbyHandoff();
+        pendingNextBuilder = null;
         pauseTime = 0;
         gameInitialized = false;
         pendingRejoinCheck = false;
@@ -3315,7 +3323,7 @@ public class GameStats {
     private String extractBuilderFromScoreboard(List<String> cleanLines) {
         for (int i = 1; i < cleanLines.size(); i++) {
             String line = cleanLines.get(i);
-            for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+            for (LangPatterns lp : LangPatterns.patterns()) {
                 if (lp.sbBuilder != null && line.startsWith(lp.sbBuilder)) {
                     String prev = cleanLines.get(i - 1).trim();
                     if (!prev.isEmpty() && !prev.contains(":")
@@ -3356,16 +3364,15 @@ public class GameStats {
      */
     private String scanSidebarTimer(List<String> cleanLines) {
         // Active language first.
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
-            if (currentLangCode != null && currentLangCode.equals(lp.lang)) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
+            if (currentLangCode != null && currentLangCode.equalsIgnoreCase(lp.lang)) {
                 String v = matchTimerLine(cleanLines, lp);
                 if (v != null) return v;
-                break;
             }
         }
         // Fallback: any pattern.
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
-            if (currentLangCode != null && currentLangCode.equals(lp.lang)) continue;
+        for (LangPatterns lp : LangPatterns.patterns()) {
+            if (currentLangCode != null && currentLangCode.equalsIgnoreCase(lp.lang)) continue;
             String v = matchTimerLine(cleanLines, lp);
             if (v != null) return v;
         }
@@ -3413,7 +3420,7 @@ public class GameStats {
     private String extractThemeFromScoreboard(List<String> cleanLines) {
         for (int i = 1; i < cleanLines.size(); i++) {
             String line = cleanLines.get(i);
-            for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+            for (LangPatterns lp : LangPatterns.patterns()) {
                 if (lp.sbTheme != null && line.startsWith(lp.sbTheme)) {
                     String prev = cleanLines.get(i - 1).trim();
                     if (!prev.isEmpty() && !prev.contains(":")
@@ -3458,14 +3465,14 @@ public class GameStats {
         if (guesser != null || (clean.contains(": ")
                 && LangPatterns.startsWithChatTitle(LangPatterns.stripEmojis(clean).trim()))) return;
 
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.winnersKeyword != null && clean.trim().equals(lp.winnersKeyword)) {
                 EndGameFireworkController.INSTANCE.observeWinnersNotice();
                 break;
             }
         }
 
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.countdown1Sec != null && clean.equals(lp.countdown1Sec)) {
                 GuessSoundController.INSTANCE.onRoundBoundary();
                 EndGameFireworkController.INSTANCE.onRoundBoundary();
@@ -3482,7 +3489,7 @@ public class GameStats {
             }
         }
 
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.builderPrefix == null || !clean.startsWith(lp.builderPrefix)) continue;
             String builder = cleanIgn(clean.substring(lp.builderPrefix.length()));
             if (!builder.isEmpty()) {
@@ -3497,7 +3504,7 @@ public class GameStats {
             return;
         }
 
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.correctGuessSuffix == null) continue;
             String ign = extractCorrectGuessIGN(clean, lp);
             if (ign != null && isLocalPlayerIgn(ign)) {
@@ -4107,6 +4114,7 @@ public class GameStats {
     private void resetFreshLobbyRoster() {
         gtbLobbyRosterConfirmed = false;
         clearLobbyHandoff();
+        pendingNextBuilder = null;
         lobbyTabDone = false;
         players.clear();
         rounds.clear();
@@ -4217,7 +4225,7 @@ public class GameStats {
 
     private String parseLobbyJoinIgn(String clean) {
         if (clean == null || clean.isEmpty()) return null;
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.lobbyJoinSuffix == null) continue;
             String work = clean;
             if (lp.lobbyJoinPrefix != null && !lp.lobbyJoinPrefix.isEmpty()) {
@@ -4243,7 +4251,7 @@ public class GameStats {
 
     private String parseLobbyQuitIgn(String clean) {
         if (clean == null || clean.isEmpty()) return null;
-        for (LangPatterns lp : LangPatterns.ALL_PATTERNS) {
+        for (LangPatterns lp : LangPatterns.patterns()) {
             if (lp.lobbyQuitSuffix == null) continue;
             String work = clean;
             if (lp.lobbyQuitPrefix != null && !lp.lobbyQuitPrefix.isEmpty()) {
@@ -4374,7 +4382,7 @@ public class GameStats {
             // A display name like "Rookie PlayerName" — tokenize and check each token
             // against the CHAT_TITLES set (BB rank names across 24 languages).
             for (String token : display.split("\\s+")) {
-                if (LangPatterns.CHAT_TITLES.contains(token)) {
+                if (LangPatterns.chatTitles().contains(token)) {
                     return true;
                 }
             }
@@ -4793,6 +4801,7 @@ public class GameStats {
         item.modernKind = stringValue(object, "modernKind", null);
         item.modernName = stringValue(object, "modernName", null);
         item.nbt = stringValue(object, "nbt", null);
+        item.initialHeld = boolValue(object, "initialHeld", false);
         item.firstSeen = longValue(object, "firstSeen", 0L);
         item.lastSeen = longValue(object, "lastSeen", 0L);
         JsonArray intervals = arrayValue(object, "intervals");

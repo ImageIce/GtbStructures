@@ -748,7 +748,12 @@ public final class PlayerMetaCache {
     }
 
     public String getRankColor(String ign) {
-        return ign == null ? null : harvestedRankColors.get(ign.toLowerCase(Locale.ROOT));
+        if (ign == null) return null;
+        String key = ign.toLowerCase(Locale.ROOT);
+        // MVP++ can choose aqua in chat, but its tab/name color remains gold.
+        // The recognized rank takes precedence over that observed chat color.
+        if ("MVP++".equalsIgnoreCase(harvestedRankLabels.get(key))) return "\u00a76";
+        return harvestedRankColors.get(key);
     }
 
     public String getRankLabel(String ign) {

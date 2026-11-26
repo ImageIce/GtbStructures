@@ -24,7 +24,7 @@ public class CommandGtb {
     private static final String[] SUBCOMMANDS = {
         "hintstructure", "hs", "toggle", "setlocation", "setcolor", "colorlist", "stats", "export", "exportraw", "tracking", "autorequeue", "updatenotice",
         "haveibuilt", "whohasbuilt", "showallmatching", "themepointreveal", "shortcutreminder", "copytranslation", "gtw", "guess", "scoreboard",
-        "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guesspeek", "scrambleguess", "trollmode", "troll", "guesssound", "header", "preview", "overlay", "gtb", "lrj", "fireworks", "help", "search"
+        "spawnegg", "handhelditem", "environment", "env", "cooldowncounter", "guessnotice", "guesspeek", "scrambleguess", "trollmode", "troll", "guesssound", "header", "preview", "overlay", "gtb", "lrj", "fireworks", "help", "search"
     };
     private static final int HELP_LINES_PER_PAGE = 8;
     private static final int SCOREBOARD_HELP_LINES_PER_PAGE = 8;
@@ -80,7 +80,7 @@ public class CommandGtb {
                 return getListOfStringsMatchingLastWord(args, "classic", "new");
             }
             if (args[0].equalsIgnoreCase("handhelditem")) {
-                return getListOfStringsMatchingLastWord(args, "setlocation", "max", "background", "captions",
+                return getListOfStringsMatchingLastWord(args, "setlocation", "max", "background", "markinitial", "captions",
                         "layout", "vertical", "horizontal", "size", "scale");
             }
             if (isEnvironmentCommand(args[0])) {
@@ -89,6 +89,9 @@ public class CommandGtb {
             }
             if (args[0].equalsIgnoreCase("cooldowncounter")) {
                 return getListOfStringsMatchingLastWord(args, "setlocation", "setcolor", "timer", "bar", "sfx", "background", "scale");
+            }
+            if (args[0].equalsIgnoreCase("guessnotice")) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "toggle", "spamonly", "spamthreshold", "showguess");
             }
             if (args[0].equalsIgnoreCase("guesspeek")) {
                 return getListOfStringsMatchingLastWord(args, "showlangcodes", "display");
@@ -280,6 +283,9 @@ public class CommandGtb {
             return null;
         }
         if (args[0].equalsIgnoreCase("handhelditem")) {
+            if (args.length == 3 && args[1].equalsIgnoreCase("markinitial")) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "true", "false", "toggle");
+            }
             if (args.length == 3 && args[1].equalsIgnoreCase("scale")) {
                 return panelScaleCompletions(args);
             }
@@ -343,6 +349,16 @@ public class CommandGtb {
             }
             if (args.length == 3 && args[1].equalsIgnoreCase("background")) {
                 return getListOfStringsMatchingLastWord(args, "on", "off", "true", "false", "toggle");
+            }
+            return null;
+        }
+        if (args[0].equalsIgnoreCase("guessnotice")) {
+            if (args.length == 3 && (args[1].equalsIgnoreCase("spamonly")
+                    || args[1].equalsIgnoreCase("showguess"))) {
+                return getListOfStringsMatchingLastWord(args, "on", "off", "true", "false", "toggle");
+            }
+            if (args.length == 3 && args[1].equalsIgnoreCase("spamthreshold")) {
+                return getListOfStringsMatchingLastWord(args, "1", "2", "3", "5", "10");
             }
             return null;
         }
@@ -656,6 +672,7 @@ public class CommandGtb {
             new HelpCategory("items", "ITEMS", "Handheld item overlay and item settings", new HelpLine[] {
                     HelpLine.command("/gtbs handhelditem", "Toggles the builder handheld item history overlay."),
                     HelpLine.command("/gtbs handhelditem background [on|off|toggle]", "Shows or hides the handheld item list background."),
+                    HelpLine.command("/gtbs handhelditem markinitial [on|off|toggle]", "Marks items initially held during theme selection with a green bold square after their names (default ON)."),
                     HelpLine.command("/gtbs handhelditem scale [0.5-1.5|50%-150%]", "Shows or sets the handheld item panel scale."),
                     HelpLine.command("/gtbs handhelditem captions <name|id|metadata|mob> [on|off]", "Shows or sets an item caption. Captions appear only in vertical layout."),
                     HelpLine.command("/gtbs handhelditem layout [vertical|horizontal]", "Switches between captioned vertical items and an icon-only horizontal grid."),
@@ -687,6 +704,10 @@ public class CommandGtb {
                     HelpLine.command("/gtbs cooldowncounter background <timer|bar> [on|off|toggle]", "Shows or hides timer or bar backgrounds."),
                     HelpLine.command("/gtbs cooldowncounter setcolor <bar|timer> [color]", "Shows or sets cooldown bar or timer text color."),
                     HelpLine.command("/gtbs cooldowncounter setlocation <x|y> [value]", "Shows or sets cooldown counter position. Value is 0.0-1.0."),
+                    HelpLine.command("/gtbs guessnotice [on|off|toggle]", "Toggles notices for guesses sent outside the three-second cooldown during building rounds (default ON)."),
+                    HelpLine.command("/gtbs guessnotice spamonly [on|off|toggle]", "Requires repeated attempts during the preceding cooldown before showing a sent-guess notice (default ON)."),
+                    HelpLine.command("/gtbs guessnotice spamthreshold [1-10]", "Shows or sets the minimum attempts during a cooldown for spam-only notices (default 3)."),
+                    HelpLine.command("/gtbs guessnotice showguess [on|off|toggle]", "Includes the final text sent to the server after the notice (default ON)."),
                     HelpLine.command("/gtbs guesspeek", "Toggles English-theme annotations on matching GTB guesses."),
                     HelpLine.command("/gtbs guesspeek display [hover|suffix]", "Shows or sets where guess-peek translations appear."),
                     HelpLine.command("/gtbs guesspeek showlangcodes [on|off]", "Shows or hides source language codes in guess-peek hover text."),
@@ -977,7 +998,7 @@ public class CommandGtb {
         if (key.equals("env") || key.equals("world")) return "environment";
         if (key.equals("overlay") || key.equals("hint") || key.equals("hintstructure") || key.equals("hs")) return "hints";
         if (key.equals("score") || key.equals("sb")) return "scoreboard";
-        if (key.equals("cooldown") || key.equals("cooldowncounter")) return "chat";
+        if (key.equals("cooldown") || key.equals("cooldowncounter") || key.equals("guessnotice")) return "chat";
         if (key.equals("copytranslation") || key.equals("copyt")) return "copy";
         if (key.equals("wordhint") || key.equals("guess")) return "gtw";
         if (key.equals("misc") || key.equals("general")) return "game";

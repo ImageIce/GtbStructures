@@ -512,9 +512,11 @@ public final class PlayerMetaCache {
     public void observePacketRosterAdd(UUID uuid, String ign) {
         ign = GameStats.INSTANCE.canonicalRosterIgn(ign);
         if (!isValidMcUsername(ign)) return;
-        if (!shouldTrackPacketRoster()) return;
+        if (!shouldResolvePacketRosterIdentity(ign)) return;
+        // Active rounds still need UUID-only removals to cancel transient tab
+        // returns. Keep that identity evidence separate from lobby collection.
         if (uuid != null) packetUuidNames.put(uuid, ign);
-        packetRoster.add(ign);
+        if (shouldTrackPacketRoster()) packetRoster.add(ign);
     }
 
     public String observePacketRosterRemove(String ign) {
@@ -522,12 +524,12 @@ public final class PlayerMetaCache {
     }
 
     public String observePacketRosterRemove(UUID uuid, String ign) {
-        if (!shouldTrackPacketRoster()) return null;
         if (!isValidMcUsername(ign) && uuid != null) {
             ign = packetUuidNames.get(uuid);
         }
         ign = GameStats.INSTANCE.canonicalRosterIgn(ign);
         if (!isValidMcUsername(ign)) return null;
+        if (!shouldResolvePacketRosterIdentity(ign)) return null;
         Iterator<String> it = packetRoster.iterator();
         while (it.hasNext()) {
             if (it.next().equalsIgnoreCase(ign)) it.remove();
@@ -641,6 +643,15 @@ public final class PlayerMetaCache {
         }
         UUID uuid = byName.remove(oldLower);
         if (uuid != null && !byName.containsKey(newLower)) byName.put(newLower, uuid);
+    }
+
+    private static boolean shouldResolvePacketRosterIdentity(String ign) {
+        if (shouldTrackPacketRoster()) return true;
+        if (!GameStats.INSTANCE.isInActiveRound()) return false;
+        for (String player : GameStats.INSTANCE.getPlayers()) {
+            if (player != null && player.equalsIgnoreCase(ign)) return true;
+        }
+        return false;
     }
 
     private static boolean shouldTrackPacketRoster() {
@@ -1286,7 +1297,11 @@ public final class PlayerMetaCache {
 
     public String getRankColor(String ign) {
         if (ign == null) return null;
-        return harvestedRankColors.get(ign.toLowerCase());
+        String key = ign.toLowerCase(Locale.ROOT);
+        // MVP++ can choose aqua in chat, but its tab/name color remains gold.
+        // The recognized rank takes precedence over that observed chat color.
+        if ("MVP++".equalsIgnoreCase(harvestedRankLabels.get(key))) return "\u00a76";
+        return harvestedRankColors.get(key);
     }
 
     /** Returns the harvested rank label (e.g. "VIP+"), or null. */

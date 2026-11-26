@@ -59,6 +59,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
 import net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket;
 import net.minecraft.world.scores.DisplaySlot;
 import net.minecraft.world.scores.Objective;
@@ -328,6 +329,26 @@ public final class GtbStructuresForge {
                 .append(Component.literal("\u00a72]"));
     }
 
+    static Component buildUpdateChangelogLine(String line) {
+        // Resolve resets before vanilla wraps the line and inherits the preceding run's style.
+        MutableComponent message = Component.empty();
+        Style style = Style.EMPTY;
+        int start = 0;
+        for (int i = 0; i + 1 < line.length(); i++) {
+            if (line.charAt(i) != '\u00a7') continue;
+            if (start < i) {
+                message.append(Component.literal(line.substring(start, i)).setStyle(style));
+            }
+            ChatFormatting format = ChatFormatting.getByCode(line.charAt(++i));
+            if (format != null) style = style.applyLegacyFormat(format);
+            start = i + 1;
+        }
+        if (start < line.length()) {
+            message.append(Component.literal(line.substring(start)).setStyle(style));
+        }
+        return message;
+    }
+
     private static void sendUpdateNotice(String version, String githubUrl, String modrinthUrl) {
         sendUpdateNotice(version, githubUrl, modrinthUrl, java.util.Collections.<String>emptyList());
     }
@@ -339,7 +360,7 @@ public final class GtbStructuresForge {
             mc.gui.getChat().addMessage(buildUpdateNotice(version, githubUrl, modrinthUrl));
             if (changelogLines == null) return;
             for (String line : changelogLines) {
-                mc.gui.getChat().addMessage(Component.literal(line));
+                mc.gui.getChat().addMessage(buildUpdateChangelogLine(line));
             }
         }
     }

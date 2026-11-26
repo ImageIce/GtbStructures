@@ -113,8 +113,13 @@ public final class HandheldItemTracker {
     }
 
     void recordSnapshotForTest(GameStats.RoundData round, String builder, ItemSnapshot snapshot, long now) {
+        recordSnapshotForTest(round, builder, snapshot, now, GameStats.TrackingState.ROUND_BUILD);
+    }
+
+    void recordSnapshotForTest(GameStats.RoundData round, String builder, ItemSnapshot snapshot, long now,
+                               GameStats.TrackingState state) {
         ensureRound(round, builder == null ? "" : builder, now);
-        recordSnapshot(round, snapshot, now);
+        recordSnapshot(round, snapshot, now, state == GameStats.TrackingState.ROUND_PRE);
     }
 
     void closeForTest(long now) {
@@ -158,6 +163,10 @@ public final class HandheldItemTracker {
 
     static String itemIdLineForTest(GameStats.HandheldItemEntry entry) {
         return itemIdLine(entry);
+    }
+
+    static String itemNameLineForTest(GameStats.HandheldItemEntry entry, boolean markInitial) {
+        return itemName(entry) + initialItemSuffix(entry, markInitial);
     }
 
     public static boolean runtimeEnabledForMaster(boolean modEnabled) {
@@ -236,7 +245,7 @@ public final class HandheldItemTracker {
             closeCurrent(now);
             return;
         }
-        recordSnapshot(round, snapshot, now);
+        recordSnapshot(round, snapshot, now, state == GameStats.TrackingState.ROUND_PRE);
     }
 
     private void tickPreview(long now) {
@@ -312,6 +321,7 @@ public final class HandheldItemTracker {
         int offset = 0;
         for (int i = defaults.length - 1; i >= 0; i--) {
             recordPreviewSnapshot(defaults[i], now + offset);
+            if (i == 0 && previewCurrentEntry != null) previewCurrentEntry.initialHeld = true;
             offset++;
         }
         closePreviewCurrent(now + defaults.length);
@@ -362,10 +372,11 @@ public final class HandheldItemTracker {
         return snapshotFromModern(modern);
     }
 
-    private void recordSnapshot(GameStats.RoundData round, ItemSnapshot snapshot, long now) {
+    private void recordSnapshot(GameStats.RoundData round, ItemSnapshot snapshot, long now, boolean initiallyHeld) {
         if (round == null || snapshot == null || snapshot.key == null || snapshot.key.isEmpty()) return;
 
         if (snapshot.key.equals(currentKey) && currentEntry != null) {
+            currentEntry.initialHeld |= initiallyHeld;
             copySnapshot(snapshot, currentEntry, now);
             if (currentInterval != null) currentInterval.touch(now);
             renderSnapshots.put(snapshot.key, snapshot);
@@ -383,6 +394,7 @@ public final class HandheldItemTracker {
         }
 
         mergeInitialSpawnEggPlaceholder(round, snapshot, entry);
+        entry.initialHeld |= initiallyHeld;
         copySnapshot(snapshot, entry, now);
         GameStats.HandheldItemInterval interval = new GameStats.HandheldItemInterval(now);
         entry.intervals.add(interval);
@@ -408,6 +420,7 @@ public final class HandheldItemTracker {
         if (placeholder == null) return;
 
         resolvedEntry.intervals.addAll(0, placeholder.intervals);
+        resolvedEntry.initialHeld |= placeholder.initialHeld;
         if (resolvedEntry.firstSeen == 0L
                 || (placeholder.firstSeen > 0L && placeholder.firstSeen < resolvedEntry.firstSeen)) {
             resolvedEntry.firstSeen = placeholder.firstSeen;
@@ -805,17 +818,30 @@ public final class HandheldItemTracker {
         List<String> lines = captionLines(entry, fr, textWidth);
         int lineY = y + Math.max(1, (height - lines.size() * 8) / 2);
         for (int i = 0; i < lines.size(); i++) {
-            int color = i == 0 && GtbStructures.handheldItemCaptionName ? 0xFFFFFF : 0xC8C8C8;
-            drawScaledString(fr, lines.get(i), textX, lineY, color);
+            boolean nameLine = i == 0 && GtbStructures.handheldItemCaptionName;
+            int color = nameLine ? 0xFFFFFF : 0xC8C8C8;
+            String suffix = nameLine ? initialItemSuffix(entry, GtbStructures.handheldItemMarkInitial) : "";
+            drawCaptionLine(fr, lines.get(i), suffix, textX, lineY, color);
             lineY += 8;
         }
     }
 
-    private static List<String> captionLines(GameStats.HandheldItemEntry entry, FontRenderer fr, int width) {
+    static void drawCaptionLine(FontRenderer fr, String text, String suffix, int x, int y, int color) {
+        // 1.8.9 reuses formatting state between the shadow and foreground passes.
+        // Keep the marker in its own draw so its bold style cannot affect the name.
+        drawScaledString(fr, text, x, y, color);
+        if (!suffix.isEmpty()) {
+            drawScaledString(fr, suffix, x + Math.round(fr.getStringWidth(text) * TEXT_SCALE), y, color);
+        }
+    }
+
+    static List<String> captionLines(GameStats.HandheldItemEntry entry, FontRenderer fr, int width) {
         ArrayList<String> out = new ArrayList<String>();
         int usableWidth = Math.max(8, width);
-        if (GtbStructures.handheldItemCaptionName) out.add(ellipsizeCaption(fr,
-                entry.name == null || entry.name.isEmpty() ? "(unknown item)" : entry.name, usableWidth));
+        if (GtbStructures.handheldItemCaptionName) {
+            String suffix = initialItemSuffix(entry, GtbStructures.handheldItemMarkInitial);
+            out.add(ellipsizeCaption(fr, itemName(entry), Math.max(0, usableWidth - fr.getStringWidth(suffix))));
+        }
         ArrayList<String> secondary = new ArrayList<String>();
         if (GtbStructures.handheldItemCaptionId) secondary.add(itemIdLine(entry));
         if (GtbStructures.handheldItemCaptionMetadata) secondary.add(String.valueOf(entry.metadata));
@@ -825,6 +851,14 @@ public final class HandheldItemTracker {
         }
         packSecondaryCaptionTokens(out, secondary, fr, usableWidth);
         return out;
+    }
+
+    private static String itemName(GameStats.HandheldItemEntry entry) {
+        return entry.name == null || entry.name.isEmpty() ? "(unknown item)" : entry.name;
+    }
+
+    private static String initialItemSuffix(GameStats.HandheldItemEntry entry, boolean markInitial) {
+        return markInitial && entry.initialHeld ? " \u00a7a\u00a7l\u274f" : "";
     }
 
     private static void packSecondaryCaptionTokens(List<String> out, List<String> tokens, FontRenderer fr, int width) {

@@ -1089,8 +1089,8 @@ public final class GtbStructuresFabric implements ClientModInitializer {
             Class<?> textClass = classAny("net.minecraft.text.Text",
                     "net.minecraft.network.chat.Component", "net.minecraft.class_2561");
             for (String line : changelogLines) {
-                Object plainText = literalText(textClass, line);
-                if (!invokeTextObjectAny(chatHud, plainText,
+                Object formattedLine = legacyFormattedText(textClass, line);
+                if (!invokeTextObjectAny(chatHud, formattedLine,
                         "addMessage", "addClientSystemMessage", "method_1812")) {
                     throw new NoSuchMethodException("ChatHud.addMessage(Text) for changelog");
                 }
@@ -2630,7 +2630,7 @@ public final class GtbStructuresFabric implements ClientModInitializer {
         new FabricTeamPrefixTarget(team, "test").setColorIndex(colorIndex);
     }
 
-    private static Object legacyFormattedText(Class<?> textClass, String legacy)
+    public static Object legacyFormattedText(Class<?> textClass, String legacy)
             throws ReflectiveOperationException {
         Object root = literalText(textClass, "");
         List<Character> formats = new ArrayList<Character>();
